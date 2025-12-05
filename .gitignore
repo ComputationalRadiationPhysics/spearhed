@@ -1,0 +1,25 @@
+# tmp files
+*~
+
+# python byte code
+*.pyc
+
+# original backup files
+*.orig
+
+# doxygen output
+docs/xml/
+docs/doxygen_sqlite3.db
+docs/html/
+# sphinx & breathe output
+docs/build/
+
+### macOS ###
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# clangd files
+.cache/clangd
+compile_commands.json
