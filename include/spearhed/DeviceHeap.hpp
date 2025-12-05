@@ -1,0 +1,52 @@
+/** @file
+ *
+ * Fine-tuning of the particle heap for GPUs: When running on GPUs, we use a
+ * high-performance parallel "new" allocator (mallocMC) which can be
+ * parametrized here.
+ */
+
+#pragma once
+
+#include <pmacc/alpakaHelper/acc.hpp>
+#include <pmacc/dimensions/Definition.hpp>
+
+#include <cstdint>
+
+#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#    include <mallocMC/mallocMC.hpp>
+
+namespace spearhed
+{
+    constexpr uint32_t blockSize = 128U * 1024U * 1024U;
+    constexpr uint32_t pageSize = 128U * 1024U;
+    constexpr uint32_t wastefactor = 2U;
+    using DeviceHeapConfig
+        = mallocMC::CreationPolicies::FlatterScatterAlloc::DefaultHeapConfig<blockSize, pageSize, wastefactor>;
+
+    using DeviceHeap = mallocMC::Allocator<
+        alpaka::AccToTag<pmacc::Acc<DIM1>>,
+        mallocMC::CreationPolicies::FlatterScatter<DeviceHeapConfig>,
+        mallocMC::DistributionPolicies::Noop,
+        mallocMC::OOMPolicies::ReturnNull,
+        mallocMC::ReservePoolPolicies::AlpakaBuf<pmacc::Acc<DIM1>>,
+        mallocMC::AlignmentPolicies::Shrink<>>;
+
+} // namespace spearhed
+
+#else
+
+namespace spearhed
+{
+    // dummy because we are not using mallocMC with CPU backends
+    struct DeviceHeap
+    {
+        using AllocatorHandle = int;
+
+        int getAllocatorHandle()
+        {
+            return 0;
+        }
+    };
+} // namespace spearhed
+
+#endif

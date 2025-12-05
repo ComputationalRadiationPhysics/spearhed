@@ -1,0 +1,10 @@
+#pragma once
+
+#include <pmacc/dimensions/Definition.hpp>
+
+#include <cstdint>
+
+namespace spearhed
+{
+    constexpr uint32_t simDim = DIM2;
+} // namespace spearhed

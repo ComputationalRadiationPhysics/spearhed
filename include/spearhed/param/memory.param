@@ -1,0 +1,14 @@
+#pragma once
+
+#include <cstddef>
+
+namespace spearhed
+{
+    /* We have to hold back 350MiB for gpu-internal operations:
+     *   - random number generator
+     *   - reduces
+     *   - ...
+     */
+    constexpr size_t reservedGpuMemorySize = 700 * 1024 * 1024;
+
+} // namespace spearhed

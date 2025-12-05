@@ -1,0 +1,76 @@
+#pragma once
+
+#include "spearhed/DeviceHeap.hpp"
+#include "spearhed/control/DomainAdjuster.hpp"
+#include "spearhed/param/dimension.param"
+#include "spearhed/param/memory.param"
+
+#include <pmacc/debug/PMaccVerbose.hpp>
+#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <pmacc/pluginSystem/IPlugin.hpp>
+#include <pmacc/simulationControl/Checkpointing.hpp>
+#include <pmacc/simulationControl/SimulationHelper.hpp>
+
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <vector>
+
+namespace spearhed
+{
+
+    class Simulation
+        : public pmacc::SimulationHelper<
+              simDim,
+              pmacc::simulationControl::Checkpointing<pmacc::simulationControl::CheckpointingAvailability::DISABLED>>
+    {
+        using BaseType = pmacc::SimulationHelper<
+            simDim,
+            pmacc::simulationControl::Checkpointing<pmacc::simulationControl::CheckpointingAvailability::DISABLED>>;
+
+    public:
+        Simulation();
+        ~Simulation() override;
+
+        void pluginRegisterHelp(pmacc::po::options_description& desc) override;
+        std::string pluginGetName() const override;
+        void pluginLoad() override;
+        void pluginUnload() override;
+        void notify(uint32_t) override;
+        void startSimulation() override;
+        void runOneStep(uint32_t currentStep) override;
+        void init() override;
+        uint32_t fillSimulation() override;
+        void resetAll(uint32_t currentStep) override;
+        void movingWindowCheck(uint32_t currentStep) override;
+
+    private:
+        /** Get available memory on device
+         *
+         * @attention This method is using MPI collectives and must be called from all MPI processes collectively.
+         *
+         * The function is performing test memory allocations on the device therefore do not call this function within
+         * a loop! This could slowdown the application.
+         *
+         * @return Available memory on device in bytes.
+         */
+        size_t freeDeviceMemory() const;
+
+    private:
+        std::shared_ptr<DeviceHeap> deviceHeap;
+
+        // layout parameter
+        std::vector<uint32_t> devices;
+        std::vector<uint32_t> gridSize;
+        /** Without guards */
+        pmacc::DataSpace<simDim> gridSizeLocal;
+        std::vector<uint32_t> periodic;
+
+        bool showVersionOnce{false};
+        bool autoAdjustGrid = true;
+        uint32_t numRanksPerDevice = 1u;
+        bool skipSimulation{false};
+    };
+
+} // namespace spearhed
