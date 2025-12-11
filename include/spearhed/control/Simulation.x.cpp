@@ -1,5 +1,23 @@
 #include "spearhed/control/Simulation.hpp"
 
+#include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/control/DomainAdjuster.hpp"
+#include "spearhed/initialization/InitParticles.hpp"
+#include "spearhed/initialization/ValidateIdSum.hpp"
+#include "spearhed/param/memory.param"
+#include "spmacc/AABB.hpp"
+#include "spmacc/ParticleRegion.hpp"
+#include "spmacc/ParticleRegionBuffer.hpp"
+
+#include <pmacc/debug/PMaccVerbose.hpp>
+#include <pmacc/dimensions/DataSpace.hpp>
+#include <pmacc/dimensions/Definition.hpp>
+#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+
+#include <iostream>
+#include <optional>
+#include <sstream>
+
 namespace spearhed
 {
 
@@ -135,8 +153,6 @@ namespace spearhed
 
     void Simulation::init()
     {
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
         auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
         auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
@@ -176,10 +192,13 @@ namespace spearhed
             pmacc::log<pmacc::PMaccVerbose::MEMORY>("Device RAM is NOT shared between GPU and host.");
 
         // initializing the heap for particles
-        deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, heapSize);
+        // TODO use heapsize instead of the hard coded small heap
+        size_t small_heap{2ull * 1024 * 1024 * 1024};
+        deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, small_heap);
         alpaka::wait(alpakaQueue);
 
         auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+        auto& dc = pmacc::Environment<>::get().DataConnector();
         dc.consume(std::move(mallocMCBuffer));
 
 #endif
@@ -208,19 +227,36 @@ namespace spearhed
      */
     uint32_t Simulation::fillSimulation()
     {
-        // Load initial conditions
+        // set up boundary (and initial) conditions
         // Setup particle distributions
         // Initialize fields
-        auto grid = pmacc::MemSpace<spearhed::simDim>::create(10);
 
-        std::cout << "hello SPH! grid size is " << grid.x() << "\t" << grid.y() << std::endl;
+        // load density description from param file. How is this independent from the domain size?
+        //
+        std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
 
+        using PRType = pmacc::spearhed::ParticleRegion<
+            pmacc::spearhed::AABB<uint32_t, spearhed::simDim>,
+            spearhed::FrameType,
+            decltype(deviceHeap->getAllocatorHandle())>;
 
-        // auto blockCfg = pmacc::lockstep::makeBlockCfg<64>();
-        pmacc::lockstep::exec::kernel([] ALPAKA_FN_ACC(auto const& acc) -> void { printf("Hello World.\n"); })
-            .config<32>(128)();
+        PRType boundedParticles{deviceHeap->getAllocatorHandle()};
 
-        return 0u; // Start from step 0
+        auto prBuf = pmacc::spearhed::ParticleRegionBuffer<PRType>();
+
+        prBuf.create(2);
+
+        prBuf.pushBack(boundedParticles);
+        // push back creates a copy
+        prBuf.pushBack(boundedParticles);
+
+        prBuf.buffer->hostToDevice();
+
+        InitParticles{}(prBuf);
+
+        auto sum = ComputeParticleIdSum{}(prBuf);
+        std::cout << "Particle ID sum: " << sum << std::endl;
+        return 0u;
     }
 
     void Simulation::resetAll(uint32_t currentStep)

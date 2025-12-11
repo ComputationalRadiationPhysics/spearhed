@@ -36,6 +36,7 @@ namespace spearhed
         {
             pmacc::PluginConnector& pluginConnector = pmacc::Environment<>::get().PluginConnector();
             pluginConnector.loadPlugins();
+            // pmacc::log<pmacc::PMaccVerbose::SIMULATION_STATE>("Startup");
             simulationClass.startSimulation();
         }
 
@@ -52,7 +53,6 @@ namespace spearhed
             namespace po = boost::program_options;
 
             ArgsParser& ap = ArgsParser::getInstance();
-            auto& pluginConnector = pmacc::Environment<>::get().PluginConnector();
 
             po::options_description simDesc(simulationClass.pluginGetName());
             simulationClass.pluginRegisterHelp(simDesc);
@@ -81,7 +81,7 @@ namespace spearhed
 
         void pluginUnload() override
         {
-            pmacc::PluginConnector& pluginConnector = pmacc::Environment<>::get().PluginConnector();
+            auto& pluginConnector = pmacc::Environment<>::get().PluginConnector();
             pluginConnector.unloadPlugins();
             simulationClass.unload();
         }

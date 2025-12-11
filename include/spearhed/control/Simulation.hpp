@@ -1,20 +1,14 @@
 #pragma once
 
 #include "spearhed/DeviceHeap.hpp"
-#include "spearhed/control/DomainAdjuster.hpp"
 #include "spearhed/param/dimension.param"
-#include "spearhed/param/memory.param"
 
-#include <pmacc/debug/PMaccVerbose.hpp>
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/pluginSystem/IPlugin.hpp>
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
 
-#include <iostream>
+#include <boost/program_options/options_description.hpp>
+
 #include <memory>
-#include <optional>
-#include <sstream>
 #include <vector>
 
 namespace spearhed

@@ -1,0 +1,48 @@
+#pragma once
+
+#include <cstddef>
+#include <new>
+
+#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#    include <mallocMC/mallocMC.hpp>
+#endif
+
+namespace pmacc::spearhed::memory
+{
+    static constexpr int allocationMaxRetries = 13;
+
+    // Raw allocation and retry logic using mallocMC
+    [[nodiscard]] constexpr void* allocateRawMemory(auto const& worker, size_t size)
+    {
+        for(int i = 0; i < allocationMaxRetries; ++i)
+        {
+            void* rawPtr = nullptr;
+#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+            // Explicit cast required for C++
+            rawPtr = m_deviceHeapHandle.malloc(worker.getAcc(), size);
+#else
+            // Use nothrow to ensure nullptr is returned on failure,
+            // preventing exceptions from breaking the retry loop.
+            rawPtr = operator new(size, std::nothrow);
+#endif
+            if(rawPtr != nullptr)
+            {
+                return rawPtr;
+            }
+        }
+        return nullptr;
+    }
+
+    // Allocates memory unintialized
+    template<typename T>
+    [[nodiscard]] constexpr T* allocateMemory(auto const& worker)
+    {
+        void* mem = allocateRawMemory(worker, sizeof(T));
+        if(mem)
+        {
+            return static_cast<T*>(mem);
+        }
+        return nullptr;
+    }
+
+} // namespace pmacc::spearhed::memory
