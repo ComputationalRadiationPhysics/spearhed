@@ -1,0 +1,3 @@
+[submodule "thirdParty/picongpu"]
+	path = thirdParty/picongpu
+	url = git@github.com:ikbuibui/picongpu.git
