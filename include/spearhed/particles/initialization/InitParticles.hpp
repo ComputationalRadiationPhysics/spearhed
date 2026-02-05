@@ -19,12 +19,14 @@
 
 #pragma once
 
+#include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param/speciesAttributes.param"
 #include "spearhed/param/speciesDefinition.param"
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/Position.hpp"
+#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/memory/FramePointer.hpp"
 #include "traits.hpp"
 
@@ -228,8 +230,10 @@ namespace spearhed
          * @param data box holding all particle regions on the device
          * @param size number of particle regions in the data box (data box extent)
          */
-        auto operator()(auto& prBuf)
+        auto operator()()
         {
+            auto& dc = pmacc::Environment<>::get().DataConnector();
+            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
             constexpr uint32_t threadsPerBlock = 32;
 
             /**

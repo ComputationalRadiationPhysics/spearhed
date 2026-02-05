@@ -19,8 +19,8 @@
 
 #pragma once
 
-#include "spearhed/DeviceHeap.hpp"
 #include "spearhed/param/dimension.param"
+#include "spearhed/param/mallocMC.param"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>

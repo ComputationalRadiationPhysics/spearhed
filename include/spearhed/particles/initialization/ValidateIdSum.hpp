@@ -20,6 +20,7 @@
 #pragma once
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spmacc/ParticleRegionBuffer.hpp"
 
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -117,12 +118,15 @@ namespace spearhed
      */
     struct ComputeParticleIdSum
     {
-        auto operator()(auto& prBuf) const -> uint64_t
+        auto operator()() const -> uint64_t
         {
             constexpr int numBlocks = 256;
             constexpr uint32_t threadsPerBlock = 256;
 
             pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(pmacc::DataSpace<DIM1>{numBlocks});
+
+            auto& dc = pmacc::Environment<>::get().DataConnector();
+            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
 
             PMACC_LOCKSTEP_KERNEL(reduce::detail::SumParticleIds{})
                 .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(

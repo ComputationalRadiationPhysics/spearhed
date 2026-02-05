@@ -19,9 +19,12 @@
 
 #pragma once
 
+#include "spearhed/param/mallocMC.param"
 #include "spearhed/param/speciesDefinition.param"
+#include "spmacc/AABB.hpp"
 #include "spmacc/Frame.hpp"
 #include "spmacc/ListPointer.hpp"
+#include "spmacc/ParticleRegion.hpp"
 #include "spmacc/meta/ComponentList.hpp"
 
 #include <pmacc/meta/Pair.hpp>
@@ -41,5 +44,11 @@ namespace spearhed
      * a group of particles is stored as frame
      */
     using FrameType = pmacc::spearhed::Frame<FrameDescription>;
+
+    using PRType = pmacc::spearhed::ParticleRegion<
+        pmacc::spearhed::AABB<uint32_t, spearhed::simDim>,
+        spearhed::FrameType,
+        typename DeviceHeap::AllocatorHandle>;
+
 
 } // namespace spearhed

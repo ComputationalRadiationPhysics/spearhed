@@ -21,6 +21,7 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/control/DomainAdjuster.hpp"
+#include "spearhed/param/mallocMC.param"
 #include "spearhed/param/memory.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/ValidateIdSum.hpp"
@@ -39,7 +40,6 @@
 
 namespace spearhed
 {
-
     Simulation::Simulation() = default;
 
     Simulation::~Simulation() = default;
@@ -254,26 +254,23 @@ namespace spearhed
         //
         std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
 
-        using PRType = pmacc::spearhed::ParticleRegion<
-            pmacc::spearhed::AABB<uint32_t, spearhed::simDim>,
-            spearhed::FrameType,
-            decltype(deviceHeap->getAllocatorHandle())>;
-
         PRType boundedParticles{deviceHeap->getAllocatorHandle()};
 
-        auto prBuf = pmacc::spearhed::ParticleRegionBuffer<PRType>();
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+        auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
+        dc.share(prBuf);
 
-        prBuf.create(2);
+        prBuf->create(2);
 
-        prBuf.pushBack(boundedParticles);
+        prBuf->pushBack(boundedParticles);
         // push back creates a copy
-        prBuf.pushBack(boundedParticles);
+        prBuf->pushBack(boundedParticles);
 
-        prBuf.buffer->hostToDevice();
+        prBuf->buffer->hostToDevice();
 
-        InitParticles{}(prBuf);
+        InitParticles{}();
 
-        auto sum = ComputeParticleIdSum{}(prBuf);
+        auto sum = ComputeParticleIdSum{}();
         std::cout << "Particle ID sum: " << sum << std::endl;
         return 0u;
     }

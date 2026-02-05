@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "pmacc/dataManagement/ISimulationData.hpp"
+
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -30,7 +32,7 @@
 namespace pmacc::spearhed
 {
     template<typename T_ParticleRegion>
-    struct ParticleRegionBuffer
+    struct ParticleRegionBuffer : ISimulationData
     {
         using ParticleRegionType = T_ParticleRegion;
 
@@ -53,6 +55,16 @@ namespace pmacc::spearhed
         auto getDeviceDataBox()
         {
             return buffer->getDeviceBuffer().getDataBox();
+        }
+
+        void synchronize() override
+        {
+            buffer->deviceToHost();
+        };
+
+        SimulationDataId getUniqueId() override
+        {
+            return "PRBuf";
         }
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;
