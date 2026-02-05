@@ -21,9 +21,9 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/control/DomainAdjuster.hpp"
-#include "spearhed/initialization/InitParticles.hpp"
-#include "spearhed/initialization/ValidateIdSum.hpp"
 #include "spearhed/param/memory.param"
+#include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/ValidateIdSum.hpp"
 #include "spmacc/AABB.hpp"
 #include "spmacc/ParticleRegion.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
