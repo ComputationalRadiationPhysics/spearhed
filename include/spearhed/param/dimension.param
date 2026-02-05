@@ -1,10 +1,11 @@
 #pragma once
 
-#include <pmacc/dimensions/Definition.hpp>
+#include "spearhed/topology/CoordinateSystem.hpp"
 
-#include <cstdint>
+#include <pmacc/dimensions/Definition.hpp>
 
 namespace spearhed
 {
-    constexpr uint32_t simDim = DIM2;
+    constexpr T_Dim simDim = DIM3;
+    using CS = Cartesian<float, simDim>;
 } // namespace spearhed

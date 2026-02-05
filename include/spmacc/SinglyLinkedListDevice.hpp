@@ -52,7 +52,7 @@ namespace pmacc::spearhed
          */
         [[nodiscard]] constexpr PtrType getEmptyNode(auto const& worker)
         {
-            PtrType tmp = memory::allocateMemory<T>(worker);
+            PtrType tmp = memory::allocateMemory<T>(worker, m_deviceHeapHandle);
 
             PMACC_DEVICE_VERIFY_MSG(tmp != nullptr, "Error: Out of device heap memory in %s:%u\n", __FILE__, __LINE__);
 
@@ -60,7 +60,7 @@ namespace pmacc::spearhed
             {
                 if(tmp)
                 {
-                    new(tmp) T{};
+                    new(tmp) T;
                 }
             }
             // TODO check if this is necessary for iteration end or if it is already set

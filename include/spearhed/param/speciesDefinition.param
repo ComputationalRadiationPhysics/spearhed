@@ -1,0 +1,24 @@
+#pragma once
+
+#include "Field.hpp"
+#include "Record.hpp"
+#include "spearhed/param/memory.param"
+#include "spearhed/param/speciesAttributes.param"
+#include "spearhed/particles/attributes/Id.hpp"
+#include "spearhed/particles/attributes/Mass.hpp"
+#include "spearhed/particles/attributes/Position.hpp"
+#include "spmacc/ParticleDescription.hpp"
+#include "spmacc/meta/String.hpp"
+
+#include <cstdint>
+#include <type_traits>
+
+namespace spearhed
+{
+    auto particleDesc = pmacc::spearhed::createParticleDescription(
+        SPMACC_CSTRING("fluid"){},
+        std::integral_constant<uint32_t, numFrameSlots>{},
+        ll::Record<idField, MultiMaskField, posField, massField>{});
+
+    // ll::SoA<Pos<2, float>>,
+} // namespace spearhed

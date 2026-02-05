@@ -21,9 +21,16 @@
 
 #pragma once
 
+#include "llamaLite/llamaLite.hpp"
+#include "spmacc/meta/ComponentList.hpp"
+#include "spmacc/meta/TypeList.hpp"
+
 #include <pmacc/meta/conversion/ToSeq.hpp>
 #include <pmacc/meta/conversion/Unique.hpp>
 #include <pmacc/static_assert.hpp>
+
+#include <cstdint>
+#include <type_traits>
 
 namespace pmacc::spearhed
 {
@@ -34,14 +41,12 @@ namespace pmacc::spearhed
      * particle.
      *
      * @tparam T_Name name of described particle (e.g. electron, ion)
-     *                type must be a PMACC_CSTRING
+     *                type must be a SPMACC_CSTRING
      * @tparam T_NumSlots compile time size of number of particles
-     * @tparam T_ValueTypeSeq sequence or single type with value_identifier, must not have duplicates
+     * @tparam T_ParticleRecord ll::Record with description of particle attribues
      * @tparam T_Flags sequence or single type with identifier to add flags on a frame, must not have duplicates
-     * @tparam T_MethodsList sequence or single class with particle methods
-     *                       (e.g. calculate mass, gamma, ...)
-     *                       (e.g. useSolverXY, calcRadiation, ...)
      * @tparam T_FrameExtensionList sequence or single class with frame extensions
+     *                    - a pmacc::spearhed::meta::ComponentList
      *                    - extension must be an unary template class that supports boost::mpl::apply1<>
      *                    - type of the final frame is applied to each extension class
      *                      (this allows pointers and references to a frame itself)
@@ -51,64 +56,36 @@ namespace pmacc::spearhed
     template<
         typename T_Name,
         typename T_NumSlots,
-        typename T_ValueTypeSeq,
-        typename T_Flags = mp_list<>,
-        typename T_MethodsList = mp_list<>,
-        typename T_FrameExtensionList = mp_list<>>
+        typename T_ParticleRecord,
+        typename T_Flags = pmacc::spearhed::meta::TypeList<>,
+        typename T_FrameExtensionList = pmacc::spearhed::meta::ComponentList<>>
     struct ParticleDescription
     {
         using Name = T_Name;
-        using NumSlots = T_NumSlots;
-        using ValueTypeSeq = ToSeq<T_ValueTypeSeq>;
-        using FlagsList = ToSeq<T_Flags>;
-        using MethodsList = ToSeq<T_MethodsList>;
-        using FrameExtensionList = ToSeq<T_FrameExtensionList>;
+        using ParticleRecord = T_ParticleRecord;
+        using FlagsList = pmacc::spearhed::meta::ToTypeList_t<T_Flags>;
+        using FrameExtensionList = T_FrameExtensionList;
+        static constexpr uint32_t numSlots = T_NumSlots::value;
 
         // Compile-time check uniqueness of attributes and flags
-        PMACC_CASSERT_MSG(
-            _error_particles_must_not_have_duplicate_attributes____check_your_speciesDefinition_param_file,
-            isUnique<ValueTypeSeq>);
+        // PMACC_CASSERT_MSG(
+        //     _error_particles_must_not_have_duplicate_attributes____check_your_speciesDefinition_param_file,
+        //     isUnique<T_ParticleRecord>);
         PMACC_CASSERT_MSG(
             _error_particles_must_not_have_duplicate_flags____check_your_speciesDefinition_param_file,
-            isUnique<FlagsList>);
+            pmacc::spearhed::meta::isUnique_v<FlagsList>);
+
+        template<typename NewFrameExtensionSeq>
+        consteval auto replaceFrameExtensionSeq()
+        {
+            return ParticleDescription<T_Name, T_NumSlots, T_ParticleRecord, T_Flags, NewFrameExtensionSeq>{};
+        }
     };
 
-    /** Get ParticleDescription with a new ValueTypeSeq
-     *
-     * @tparam T_OldParticleDescription base description
-     * @tparam T_NewValueTypeSeq new boost mpl sequence with value types
-     * @treturn ::type new ParticleDescription
-     */
-    template<typename T_OldParticleDescription, typename T_NewValueTypeSeq>
-    struct ReplaceValueTypeSeq
+    template<typename T_Name, typename T_NumSlots, typename T_ParticleRecord>
+    consteval auto createParticleDescription(T_Name, T_NumSlots, T_ParticleRecord)
     {
-        using OldParticleDescription = T_OldParticleDescription;
-        using type = ParticleDescription<
-            typename OldParticleDescription::Name,
-            typename OldParticleDescription::NumSlots,
-            ToSeq<T_NewValueTypeSeq>,
-            typename OldParticleDescription::FlagsList,
-            typename OldParticleDescription::MethodsList,
-            typename OldParticleDescription::FrameExtensionList>;
-    };
-
-    /** Get ParticleDescription with a new FrameExtensionSeq
-     *
-     * @tparam T_OldParticleDescription base description
-     * @tparam T_FrameExtensionSeq new boost mpl sequence with value types
-     * @treturn ::type new ParticleDescription
-     */
-    template<typename T_OldParticleDescription, typename T_FrameExtensionSeq>
-    struct ReplaceFrameExtensionSeq
-    {
-        using OldParticleDescription = T_OldParticleDescription;
-        using type = ParticleDescription<
-            typename OldParticleDescription::Name,
-            typename OldParticleDescription::NumSlots,
-            typename OldParticleDescription::ValueTypeSeq,
-            typename OldParticleDescription::FlagsList,
-            typename OldParticleDescription::MethodsList,
-            ToSeq<T_FrameExtensionSeq>>;
-    };
+        return ParticleDescription<T_Name, T_NumSlots, T_ParticleRecord>{};
+    }
 
 } // namespace pmacc::spearhed

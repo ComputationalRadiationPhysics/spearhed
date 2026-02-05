@@ -12,14 +12,14 @@ namespace pmacc::spearhed::memory
     static constexpr int allocationMaxRetries = 13;
 
     // Raw allocation and retry logic using mallocMC
-    [[nodiscard]] constexpr void* allocateRawMemory(auto const& worker, size_t size)
+    [[nodiscard]] constexpr void* allocateRawMemory(auto const& worker, auto const& deviceHeapHandle, size_t size)
     {
         for(int i = 0; i < allocationMaxRetries; ++i)
         {
             void* rawPtr = nullptr;
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
             // Explicit cast required for C++
-            rawPtr = m_deviceHeapHandle.malloc(worker.getAcc(), size);
+            rawPtr = deviceHeapHandle.malloc(worker.getAcc(), size);
 #else
             // Use nothrow to ensure nullptr is returned on failure,
             // preventing exceptions from breaking the retry loop.
@@ -35,9 +35,9 @@ namespace pmacc::spearhed::memory
 
     // Allocates memory unintialized
     template<typename T>
-    [[nodiscard]] constexpr T* allocateMemory(auto const& worker)
+    [[nodiscard]] constexpr T* allocateMemory(auto const& worker, auto const& deviceHeapHandle)
     {
-        void* mem = allocateRawMemory(worker, sizeof(T));
+        void* mem = allocateRawMemory(worker, deviceHeapHandle, sizeof(T));
         if(mem)
         {
             return static_cast<T*>(mem);

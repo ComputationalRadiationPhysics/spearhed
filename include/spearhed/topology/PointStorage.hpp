@@ -1,0 +1,104 @@
+#pragma once
+
+#include "spearhed/particles/attributes/Position.hpp"
+#include "spearhed/topology/CoordinateSystem.hpp"
+
+namespace spearhed
+{
+    using namespace spearhed::tags;
+
+    template<CoordinateSystem CS>
+    struct PointValueStorage;
+
+    template<typename T>
+    struct PointValueStorage<Cartesian<T, 3>>
+    {
+        T x, y, z;
+
+        constexpr PointValueStorage() = default;
+
+        constexpr PointValueStorage(T x_, T y_, T z_) : x(x_), y(y_), z(z_)
+        {
+        }
+
+        [[nodiscard]] constexpr T get_x() const
+        {
+            return x;
+        }
+
+        [[nodiscard]] constexpr T get_y() const
+        {
+            return y;
+        }
+
+        [[nodiscard]] constexpr T get_z() const
+        {
+            return z;
+        }
+
+        [[nodiscard]] constexpr T& get_x()
+        {
+            return x;
+        }
+
+        [[nodiscard]] constexpr T& get_y()
+        {
+            return y;
+        }
+
+        [[nodiscard]] constexpr T& get_z()
+        {
+            return z;
+        }
+    };
+
+    // requires that pointViewType supports the correct accessors for CS
+    template<CoordinateSystem CS, typename PointViewType>
+    struct PointViewStorage;
+
+    template<typename T, typename PointViewType>
+    struct PointViewStorage<Cartesian<T, 3>, PointViewType>
+    {
+        PointViewType pointView;
+
+        constexpr PointViewStorage(PointViewType pV) : pointView(pV)
+        {
+        }
+
+        [[nodiscard]] constexpr T& get_x() const
+        {
+            return *pointView[x];
+        }
+
+        [[nodiscard]] constexpr T& get_y() const
+        {
+            return *pointView[y];
+        }
+
+        [[nodiscard]] constexpr T& get_z() const
+        {
+            return *pointView[z];
+        }
+    };
+
+    template<typename T, typename PointViewType>
+    struct PointViewStorage<Cartesian<T, 2>, PointViewType>
+    {
+        PointViewType pointView;
+
+        constexpr PointViewStorage(PointViewType pV) : pointView(pV)
+        {
+        }
+
+        [[nodiscard]] constexpr T& get_x() const
+        {
+            return *pointView[x];
+        }
+
+        [[nodiscard]] constexpr T& get_y() const
+        {
+            return *pointView[y];
+        }
+    };
+
+} // namespace spearhed

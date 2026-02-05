@@ -1,8 +1,17 @@
 #pragma once
 
-#include "pmacc/eventSystem/waitForAllTasks.hpp"
+#include "spearhed/ParticleView.hpp"
+#include "spearhed/param/speciesAttributes.param"
+#include "spearhed/param/speciesDefinition.param"
+#include "spearhed/particles/attributes/Id.hpp"
+#include "spearhed/particles/attributes/Mass.hpp"
+#include "spearhed/particles/attributes/Position.hpp"
+#include "spmacc/memory/FramePointer.hpp"
+#include "traits.hpp"
 
 #include <pmacc/assert.hpp>
+#include <pmacc/dimensions/DataSpace.hpp>
+#include <pmacc/eventSystem/waitForAllTasks.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -11,7 +20,6 @@
 #include <pmacc/meta/conversion/ResolveAndRemoveFromSeq.hpp>
 #include <pmacc/particles/IdProvider.hpp>
 #include <pmacc/particles/Identifier.hpp>
-#include <pmacc/particles/memory/dataTypes/FramePointer.hpp>
 #include <pmacc/particles/operations/InitValueIdentifier.hpp>
 
 #include <concepts>
@@ -88,45 +96,43 @@ namespace spearhed
                 using TFrameList = std::remove_cvref_t<decltype(particleFrameList)>;
                 using FrameType = TFrameList::FrameType;
 
-                PMACC_SMEM(worker, framePtr, pmacc::FramePointer<FrameType>);
+                PMACC_SMEM(worker, framePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
 
                 auto onlyMaster = pmacc::lockstep::makeMaster(worker);
                 onlyMaster(
                     [&]()
                     {
                         // allocate the frame for this block and get a pointer to it
+                        // This is filled with junk values
                         framePtr = particleFrameList.getEmptyFrame(worker);
                     });
 
                 auto forEachSlotInFrame = pmacc::lockstep::makeForEach<FrameType::frameSize>(worker);
+
                 // fill frames in parallel
                 forEachSlotInFrame(
                     [&](uint32_t const idx)
                     {
+                        auto particle = framePtr[idx];
+                        // First set the multimask to make sure particles which dont exist are disabled
+                        setMultiMask(particle, idx < numParticlesToCreate ? 1 : 0);
+
                         if(idx < numParticlesToCreate)
                         {
-                            auto particle = framePtr[idx];
+                            ll::iterate_except<
+                                typename decltype(particle)::record_type,
+                                pmacc::spearhed::InitZero,
+                                multiMask,
+                                particleId>(particle);
 
-                            /** we now initialize all attributes of the new particle to their default values
-                             *   some attributes, such as the position, localCellIdx, weighting or the
-                             *   multiMask (@see AttrToIgnore) of the particle will be set individually
-                             *   in the following lines since they are already known at this point.
-                             */
-                            {
-                                using ParticleAttrList = typename FrameType::ValueTypeSeq;
-                                using AttrToIgnore = pmacc::mp_list<pmacc::multiMask>;
-                                using ParticleCleanedAttrList =
-                                    typename pmacc::ResolveAndRemoveFromSeq<ParticleAttrList, AttrToIgnore>::type;
-
-                                pmacc::meta::
-                                    ForEach<ParticleCleanedAttrList, pmacc::InitValueIdentifier<boost::mpl::_1>>
-                                        setToDefault;
-
-                                setToDefault(worker, idGen, particle);
-                            }
-                            particle[pmacc::multiMask_] = 1;
+                            pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
                         }
                     });
+            }
+
+            DINLINE void setMultiMask(ParticleView<multiMask> multiMaskView, uint8_t state) const
+            {
+                *multiMaskView = state;
             }
         };
 
@@ -148,8 +154,8 @@ namespace spearhed
                 // We need to find the region where: scan[region] <= blockIdx < scan[region+1]
                 auto const blockIdx = worker.blockDomIdx();
                 int particleRegionIdx = -1;
-                uint32_t framesOffset = 0;
-                uint32_t framesInRegion = 0;
+                int framesOffset = 0;
+                int framesInRegion = 0;
 
                 // Linear search for the particle region where this block falls in the inclusive scan
                 for(int i = 0; i < numParticleRegions; ++i)
@@ -222,7 +228,7 @@ namespace spearhed
             // TODO this is very wasteful. Use threads in a block to deal with particle regions and do a on device scan
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::MemSpace<DIM1>{prBuf.size});
+            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
 
             PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion{})
                 .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(

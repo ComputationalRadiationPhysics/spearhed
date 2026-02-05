@@ -2,6 +2,7 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 
+#include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -62,9 +63,9 @@ namespace spearhed
                                 auto particle = (*frameItr)[idx];
 
                                 // Only sum valid particles
-                                if(particle[pmacc::multiMask_])
+                                if(*particle[multiMask])
                                 {
-                                    threadLocalSum += particle[particleId_];
+                                    threadLocalSum += *particle[particleId];
                                 }
                             });
 
@@ -99,10 +100,10 @@ namespace spearhed
     {
         auto operator()(auto& prBuf) const -> uint64_t
         {
-            constexpr uint32_t numBlocks = 256;
+            constexpr int numBlocks = 256;
             constexpr uint32_t threadsPerBlock = 256;
 
-            pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(pmacc::MemSpace<DIM1>{numBlocks});
+            pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(pmacc::DataSpace<DIM1>{numBlocks});
 
             PMACC_LOCKSTEP_KERNEL(reduce::detail::SumParticleIds{})
                 .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(
@@ -113,7 +114,7 @@ namespace spearhed
             auto hostData = partialSums.getHostBuffer().getDataBox();
             uint64_t totalSum = 0;
 
-            for(uint32_t i = 0; i < numBlocks; ++i)
+            for(int i = 0; i < numBlocks; ++i)
             {
                 totalSum += hostData[i];
             }

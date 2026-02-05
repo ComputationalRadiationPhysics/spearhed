@@ -1,0 +1,60 @@
+#pragma once
+
+#include "llamaLite/llamaLite.hpp"
+#include "spearhed/param/dimension.param"
+#include "spearhed/particles/attributes/Position.hpp"
+#include "spearhed/topology/CoordinateSystem.hpp"
+#include "spearhed/topology/Point.hpp"
+#include "spearhed/topology/Vec.hpp"
+#include "spmacc/particles/Tags.hpp"
+
+#include <pmacc/identifier/value_identifier.hpp>
+#include <pmacc/particles/IdProvider.hpp>
+
+#include <cstdint>
+
+namespace spearhed
+{
+
+    // value_identifier_func(
+    //     uint64_t,
+    //     particleId,
+    //     /* called when particle is created */
+    //     ([](auto const& worker, pmacc::IdGenerator& idGen) constexpr { return idGen.fetchInc(worker); }),
+    //     /* called when particle is copied */
+    //     (pmacc::particles::identifier::CallCopy{}),
+    //     /* called when particle is derived from other particle */
+    //     (pmacc::particles::identifier::CallInitValue{}));
+    using namespace tags;
+    using namespace pmacc::spearhed::tags;
+
+    DEFINE_TAG(vel);
+
+    // template<T_Dim I>
+    // struct Dim
+    // {
+    // };
+
+    // template<typename T, T_Dim... Is>
+    // auto buildDimLayout(std::integer_sequence<T_Dim, Is...>) -> ll::Record<ll::Field<Dim<Is>, T>...>;
+
+    // struct position;
+
+    // using Position = ll::
+    //     Field<position, decltype(buildDimLayout<CS::Scalar>(std::make_integer_sequence<T_Dim, CS::dimension>{}))>;
+
+    // struct mass;
+    // using Mass = ll::Field<mass, float>;
+
+
+} // namespace spearhed
+
+namespace llama_lite
+{
+    // template<>
+    // struct llama_traits<spearhed::position>
+    // {
+    //     using accessor_type = spearhed::Position;
+    //     using reference_type = spearhed::Position&;
+    // };
+} // namespace llama_lite

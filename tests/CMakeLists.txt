@@ -1,0 +1,91 @@
+#
+# Copyright 2025 René Widera, Simeon Ehrig
+# SPDX-License-Identifier: ISC
+#
+
+################################################################################
+# Required CMake version.
+################################################################################
+cmake_minimum_required(VERSION 3.25)
+
+################################################################################
+# Install Catch2
+################################################################################
+
+include(FetchContent)
+FetchContent_Declare(Catch2 GIT_REPOSITORY https://github.com/catchorg/Catch2.git GIT_TAG v3.5.3)
+FetchContent_MakeAvailable(Catch2)
+target_compile_features(Catch2 PUBLIC cxx_std_20)
+include(Catch)
+
+# hide Catch2 cmake variables by default in cmake gui
+get_cmake_property(variables VARIABLES)
+foreach(var ${variables})
+    if(var MATCHES "^CATCH_")
+        mark_as_advanced(${var})
+    endif()
+endforeach()
+
+################################################################################
+# Add subdirectories.
+################################################################################
+
+#------------------------------------------------------------------------------
+# Search for sub folders in the given folder.
+# Creates a Catch2 test executable for each .cpp file in each sub folder.
+# If a include folder is located in a sub folder, add it as include path to the
+# target.
+# Args:
+#  - target_prefix: Prefix for the target name. The name of the executable test
+#    file is formed with target_prefix followed by the source file name without
+#    extension.
+#  - folder: Takes all .cpp files in the specified folder and creates an test
+#    executable for each.
+function(add_test_target target_prefix folder)
+    message(DEBUG "test target prefix: ${target_prefix}")
+
+    file(GLOB test_folders CONFIGURE_DEPENDS ${folder})
+    foreach(test_folder ${test_folders})
+        if(IS_DIRECTORY ${test_folder})
+            message(DEBUG "test folder: ${test_folder}")
+
+            file(GLOB test_sources "${test_folder}/**")
+
+            # iterate over all sub folders
+            foreach(source_file ${test_sources})
+                # the include folder is a special case, therefore ignore it
+                if(source_file STREQUAL "${test_folder}/include")
+                    continue()
+                endif()
+
+                get_filename_component(source_file_extension ${source_file} EXT)
+                get_filename_component(source_file_name ${source_file} NAME_WE)
+                # get absolute path of the folder of the source file
+                get_filename_component(test_folder_name ${source_file} DIRECTORY)
+                # get name of the folder
+                get_filename_component(test_folder_name ${test_folder_name} NAME)
+
+                if("${source_file_extension}" STREQUAL ".cpp")
+                    set(_test_target_name "${target_prefix}${test_folder_name}_${source_file_name}")
+                    message(DEBUG "  add test target ${_test_target_name}: ${source_file}")
+
+                    add_executable(${_test_target_name} ${source_file})
+                    get_filename_component(src_dir ${source_file} DIRECTORY)
+                    target_include_directories(${_test_target_name} PRIVATE ${src_dir})
+                    if(EXISTS "${test_folder}/include")
+                        message(STATUS "  add include folder: ${test_folder}/include")
+                        target_include_directories(${_test_target_name} PRIVATE ${test_folder}/include)
+                    endif()
+
+                    target_link_libraries(
+                        ${_test_target_name}
+                        PRIVATE Catch2::Catch2WithMain alpaka::alpaka spearhed-hostonly
+                    )
+                    catch_discover_tests(${_test_target_name})
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+endfunction()
+
+add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)

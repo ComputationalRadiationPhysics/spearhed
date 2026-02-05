@@ -1,17 +1,11 @@
 #pragma once
 
-#include "spmacc/Particle.hpp"
+#include "llamaLite/llamaLite.hpp"
+#include "spearhed/param/speciesAttributes.param"
 #include "spmacc/ParticleDescription.hpp"
+#include "spmacc/meta/TypeList.hpp"
 
-#include <pmacc/math/MapTuple.hpp>
-#include <pmacc/meta/GetKeyFromAlias.hpp>
-#include <pmacc/meta/conversion/OperateOnSeq.hpp>
-#include <pmacc/meta/conversion/SeqToMap.hpp>
 #include <pmacc/particles/Identifier.hpp>
-#include <pmacc/particles/boostExtension/InheritLinearly.hpp>
-#include <pmacc/traits/GetFlagType.hpp>
-#include <pmacc/traits/HasFlag.hpp>
-#include <pmacc/traits/HasIdentifier.hpp>
 #include <pmacc/traits/IsSpecializationOf.hpp>
 
 #include <boost/mpl/apply.hpp>
@@ -22,137 +16,122 @@ namespace pmacc
     {
         namespace pmath = ::pmacc::math;
 
+        template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription, typename T_ValueTypeSeq>
+        struct Particle;
+
+
         /** Frame is a storage for arbitrary number >0 of Particles with attributes
+         * move only type
          *
          * @tparam T_CreatePairOperator unary template operator to create a boost pair
          *                              from single type ( pair<name,dataType> )
          *                              @see MapTupel
          * @tparam T_ValueTypeSeq sequence with value_identifier
-         * @tparam T_MethodsList sequence of classes with particle methods
-         *                       (e.g. calculate mass, gamma, ...)
          * @tparam T_Flags sequence with identifiers to add flags on a frame
          *                 (e.g. useSolverXY, calcRadiation, ...)
          */
-        template<typename T_CreatePairOperator, concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
+        template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
         struct Frame;
 
-        template<typename T_CreatePairOperator, concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
+        template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
         struct Frame
-            : protected pmath::MapTuple<
-                  typename SeqToMap<typename T_ParticleDescription::ValueTypeSeq, T_CreatePairOperator>::type>
-            , public InheritLinearly<mp_append<
-                  typename T_ParticleDescription::MethodsList,
-                  typename OperateOnSeq<
-                      typename T_ParticleDescription::FrameExtensionList,
-                      boost::mpl::apply1<boost::mpl::_1, Frame<T_CreatePairOperator, T_ParticleDescription>>>::type>>
+            : pmacc::spearhed::meta::InheritComponentsFrom<
+                  Frame<T_ParticleDescription>,
+                  typename T_ParticleDescription::FrameExtensionList>
         {
             using ParticleDescription = T_ParticleDescription;
             using Name = typename ParticleDescription::Name;
             //! Number of particle slots within the frame
-            using NumSlots = typename ParticleDescription::NumSlots;
-            static constexpr uint32_t frameSize = NumSlots::value;
-            using ValueTypeSeq = typename ParticleDescription::ValueTypeSeq;
-            using MethodsList = typename ParticleDescription::MethodsList;
-            using FlagList = typename ParticleDescription::FlagsList;
-            using FrameExtensionList = typename ParticleDescription::FrameExtensionList;
-            /* definition of the MapTupel where we inherit from*/
-            using BaseType = pmath::MapTuple<typename SeqToMap<ValueTypeSeq, T_CreatePairOperator>::type>;
+            static constexpr uint32_t frameSize = ParticleDescription::numSlots;
+            using ParticleRecord = typename ParticleDescription::ParticleRecord;
+            using FlagTuple = typename pmacc::spearhed::meta::AsTuple_t<typename ParticleDescription::FlagsList>;
 
             /* type of a single particle*/
-            using ParticleType = Particle<Frame>;
+            // using ParticleType = Particle<ParticleDescription, ParticleRecord>;
+
+            using SoAType = ll::SoA<ParticleRecord, frameSize>;
+
+            SoAType particlesSoa;
+            [[no_unique_address]] FlagTuple flags;
+
 
         public:
             constexpr Frame()
             {
+                // can this call a kernel? but what if i dont want to call a kernel.... what if i want a kernel for all
+                // frames in a list or all frameLists in the sim action both predicate and action are passed in the idx
+                // and the view at the idx forEachSlotInFrame(predicate, action);
+
+                // lambda cannot work, since nvcc is so primitive
+                // forEachSlotInFrame(true, [](auto view, auto idx){view[::spearhed::multiMask] = 0}]);
+
+                // forEachSlotInFrame(true, [](someMultiMaskViewType multimask, auto idx){*multimask = 0}]);
+
+                // view[tag] -> where this is a leaf access. then we get a raw ref
+                // if we have a view to a leaf, then we can call derefernce to get raw ref.
+
+                // think about doing this in parallel, since it is called inside a kernel. Maybe will need to be moved
+                // out of the constructor
                 /* disable all particles since we can not assume that newly allocated memory contains zeros */
                 for(int i = 0; i < static_cast<int>(frameSize); ++i)
-                    (*this)[i][multiMask_] = 0;
+                    *particlesSoa[::spearhed::multiMask][i] = 0;
             }
 
-            /** access the Nth particle*/
-            constexpr ParticleType operator[](uint32_t const idx)
-            {
-                return ParticleType(*this, idx);
-            }
+            constexpr Frame(Frame const&) = delete;
+            constexpr Frame& operator=(Frame const&) = delete;
+            constexpr Frame(Frame const&&) = default;
+            constexpr Frame& operator=(Frame const&&) = default;
 
-            /** access the Nth particle*/
-            constexpr ParticleType const operator[](uint32_t const idx) const
-            {
-                return ParticleType(*this, idx);
-            }
-
-            /** access attribute with a identifier
+            /** access attribute with a tag
              *
-             * @param T_Key instance of identifier type
-             *              (can be an alias, value_identifier or any other class)
-             * @return result of operator[] of MapTuple
+             * @param T_Key instance of tag type
+             * @return SoAView
              */
-            template<typename T_Key>
-            constexpr auto& getIdentifier(T_Key const)
+            template<ll::IsRecordAccess RA>
+            [[nodiscard]] constexpr auto operator[](RA tag)
+
             {
-                using Key =
-                    typename GetKeyFromAlias<ValueTypeSeq, T_Key, errorHandlerPolicies::ThrowValueNotFound>::type;
-                return BaseType::operator[](Key());
+                return particlesSoa[tag];
             }
 
-            /** const version of method getIdentifier(const T_Key) */
-            template<typename T_Key>
-            constexpr auto const& getIdentifier(T_Key const) const
+            template<ll::IsRecordAccess RA>
+            [[nodiscard]] constexpr auto operator[](RA tag) const
             {
-                using Key =
-                    typename GetKeyFromAlias<ValueTypeSeq, T_Key, errorHandlerPolicies::ThrowValueNotFound>::type;
-                return BaseType::operator[](Key());
+                return particlesSoa[tag];
+            }
+
+            // Particle Access via Index
+            // @returns SoAIndexedView looking at a specific particle index
+            [[nodiscard]] constexpr auto operator[](uint32_t idx)
+            {
+                return particlesSoa[idx];
+            }
+
+            /** access the Nth particle*/
+            [[nodiscard]] constexpr auto operator[](uint32_t idx) const
+            {
+                return particlesSoa[idx];
             }
 
             static constexpr std::string getName()
             {
                 return Name::str();
             }
+
+            // Helper to access flags by Type
+            template<typename T>
+            [[nodiscard]] constexpr T& getFlag(T)
+            {
+                return std::get<T>(flags);
+            }
+
+            template<typename T>
+            [[nodiscard]] constexpr T const& getFlag(T) const
+            {
+                return std::get<T>(flags);
+            }
         };
     } // namespace spearhed
 
-    namespace traits
-    {
-        template<typename T_IdentifierName, typename T_CreatePairOperator, typename T_ParticleDescription>
-        struct HasIdentifier<pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>, T_IdentifierName>
-        {
-        private:
-            using FrameType = pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>;
-
-        public:
-            using ValueTypeSeq = typename FrameType::ValueTypeSeq;
-            /* if T_IdentifierName is void_ than we have no T_IdentifierName in our Sequence.
-             * check is also valid if T_Key is a alias
-             */
-            using SolvedAliasName = typename GetKeyFromAlias<ValueTypeSeq, T_IdentifierName>::type;
-
-            using type = boost::mp11::mp_contains<ValueTypeSeq, SolvedAliasName>; // FIXME(bgruber): boost::mp11::
-                                                                                  // needed because of nvcc 11.0 bug
-        };
-
-        template<typename T_IdentifierName, typename T_CreatePairOperator, typename T_ParticleDescription>
-        struct HasFlag<pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>, T_IdentifierName>
-        {
-        private:
-            using FrameType = pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>;
-            using SolvedAliasName = typename pmacc::traits::GetFlagType<FrameType, T_IdentifierName>::type;
-            using FlagList = typename FrameType::FlagList;
-
-        public:
-            using type = mp_contains<FlagList, SolvedAliasName>;
-        };
-
-        template<typename T_IdentifierName, typename T_CreatePairOperator, typename T_ParticleDescription>
-        struct GetFlagType<pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>, T_IdentifierName>
-        {
-        private:
-            using FrameType = pmacc::spearhed::Frame<T_CreatePairOperator, T_ParticleDescription>;
-            using FlagList = typename FrameType::FlagList;
-
-        public:
-            using type = typename GetKeyFromAlias<FlagList, T_IdentifierName>::type;
-        };
-
-    } // namespace traits
 
 } // namespace pmacc

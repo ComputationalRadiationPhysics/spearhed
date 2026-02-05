@@ -1,5 +1,8 @@
 #pragma once
 
+#include "spmacc/Frame.hpp"
+#include "spmacc/ParticleDescription.hpp"
+
 #include <pmacc/meta/ForEach.hpp>
 #include <pmacc/meta/GetKeyFromAlias.hpp>
 #include <pmacc/meta/conversion/RemoveFromSeq.hpp>
@@ -12,9 +15,7 @@
 #include <pmacc/particles/operations/Deselect.hpp>
 #include <pmacc/particles/operations/InitValueIdentifier.hpp>
 #include <pmacc/static_assert.hpp>
-#include <pmacc/traits/GetFlagType.hpp>
-#include <pmacc/traits/HasFlag.hpp>
-#include <pmacc/traits/HasIdentifier.hpp>
+#include <pmacc/traits/IsSpecializationOf.hpp>
 #include <pmacc/traits/Resolve.hpp>
 #include <pmacc/types.hpp>
 
@@ -35,8 +36,10 @@ namespace pmacc
          * @tparam T_ValueTypeSeq sequence with all attribute identifiers
          *                        (can be a subset of T_FrameType::ValueTypeSeq)
          */
-        template<typename T_FrameType, typename T_ValueTypeSeq = typename T_FrameType::ValueTypeSeq>
-        struct Particle : public InheritLinearly<typename T_FrameType::MethodsList>
+        template<
+            concepts::SpecializationOf<ParticleDescription> T_ParticleDescription,
+            typename T_ValueTypeSeq = typename T_ParticleDescription::ParticleRecord>
+        struct Particle
         {
         private:
             /** Get the size in bytes for a value identifier */
@@ -48,7 +51,7 @@ namespace pmacc
             };
 
         public:
-            using FrameType = T_FrameType;
+            using FrameType = Frame<T_ParticleDescription>;
             using ValueTypeSeq = T_ValueTypeSeq;
             using Name = typename FrameType::Name;
 
@@ -187,39 +190,6 @@ namespace pmacc
             }
         };
     } // namespace spearhed
-
-    namespace traits
-    {
-        template<typename T_Key, typename T_FrameType, typename T_ValueTypeSeq>
-        struct HasIdentifier<pmacc::spearhed::Particle<T_FrameType, T_ValueTypeSeq>, T_Key>
-        {
-        private:
-            using ParticleType = pmacc::spearhed::Particle<T_FrameType, T_ValueTypeSeq>;
-            using ValueTypeSeq = typename ParticleType::ValueTypeSeq;
-
-        public:
-            /* If T_Key can not be found in the T_ValueTypeSeq of this Particle class,
-             * SolvedAliasName will be void_.
-             * Look-up is also valid if T_Key is an alias.
-             */
-            using SolvedAliasName = typename GetKeyFromAlias<ValueTypeSeq, T_Key>::type;
-
-            using type = mp_contains<ValueTypeSeq, SolvedAliasName>;
-        };
-
-        template<typename T_Key, typename T_FrameType, typename T_ValueTypeSeq>
-        struct HasFlag<pmacc::spearhed::Particle<T_FrameType, T_ValueTypeSeq>, T_Key>
-            : public HasFlag<T_FrameType, T_Key>
-        {
-        };
-
-        template<typename T_Key, typename T_FrameType, typename T_ValueTypeSeq>
-        struct GetFlagType<pmacc::spearhed::Particle<T_FrameType, T_ValueTypeSeq>, T_Key>
-            : public GetFlagType<T_FrameType, T_Key>
-        {
-        };
-
-    } // namespace traits
 
     namespace particles
     {
