@@ -153,6 +153,18 @@ namespace pmacc::spearhed
             return nullptr;
         }
 
+        constexpr auto size() const
+        {
+            auto size = 0;
+            auto node = m_firstNode;
+            while(node != nullptr)
+            {
+                size++;
+                node = node->next;
+            }
+            return size;
+        }
+
 
     private:
 

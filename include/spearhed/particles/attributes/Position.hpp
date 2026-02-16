@@ -20,15 +20,13 @@
 #pragma once
 
 #include "llamaLite/llamaLite.hpp"
+#include "spearhed/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
 
 namespace spearhed
 {
     namespace tags
     {
-        DEFINE_TAG(x);
-        DEFINE_TAG(y);
-        DEFINE_TAG(z);
         DEFINE_TAG(pos);
 
         using posField

@@ -21,6 +21,7 @@
 
 #include "llamaLite/llamaLite.hpp"
 #include "spearhed/param/speciesDefinition.param"
+#include "spmacc/particles/View.hpp"
 
 namespace spearhed
 {
@@ -34,13 +35,6 @@ namespace spearhed
     } // namespace particleView
 
     template<auto... TagInstances>
-    using ParticleView
-        = ll::SoAIndexedView<particleView::SoaT, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
+    using ParticleView = pmacc::spearhed::ParticleView<particleView::SoaT, TagInstances...>;
 
-    /**
-     * Alias for creating a ConstView type using constexpr tag INSTANCES (values).
-     */
-    template<auto... TagInstances>
-    using ParticleViewConst
-        = ll::SoAIndexedView<particleView::SoaT const, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
 } // namespace spearhed

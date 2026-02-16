@@ -124,6 +124,11 @@ namespace pmacc::spearhed
             numParticles = n;
         }
 
+        HDINLINE constexpr auto size()
+        {
+            return list.size();
+        }
+
     private:
         pmacc::spearhed::SingleLinkedListDevice<T_Frame, T_DeviceHeapHandle> list;
         PMACC_ALIGN(numParticles, uint32_t) { 0 };
