@@ -22,6 +22,7 @@
 #include "spearhed/topology/CoordinateSystem.hpp"
 
 #include <concepts>
+#include <iostream>
 
 namespace spearhed
 {
@@ -29,6 +30,16 @@ namespace spearhed
     // Think about alignment and memory laybout
     template<CoordinateSystem CS, typename Storage>
     struct Point;
+
+    namespace detail
+    {
+        template<typename T>
+        static constexpr T abs_diff(T a, T b) noexcept
+        {
+            T const diff = a - b;
+            return diff < T{0} ? -diff : diff;
+        }
+    } // namespace detail
 
     // {
     //     using Scalar = typename CS::Scalar;
@@ -72,6 +83,77 @@ namespace spearhed
         template<CoordinateSystem OtherCS, typename OtherStorage>
         constexpr Point& operator=(Point<OtherCS, OtherStorage> const& other) noexcept
         {
+        }
+
+        [[nodiscard]] friend constexpr bool operator==(Point const& p, Scalar const val) noexcept
+        {
+            if constexpr(dim == 3)
+            {
+                return p.get_x() == val && p.get_y() == val && p.get_z() == val;
+            }
+            else if constexpr(dim == 2)
+            {
+                return p.get_x() == val && p.get_y() == val;
+            }
+            else
+            {
+                return p.get_x() == val;
+            }
+        }
+
+        [[nodiscard]] constexpr bool isApprox(Point const& other, Scalar eps = std::numeric_limits<Scalar>::epsilon())
+            const noexcept
+        {
+            if constexpr(dim == 3)
+            {
+                return detail::abs_diff(this->get_x(), other.get_x()) <= eps
+                       && detail::abs_diff(this->get_y(), other.get_y()) <= eps
+                       && detail::abs_diff(this->get_z(), other.get_z()) <= eps;
+            }
+            else if constexpr(dim == 2)
+            {
+                return detail::abs_diff(this->get_x(), other.get_x()) <= eps
+                       && detail::abs_diff(this->get_y(), other.get_y()) <= eps;
+            }
+            else
+            {
+                return detail::abs_diff(this->get_x(), other.get_x()) <= eps;
+            }
+        }
+
+        // Check if all components of this Point are approximately equal to a Scalar value
+        [[nodiscard]] constexpr bool isApprox(Scalar val, Scalar eps = std::numeric_limits<Scalar>::epsilon())
+            const noexcept
+        {
+            if constexpr(dim == 3)
+            {
+                return detail::abs_diff(this->get_x(), val) <= eps && detail::abs_diff(this->get_y(), val) <= eps
+                       && detail::abs_diff(this->get_z(), val) <= eps;
+            }
+            else if constexpr(dim == 2)
+            {
+                return detail::abs_diff(this->get_x(), val) <= eps && detail::abs_diff(this->get_y(), val) <= eps;
+            }
+            else
+            {
+                return detail::abs_diff(this->get_x(), val) <= eps;
+            }
+        }
+
+        friend std::ostream& operator<<(std::ostream& os, Point const& p)
+        {
+            if constexpr(dim == 3)
+            {
+                return os << "(" << p.get_x() << ", " << p.get_y() << ", " << p.get_z() << ")";
+            }
+            else if constexpr(dim == 2)
+            {
+                return os << "(" << p.get_x() << ", " << p.get_y() << ")";
+            }
+            else
+            {
+                return os << "(" << p.get_x() << ")";
+            }
         }
     };
 

@@ -47,8 +47,6 @@ namespace spearhed
     using namespace tags;
     using namespace pmacc::spearhed::tags;
 
-    DEFINE_TAG(vel);
-
     // template<T_Dim I>
     // struct Dim
     // {

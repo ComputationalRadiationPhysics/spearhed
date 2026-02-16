@@ -26,6 +26,7 @@
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/Position.hpp"
+#include "spearhed/particles/attributes/Velocity.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/memory/FramePointer.hpp"
 #include "traits.hpp"
@@ -90,7 +91,7 @@ namespace spearhed
 
                         constexpr uint32_t frameSize = std::remove_cvref_t<decltype(frameList)>::FrameType::frameSize;
                         uint32_t numParticles = NumParticlesToCreate{}(prDeviceBox, blockIdx);
-                        uint32_t numFrames = (numParticles + frameSize - 1) / frameSize;
+                        uint32_t const numFrames = alpaka::core::divCeil(numParticles, frameSize);
 
                         frameList.setNumParticles(numParticles);
                         framesPerParticleRegionBox[blockIdx] = numFrames;
@@ -144,9 +145,11 @@ namespace spearhed
                                 typename decltype(particle)::record_type,
                                 pmacc::spearhed::InitZero,
                                 multiMask,
-                                particleId>(particle);
+                                particleId,
+                                vel>(particle);
 
                             pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
+                            pmacc::spearhed::InitValue<velField>{}(particle[vel], 100.f);
                         }
                     });
             }

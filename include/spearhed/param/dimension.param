@@ -27,4 +27,7 @@ namespace spearhed
 {
     constexpr T_Dim simDim = DIM3;
     using CS = Cartesian<float, simDim>;
+
+    using T_dt = float;
+    constexpr T_dt dt = 0.01f;
 } // namespace spearhed
