@@ -24,7 +24,6 @@
 #include "spearhed/param/mallocMC.param"
 #include "spearhed/param/memory.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
-#include "spearhed/particles/initialization/ValidateIdSum.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/particles/pusher/ValidatePush.hpp"
 #include "spmacc/AABB.hpp"
@@ -274,8 +273,6 @@ namespace spearhed
 
         InitParticles{}();
 
-        auto sum = ComputeParticleIdSum{}();
-        std::cout << "Particle ID sum: " << sum << std::endl;
         return 0u;
     }
 

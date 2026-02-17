@@ -55,12 +55,13 @@ namespace spearhed
     namespace init::detail
     {
 
+        constexpr auto baseNumParticlesToCreate = 400u;
+
         // calculate how many particles we need to make in this system
         struct NumParticlesToCreate
         {
             constexpr auto operator()([[maybe_unused]] auto prDeviceBox, std::integral auto index) const
             {
-                constexpr auto baseNumParticlesToCreate = 400u;
                 return baseNumParticlesToCreate * (index + 1);
             };
         };

@@ -89,3 +89,4 @@ function(add_test_target target_prefix folder)
 endfunction()
 
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
+add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
