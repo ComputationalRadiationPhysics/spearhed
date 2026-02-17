@@ -132,18 +132,28 @@ namespace llama_lite
             return detail::resolveLeaf<RA, R>(channels_);
         }
 
-        template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA)
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags)
         {
-            using Path = to_path_t<RA>;
-            return SoAView(*this, Path{});
+            return SoAView<SoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags) const
+        {
+            return SoAView<SoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA) const
+        [[nodiscard]] auto operator[](RA tag)
         {
-            using Path = to_path_t<RA>;
-            return SoAView(*this, Path{});
+            return view(tag);
+        }
+
+        template<IsRecordAccess RA>
+        [[nodiscard]] auto operator[](RA tag) const
+        {
+            return view(tag);
         }
 
         [[nodiscard]] auto operator[](size_type idx)

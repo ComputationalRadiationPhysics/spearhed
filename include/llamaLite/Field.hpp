@@ -7,11 +7,12 @@
 #pragma once
 
 #include "llamaLite/utility.hpp"
+#include "tag/TagPath.hpp"
 
 namespace llama_lite
 {
 
-    template<typename Tag, typename T>
+    template<IsTag Tag, typename T>
     struct Field
     {
         using tag_type = Tag;

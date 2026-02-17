@@ -114,7 +114,8 @@ namespace llama_lite
                     }
                     else
                     {
-                        return false; // Path continues but field is a leaf
+                        // Path continues but field is a leaf
+                        return false;
                     }
                 }
             }

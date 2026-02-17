@@ -107,4 +107,15 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
 
         CHECK(*nestedPos2_view[x] == Catch::Approx(42.0f));
     }
+
+    SECTION("Multi Tag View")
+    {
+        auto nestedPos1_pos_view = particles_soa.view(nestedPos1, posi);
+        auto nestedPos1_pos_idxView = nestedPos1_pos_view[2];
+        auto nestedPos1_idxView = nestedPos1_pos_idxView[nestedPos1];
+        auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
+        *nestedPos2_view[x] = 42.0f;
+
+        CHECK(*nestedPos2_view[x] == Catch::Approx(42.0f));
+    }
 }
