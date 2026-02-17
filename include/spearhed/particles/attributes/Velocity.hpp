@@ -1,7 +1,7 @@
 #pragma once
 
 #include "llamaLite/llamaLite.hpp"
-#include "spearhed/particles/attributes/Cartesian.hpp"
+#include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
 
 namespace spearhed
@@ -10,8 +10,12 @@ namespace spearhed
     {
         DEFINE_TAG(vel);
 
-        using velField
-            = ll::Field<vel_t, ll::Record<ll::Field<x_t, float>, ll::Field<y_t, float>, ll::Field<z_t, float>>>;
+        using velField = ll::Field<
+            vel_t,
+            ll::Record<
+                ll::Field<pmacc::spearhed::tags::x_t, float>,
+                ll::Field<pmacc::spearhed::tags::y_t, float>,
+                ll::Field<pmacc::spearhed::tags::z_t, float>>>;
     } // namespace tags
 
 
@@ -24,9 +28,9 @@ namespace pmacc::spearhed
     {
         constexpr void operator()(auto velView, float val) const
         {
-            *velView[::spearhed::tags::x] = val;
-            *velView[::spearhed::tags::y] = val;
-            *velView[::spearhed::tags::z] = val;
+            *velView[tags::x] = val;
+            *velView[tags::y] = val;
+            *velView[tags::z] = val;
         }
     };
 
@@ -35,9 +39,9 @@ namespace pmacc::spearhed
     {
         constexpr void operator()(auto velView) const
         {
-            *velView[::spearhed::tags::x] = {0.f};
-            *velView[::spearhed::tags::y] = {0.f};
-            *velView[::spearhed::tags::z] = {0.f};
+            *velView[tags::x] = {0.f};
+            *velView[tags::y] = {0.f};
+            *velView[tags::z] = {0.f};
         }
     };
 

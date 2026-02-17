@@ -19,13 +19,11 @@
 
 #pragma once
 
-#include "spearhed/particles/attributes/Position.hpp"
-#include "spearhed/topology/CoordinateSystem.hpp"
+#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/topology/CoordinateSystem.hpp"
 
-namespace spearhed
+namespace pmacc::spearhed
 {
-    using namespace spearhed::tags;
-
     template<CoordinateSystem CS>
     struct PointValueStorage;
 
@@ -86,17 +84,17 @@ namespace spearhed
 
         [[nodiscard]] constexpr T& get_x() const
         {
-            return *pointView[x];
+            return *pointView[tags::x];
         }
 
         [[nodiscard]] constexpr T& get_y() const
         {
-            return *pointView[y];
+            return *pointView[tags::y];
         }
 
         [[nodiscard]] constexpr T& get_z() const
         {
-            return *pointView[z];
+            return *pointView[tags::z];
         }
     };
 
@@ -111,13 +109,13 @@ namespace spearhed
 
         [[nodiscard]] constexpr T& get_x() const
         {
-            return *pointView[x];
+            return *pointView[tags::x];
         }
 
         [[nodiscard]] constexpr T& get_y() const
         {
-            return *pointView[y];
+            return *pointView[tags::y];
         }
     };
 
-} // namespace spearhed
+} // namespace pmacc::spearhed

@@ -2,7 +2,7 @@
 
 #include "llamaLite/llamaLite.hpp"
 
-namespace spearhed
+namespace pmacc::spearhed
 {
     namespace tags
     {
@@ -12,4 +12,4 @@ namespace spearhed
 
     } // namespace tags
 
-} // namespace spearhed
+} // namespace pmacc::spearhed

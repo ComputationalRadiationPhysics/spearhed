@@ -23,7 +23,7 @@
 #include <concepts>
 #include <cstdint>
 
-namespace spearhed
+namespace pmacc::spearhed
 {
     // type which holds the number of dimensions
     using T_Dim = uint32_t;
@@ -112,4 +112,4 @@ namespace spearhed
     // };
 
 
-} // namespace spearhed
+} // namespace pmacc::spearhed

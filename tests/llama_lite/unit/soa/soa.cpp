@@ -4,9 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-#include "spearhed/particles/attributes/Position.hpp"
-#include "spearhed/topology/Point.hpp"
-#include "spearhed/topology/PointStorage.hpp"
+#include "spmacc/topology/Point.hpp"
+#include "spmacc/topology/PointStorage.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -18,7 +17,7 @@ DEFINE_TAG(nestedPos2);
 DEFINE_TAG(vel);
 DEFINE_TAG(mass);
 
-using Posi = ll::Record<ll::Field<spearhed::x_t, float>, ll::Field<spearhed::y_t, float>>;
+using Posi = ll::Record<ll::Field<pmacc::spearhed::tags::x_t, float>, ll::Field<pmacc::spearhed::tags::y_t, float>>;
 
 using TwoLevelNest = ll::Record<ll::Field<nestedPos2_t, Posi>>;
 
@@ -36,8 +35,8 @@ using ParticleView = ll::SoAIndexedView<TSoA, ll::to_path_t<std::remove_cvref_t<
 template<>
 struct ll::traits::AsType<ll::Field<posi_t, Posi>>
 {
-    using CS = spearhed::Cartesian<float, 2>;
-    using type = spearhed::Point<CS, spearhed::PointViewStorage<CS, ParticleView<posi>>>;
+    using CS = pmacc::spearhed::Cartesian<float, 2>;
+    using type = pmacc::spearhed::Point<CS, pmacc::spearhed::PointViewStorage<CS, ParticleView<posi>>>;
 
     constexpr type operator()(auto fieldView) const
     {
@@ -47,7 +46,7 @@ struct ll::traits::AsType<ll::Field<posi_t, Posi>>
 
 TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite]")
 {
-    using namespace spearhed;
+    using namespace pmacc::spearhed;
     TSoA particles_soa;
 
     SECTION("Scalar Field Access (Mass)")
@@ -64,22 +63,22 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
         auto pos_view = particles_soa[posi];
 
         // Set value at index 2 via component view
-        *pos_view[2][x] = 10.5f;
+        *pos_view[2][tags::x] = 10.5f;
 
         // Verify commutativity of indexing and member access
-        CHECK(*pos_view[x][2] == Catch::Approx(10.5f));
-        CHECK(*pos_view[2][x] == Catch::Approx(10.5f));
+        CHECK(*pos_view[tags::x][2] == Catch::Approx(10.5f));
+        CHECK(*pos_view[2][tags::x] == Catch::Approx(10.5f));
 
         // Create a view fixed to index 0
         auto posZero = pos_view[0];
-        *posZero[x] = 10.8f;
+        *posZero[tags::x] = 10.8f;
 
         // Verify index 2 is unaffected
-        CHECK(*pos_view[2][x] == Catch::Approx(10.5f));
+        CHECK(*pos_view[2][tags::x] == Catch::Approx(10.5f));
 
         // Verify index 0 is updated
-        CHECK(*posZero[x] == Catch::Approx(10.8f));
-        CHECK(*pos_view[x][0] == Catch::Approx(10.8f));
+        CHECK(*posZero[tags::x] == Catch::Approx(10.8f));
+        CHECK(*pos_view[tags::x][0] == Catch::Approx(10.8f));
 
         SECTION("Spearhed Point Abstraction")
         {
@@ -92,7 +91,7 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
             // Verify reflected changes in Point interface
             CHECK(point.get_x() == Catch::Approx(10.11f));
             // Verify reflected changes in underlying SoA
-            CHECK(*pos_view[x][0] == Catch::Approx(10.11f));
+            CHECK(*pos_view[tags::x][0] == Catch::Approx(10.11f));
         }
     }
 
@@ -103,9 +102,9 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
 
         // Write to nested component
-        *nestedPos2_view[x] = 42.0f;
+        *nestedPos2_view[tags::x] = 42.0f;
 
-        CHECK(*nestedPos2_view[x] == Catch::Approx(42.0f));
+        CHECK(*nestedPos2_view[tags::x] == Catch::Approx(42.0f));
     }
 
     SECTION("Multi Tag View")
@@ -114,8 +113,8 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
         auto nestedPos1_pos_idxView = nestedPos1_pos_view[2];
         auto nestedPos1_idxView = nestedPos1_pos_idxView[nestedPos1];
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
-        *nestedPos2_view[x] = 42.0f;
+        *nestedPos2_view[tags::x] = 42.0f;
 
-        CHECK(*nestedPos2_view[x] == Catch::Approx(42.0f));
+        CHECK(*nestedPos2_view[tags::x] == Catch::Approx(42.0f));
     }
 }

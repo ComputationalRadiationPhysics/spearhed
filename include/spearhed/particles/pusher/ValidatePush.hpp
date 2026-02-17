@@ -2,8 +2,8 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param/speciesTraits.param"
-#include "spearhed/particles/attributes/Position.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/attributes/Position.hpp"
 
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/lockstep/ForEach.hpp>

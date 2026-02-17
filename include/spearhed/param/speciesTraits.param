@@ -20,7 +20,7 @@
 #pragma once
 
 #include "spearhed/ParticleView.hpp"
-#include "spearhed/topology/PointStorage.hpp"
+#include "spmacc/topology/PointStorage.hpp"
 
 namespace llama_lite::traits
 {
@@ -28,8 +28,9 @@ namespace llama_lite::traits
     template<>
     struct AsType<spearhed::posField>
     {
-        using type = spearhed::
-            Point<spearhed::CS, spearhed::PointViewStorage<spearhed::CS, spearhed::ParticleView<spearhed::pos>>>;
+        using type = pmacc::spearhed::Point<
+            spearhed::CS,
+            pmacc::spearhed::PointViewStorage<spearhed::CS, spearhed::ParticleView<spearhed::pos>>>;
 
         constexpr type operator()(auto fieldView) const
         {

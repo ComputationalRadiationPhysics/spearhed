@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/math/vector/Vector.hpp>
 
 namespace pmacc::spearhed
@@ -32,6 +33,50 @@ namespace pmacc::spearhed
     struct AABB
     {
         using Vec = math::Vector<TAxis, DIM>;
+
+        constexpr void reset()
+        {
+            for(unsigned i = 0; i < DIM; ++i)
+            {
+                min[i] = std::numeric_limits<TAxis>::max();
+                max[i] = std::numeric_limits<TAxis>::lowest();
+            }
+        }
+
+        constexpr void extend(Vec const& point)
+        {
+            for(unsigned i = 0; i < DIM; ++i)
+            {
+                if(point[i] < min[i])
+                    min[i] = point[i];
+                if(point[i] > max[i])
+                    max[i] = point[i];
+            }
+        }
+
+        constexpr void extend(AABB const& other)
+        {
+            for(unsigned i = 0; i < DIM; ++i)
+            {
+                if(other.min[i] < min[i])
+                    min[i] = other.min[i];
+                if(other.max[i] > max[i])
+                    max[i] = other.max[i];
+            }
+        }
+
+        [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
+        {
+            AABB result;
+            //  mask assumes all threads in warp are active (standard for reduction)
+            // constexpr auto active_mask = 0xffff'ffff;
+            for(unsigned i = 0; i < DIM; ++i)
+            {
+                result.min[i] = alpaka::warp::shfl_down(worker.getAcc(), min[i], delta, width);
+                result.max[i] = alpaka::warp::shfl_down(worker.getAcc(), max[i], delta, width);
+            }
+            return result;
+        }
 
         // This may need to be optimized later
         friend constexpr bool intersects(const AABB& a, const AABB& b)

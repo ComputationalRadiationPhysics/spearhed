@@ -19,12 +19,12 @@
 
 #pragma once
 
-#include "spearhed/topology/CoordinateSystem.hpp"
+#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <concepts>
 #include <iostream>
 
-namespace spearhed
+namespace pmacc::spearhed
 {
 
     // Think about alignment and memory laybout
@@ -182,4 +182,4 @@ namespace spearhed
         }
     }
 
-} // namespace spearhed
+} // namespace pmacc::spearhed

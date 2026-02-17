@@ -2,8 +2,8 @@
 
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param/dimension.param"
-#include "spearhed/particles/attributes/Position.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
+#include "spmacc/particles/attributes/Position.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
