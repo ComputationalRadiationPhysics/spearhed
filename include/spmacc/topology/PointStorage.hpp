@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 namespace pmacc::spearhed

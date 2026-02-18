@@ -97,6 +97,8 @@ namespace pmacc::spearhed
                         framePtr = memory::FramePointer{&(*itr)};
                     });
 
+                worker.sync();
+
                 auto forEachSlot = pmacc::lockstep::makeForEach<FrameType::frameSize>(worker);
                 forEachSlot(
                     [&](uint32_t const idx)

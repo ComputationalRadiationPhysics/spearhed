@@ -130,6 +130,8 @@ namespace spearhed
                         framePtr = particleFrameList.getEmptyFrame(worker);
                     });
 
+                worker.sync();
+
                 auto forEachSlotInFrame = pmacc::lockstep::makeForEach<FrameType::frameSize>(worker);
 
                 // fill frames in parallel
