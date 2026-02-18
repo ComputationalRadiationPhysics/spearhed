@@ -114,7 +114,7 @@ namespace pmacc::spearhed
 
         struct OccupiedSlot
         {
-            bool operator()(auto const& particle)
+            constexpr bool operator()(auto const& particle)
             {
                 return *particle[tags::multiMask];
             }
