@@ -21,8 +21,7 @@
 
 #pragma once
 
-#include "pmacc/dataManagement/ISimulationData.hpp"
-
+#include <pmacc/dataManagement/ISimulationData.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>

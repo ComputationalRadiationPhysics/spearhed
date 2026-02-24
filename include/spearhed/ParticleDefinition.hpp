@@ -46,7 +46,7 @@ namespace spearhed
     using FrameType = pmacc::spearhed::Frame<FrameDescription>;
 
     using PRType = pmacc::spearhed::ParticleRegion<
-        pmacc::spearhed::AABB<uint32_t, spearhed::simDim>,
+        pmacc::spearhed::AABB<float, spearhed::simDim>,
         spearhed::FrameType,
         typename DeviceHeap::AllocatorHandle>;
 

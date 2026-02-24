@@ -62,7 +62,7 @@ namespace pmacc::spearhed
                 while(left < right)
                 {
                     int const mid = left + (right - left) / 2;
-                    if(framesScanBox[mid] <= blockIdx)
+                    if(static_cast<int>(framesScanBox[mid]) <= blockIdx)
                     {
                         left = mid + 1;
                     }
@@ -80,8 +80,8 @@ namespace pmacc::spearhed
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
 
-                uint32_t const startFrame = (regionIdx == 0) ? 0 : framesScanBox[regionIdx - 1];
-                uint32_t const localFrameIdx = blockIdx - startFrame;
+                auto const startFrame = (regionIdx == 0) ? 0 : framesScanBox[regionIdx - 1];
+                auto const localFrameIdx = blockIdx - startFrame;
 
                 PMACC_SMEM(worker, framePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
                 auto onlyMaster = pmacc::lockstep::makeMaster(worker);
@@ -90,7 +90,7 @@ namespace pmacc::spearhed
                     [&]()
                     {
                         auto itr = frameList.begin();
-                        for(int i = 0; i < localFrameIdx; i++)
+                        for(int i = 0; i < static_cast<int>(localFrameIdx); i++)
                         {
                             ++itr;
                         }

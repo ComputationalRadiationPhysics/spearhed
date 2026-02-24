@@ -73,16 +73,56 @@ namespace pmacc::spearhed
 
         using Storage::Storage;
 
-        template<CoordinateSystem OtherCS, typename OtherStorage>
-        constexpr explicit(false) Point(Point<OtherCS, OtherStorage> const& other) noexcept
-        {
-            transformPoint(other, this);
-        }
+        // template<CoordinateSystem OtherCS, typename OtherStorage>
+        // constexpr explicit(false) Point(Point<OtherCS, OtherStorage> const& other) noexcept
+        // {
+        //     transformPoint(other, this);
+        // }
 
         // Assignment operator for View = Value (Scatter) or View = View
-        template<CoordinateSystem OtherCS, typename OtherStorage>
-        constexpr Point& operator=(Point<OtherCS, OtherStorage> const& other) noexcept
+        // template<CoordinateSystem OtherCS, typename OtherStorage>
+        // constexpr Point& operator=(Point<OtherCS, OtherStorage> const& other) noexcept
+        // {
+        // }
+
+        template<typename OtherStorage>
+        requires(dim == 3 && std::constructible_from<Storage, T, T, T>)
+        constexpr Point(Point<CS, OtherStorage> const& other) noexcept
+            : Storage(other.get_x(), other.get_y(), other.get_z())
         {
+        }
+
+        template<typename OtherStorage>
+        requires(dim == 2 && std::constructible_from<Storage, T, T>)
+        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage(other.get_x(), other.get_y())
+        {
+        }
+
+        template<typename OtherStorage>
+        requires(dim == 1 && std::constructible_from<Storage, T>)
+        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage(other.get_x())
+        {
+        }
+
+        template<typename OtherStorage>
+        constexpr Point& operator=(Point<CS, OtherStorage> const& other) noexcept
+        {
+            if constexpr(dim == 3)
+            {
+                this->get_x() = other.get_x();
+                this->get_y() = other.get_y();
+                this->get_z() = other.get_z();
+            }
+            else if constexpr(dim == 2)
+            {
+                this->get_x() = other.get_x();
+                this->get_y() = other.get_y();
+            }
+            else if constexpr(dim == 1)
+            {
+                this->get_x() = other.get_x();
+            }
+            return *this;
         }
 
         [[nodiscard]] friend constexpr bool operator==(Point const& p, Scalar const val) noexcept
@@ -167,19 +207,19 @@ namespace pmacc::spearhed
         using Storage::Storage;
     };
 
-    template<CoordinateSystem From, CoordinateSystem To, typename StorageFrom, typename StorageTo>
-    void transformPoint(Point<From, StorageFrom> const& x, Point<To, StorageTo>& y)
-    {
-        // Careful. Do read copy write.
-        // x and y might be the same particle, so we dont want to overwrite componenets prematurely
-        if constexpr(!std::same_as<From, To>)
-        {
-            // if constexpr(std::same_as<To, Cartesian>)
-            // {
-            // OtherCS::from_spherical(a, b, c, this->get_x(), this->template get<1>(), this->template get<2>());
-            // }
-            // elif so on
-        }
-    }
+    // template<CoordinateSystem From, CoordinateSystem To, typename StorageFrom, typename StorageTo>
+    // void transformPoint(Point<From, StorageFrom> const& x, Point<To, StorageTo>& y)
+    // {
+    //     // Careful. Do read copy write.
+    //     // x and y might be the same particle, so we dont want to overwrite componenets prematurely
+    //     if constexpr(!std::same_as<From, To>)
+    //     {
+    //         // if constexpr(std::same_as<To, Cartesian>)
+    //         // {
+    //         // OtherCS::from_spherical(a, b, c, this->get_x(), this->template get<1>(), this->template get<2>());
+    //         // }
+    //         // elif so on
+    //     }
+    // }
 
 } // namespace pmacc::spearhed

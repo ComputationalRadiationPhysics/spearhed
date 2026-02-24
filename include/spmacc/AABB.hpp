@@ -21,6 +21,10 @@
 
 #pragma once
 
+#include "spmacc/topology/CoordinateSystem.hpp"
+#include "spmacc/topology/Point.hpp"
+#include "spmacc/topology/PointStorage.hpp"
+
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/math/vector/Vector.hpp>
 
@@ -32,7 +36,8 @@ namespace pmacc::spearhed
     template<typename TAxis, unsigned DIM>
     struct AABB
     {
-        using Vec = math::Vector<TAxis, DIM>;
+        using CS = Cartesian<TAxis, DIM>;
+        using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
         constexpr void reset()
         {
@@ -43,7 +48,7 @@ namespace pmacc::spearhed
             }
         }
 
-        constexpr void extend(Vec const& point)
+        constexpr void extend(Pnt const& point)
         {
             for(unsigned i = 0; i < DIM; ++i)
             {
@@ -92,8 +97,7 @@ namespace pmacc::spearhed
             return true;
         }
 
-    private:
-        Vec min;
-        Vec max;
+        Pnt min;
+        Pnt max;
     };
 } // namespace pmacc::spearhed
