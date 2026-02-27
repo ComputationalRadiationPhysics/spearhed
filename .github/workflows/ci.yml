@@ -1,0 +1,240 @@
+name: CI Build and Test
+
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  alpaka_cmake_flags: "-Dalpaka_FAST_MATH=OFF"
+  spearhed_cmake_flags: "-DSPEARHED_TESTING=ON"
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          apt update && apt install -y python3 python3-pip
+          pip install pre-commit==4.3.0
+          pre-commit install
+          pre-commit run --all-files --show-diff-on-failure
+
+  ci:
+    # Default runner for non-CUDA/HIP tests; overridden for CUDA/HIP
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        config:
+          - { compiler: gcc, version: "12", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "13", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          # tbb backend on
+          - { compiler: gcc, version: "13", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
+          - { compiler: gcc, version: "14", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0" , simd: "EMULATION" }
+          # clang host compiler
+          - { compiler: clang, version: "17", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "18", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "19", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "20", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", simd: "EMULATION" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
+          # nvcc CUDA (nvcc does not contain simd option because nvcc can not use std::simd and is always using simd emulation
+          - { compiler: nvcc, version: "", cuda: "12.5", hip: "no", container: "nvidia/cuda:12.5.1-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", cuda: "12.6", hip: "no", container: "nvidia/cuda:12.6.3-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", cuda: "12.8", hip: "no", container: "nvidia/cuda:12.8.1-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", cuda: "12.9", hip: "no", container: "nvidia/cuda:12.9.1-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", cuda: "13.0", hip: "no", container: "nvidia/cuda:13.0.0-devel-ubuntu24.04" }
+          # clang-cuda (device compile with clang)
+          - { compiler: clang, version: "20", cuda: "12.8", hip: "no", container: "nvidia/cuda:12.8.1-devel-ubuntu24.04" }
+          - { compiler: clang, version: "21", cuda: "12.8", hip: "no", container: "nvidia/cuda:12.8.1-devel-ubuntu24.04" }
+          - { compiler: clang, version: "21", cuda: "12.8", hip: "no", container: "nvidia/cuda:12.8.1-devel-ubuntu24.04", simd: "EMULATION" }
+          # clang with ROCm HIP
+          - { compiler: clang, version: "18", cuda: "no", hip: "6.2.4", container: "rocm/dev-ubuntu-24.04:6.2.4" }
+          - { compiler: clang, version: "18", cuda: "no", hip: "6.3.4", container: "rocm/dev-ubuntu-24.04:6.3.4" }
+          - { compiler: clang, version: "19", cuda: "no", hip: "6.4.2", container: "rocm/dev-ubuntu-24.04:6.4.2" }
+          - { compiler: clang, version: "20", cuda: "no", hip: "7.0", container: "rocm/dev-ubuntu-24.04:7.0" }
+          - { compiler: clang, version: "20", cuda: "no", hip: "7.1", container: "rocm/dev-ubuntu-24.04:7.1" }
+          - { compiler: clang, version: "22", cuda: "no", hip: "7.2", container: "rocm/dev-ubuntu-24.04:7.2" }
+          - { compiler: clang, version: "22", cuda: "no", hip: "7.2", container: "rocm/dev-ubuntu-24.04:7.2", simd: "EMULATION" }
+          # SYCL
+          - { compiler: icpx, version: "2025.1", cuda: "no", hip: "no", container: "intel/oneapi-hpckit:2025.1.3-0-devel-ubuntu24.04" }
+          - { compiler: icpx, version: "2025.2", cuda: "no", hip: "no", container: "intel/oneapi-hpckit:2025.2.2-0-devel-ubuntu24.04" }
+          - { compiler: icpx, version: "2025.3", cuda: "no", hip: "no", container: "intel/oneapi-hpckit:2025.3.0-0-devel-ubuntu24.04" }
+          - { compiler: icpx, version: "2025.3", cuda: "no", hip: "no", container: "intel/oneapi-hpckit:2025.3.0-0-devel-ubuntu24.04", simd: "EMULATION" }
+          # Use/validate oneAPI-provided oneTBB package with the latest icpx toolchain
+          - { compiler: icpx, version: "2025.3", cuda: "no", hip: "no", container: "intel/oneapi-hpckit:2025.3.0-0-devel-ubuntu24.04", tbb: "on" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "asan" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "asan" , simd: "EMULATION" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "tsan" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "tsan" , simd: "EMULATION" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "lsan" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "lsan" , simd: "EMULATION" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "ubsan" }
+          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", sanitizer: "ubsan" , simd: "EMULATION" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "asan" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "asan" , simd: "EMULATION" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "tsan" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "tsan" , simd: "EMULATION" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "lsan" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "lsan" , simd: "EMULATION" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "ubsan" }
+          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0", sanitizer: "ubsan" , simd: "EMULATION" }
+      fail-fast: false
+
+    # Specify the container to use based on the matrix configuration
+    container:
+      image: ${{ matrix.config.container }}
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install base dependencies
+      - name: Install base dependencies
+        run: |
+          apt-get update
+          apt-get install -y cmake build-essential ninja-build git
+          export "SANITIZERS_DIR=$(pwd)/sanitizers"
+          echo "ASAN_OPTIONS=suppressions=${SANITIZERS_DIR}/asan_suppressions.txt" >> $GITHUB_ENV
+          echo "TSAN_OPTIONS=suppressions=${SANITIZERS_DIR}/tsan_suppressions.txt,ignore_noninstrumented_modules=1" >> $GITHUB_ENV
+          echo "LSAN_OPTIONS=suppressions=${SANITIZERS_DIR}/lsan_suppressions.txt" >> $GITHUB_ENV
+          echo "UBSAN_OPTIONS=suppressions=${SANITIZERS_DIR}/ubsan_suppressions.txt" >> $GITHUB_ENV
+
+      - name: Install oneTBB
+        if: matrix.config.tbb == 'on' && matrix.config.compiler != 'icpx'
+        run: |
+          # GCC/Clang jobs use the distro-provided oneTBB development package to satisfy find_package(TBB)
+          apt-get update
+          apt-get install -y libtbb-dev
+
+      # Install GCC if specified
+      - name: Install GCC
+        if: matrix.config.compiler == 'gcc'
+        run: |
+          apt-get update
+          if [ $(gcc --version | awk '{print($3)}' | head -n 1 | cut -d"." -f1) -ne ${{matrix.config.version}} ] ; then
+            # install gcc only if not already available
+            if [ $(which gcc-${{ matrix.config.version }}) ] ; then
+              # if gcc is pre installed gcc can not be called with the version number as postfix
+              apt-get install -y gcc-${{ matrix.config.version }} g++-${{ matrix.config.version }}
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${{ matrix.config.version }} 100 \
+                              --slave /usr/bin/g++ g++ /usr/bin/g++-${{ matrix.config.version }}
+            fi
+          fi
+
+      # Install Clang if specified
+      - name: Install Clang
+        if: matrix.config.compiler == 'clang' && matrix.config.hip == 'no'
+        run: |
+          apt update
+          apt install -y software-properties-common wget gnupg2
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+          case ${{ matrix.config.version }} in
+            20)
+                add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main"
+                ;;
+            21)
+                add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
+                ;;
+          esac
+          apt-get update
+          apt-get install -y clang-${{ matrix.config.version }}
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${{ matrix.config.version }} 100 \
+                              --slave /usr/bin/clang++ clang++ /usr/bin/clang++-${{ matrix.config.version }}
+          apt install -y libomp-${{ matrix.config.version }}-dev
+
+      # ROCm
+      - name: Install ROCm
+        if: matrix.config.hip != 'no'
+        run: |
+          apt-get update
+          apt-get install -y hiprand-dev rocrand-dev
+
+          export ROCM_PATH=/opt/rocm
+          export CMAKE_PREFIX_PATH=$ROCM_PATH:$CMAKE_PREFIX_PATH
+          export HIP_PLATFORM="amd"
+          export HIP_DEVICE_LIB_PATH=${ROCM_PATH}/amdgcn/bitcode
+          export HSA_PATH=$ROCM_PATH
+          export PATH=${ROCM_PATH}/bin:$PATH
+          export PATH=${ROCM_PATH}/llvm/bin:$PATH
+
+          # Export variables to make them globally visible
+          echo "ROCM_PATH=${ROCM_PATH}" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}" >> $GITHUB_ENV
+          echo "HIP_PLATFORM=${HIP_PLATFORM}" >> $GITHUB_ENV
+          echo "HSA_PATH=${HSA_PATH}" >> $GITHUB_ENV
+          echo "PATH=${PATH}" >> $GITHUB_ENV
+
+          which clang++
+          clang++ --version
+          hipconfig --platform
+          hipconfig -v
+
+      # intel oneAPI ipcx
+      - name: Install oneAPI
+        if: matrix.config.compiler == 'icpx'
+        run: |
+          echo "test is adding -DCMAKE_CXX_FLAGS='-fsycl -fsycl-targets=spir64_x86_64' to speedup execution"
+          # for TBB there is nothing to do because TBB is configured in the container correctly
+
+      # Configure CMake with the selected compiler and options
+      - name: Configure CMake
+        run: |
+          mkdir build && cd build
+          if [ "${{ matrix.config.compiler }}" = "gcc" ]; then
+            if [ $(which gcc-${{ matrix.config.version }}) ] ; then
+              export CC=gcc-${{ matrix.config.version }}
+              export CXX=g++-${{ matrix.config.version }}
+            else
+              # if gcc is pre installed gcc can not be called with the version number as postfix
+              export CC=gcc
+              export CXX=g++
+            fi
+          elif [ "${{ matrix.config.compiler }}" = "clang" ]; then
+            export CC=clang
+            export CXX=clang++
+          fi
+          if [ "${{ matrix.config.sanitizer}}" == 'tsan' ]; then
+            # required to to avoid compile error: 'FATAL: ThreadSanitizer: unexpected memory mapping'
+            # see: https://stackoverflow.com/questions/77850769/fatal-threadsanitizer-unexpected-memory-mapping-when-running-on-linux-kernels
+            sysctl vm.mmap_rnd_bits=28
+          fi
+
+          cmake -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                ${spearhed_cmake_flags} ${alpaka_cmake_flags} -Dalpaka_DEP_OMP=ON \
+                ${{ matrix.config.compiler == 'icpx' && '-DCMAKE_CXX_COMPILER=icpx -DCMAKE_CXX_FLAGS="-fsycl -fsycl-targets=spir64_x86_64" -Dalpaka_DEP_ONEAPI=ON -Dalpaka_ONEAPI_IntelGpu=OFF -Dalpaka_EXEC_CpuSerial=OFF -Dalpaka_DEP_OMP=OFF' || '' }} \
+                ${{ matrix.config.cuda != 'no' && '-Dalpaka_DEP_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80' || '' }} \
+                ${{ matrix.config.cuda != 'no' && matrix.config.compiler == 'clang' && '-Dalpaka_DEP_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80 -DCMAKE_CUDA_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -Dalpaka_SUPPRESS_TARGET_WARNING=ON -Dalpaka_DEP_OMP=OFF' || '' }} \
+                ${{ matrix.config.hip != 'no' && '-DCMAKE_CXX_COMPILER=clang++ -Dalpaka_DEP_HIP=ON -Dalpaka_DEP_OMP=OFF \
+                   -DCMAKE_HIP_ARCHITECTURES=gfx906 -DAMDGPU_TARGETS=gfx906' || '' }} \
+                ${{ matrix.config.tbb == 'on' && '-Dalpaka_DEP_TBB=ON' || '' }} \
+                ${{ matrix.config.simd && format('-Dalpaka_SIMD={0}', matrix.config.simd) || '' }} \
+                ${{ matrix.config.sanitizer == 'asan' && '-Dalpaka_ASAN=ON' || '' }} \
+                ${{ matrix.config.sanitizer == 'tsan' && '-Dalpaka_TSAN=ON' || '' }} \
+                ${{ matrix.config.sanitizer == 'lsan' && '-Dalpaka_LSAN=ON' || '' }} \
+                ${{ matrix.config.sanitizer == 'ubsan' && '-Dalpaka_UBSAN=ON' || '' }} ..
+
+      # Build the project
+      - name: Build
+        run: |
+          cd build
+          pwd
+          ninja
+
+      # Run tests (assuming your project has tests)
+      - name: Run Tests
+        if: matrix.config.cuda == 'no' && matrix.config.hip == 'no'
+        run: |
+          cd build
+          ctest --output-on-failure
