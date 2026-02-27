@@ -1,4 +1,4 @@
-/* Copyright 2015-2024 Rene Widera
+/* Copyright 2015-2024 Rene Widera, Tapish Narwal
  *
  * This file is part of PMacc.
  *
