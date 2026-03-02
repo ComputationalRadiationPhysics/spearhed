@@ -100,8 +100,8 @@ namespace pmacc
 
             constexpr Frame(Frame const&) = delete;
             constexpr Frame& operator=(Frame const&) = delete;
-            constexpr Frame(Frame const&&) = default;
-            constexpr Frame& operator=(Frame const&&) = default;
+            constexpr Frame(Frame&&) noexcept = default;
+            constexpr Frame& operator=(Frame&&) noexcept = default;
 
             /** access attribute with a tag
              *
