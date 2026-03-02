@@ -36,7 +36,6 @@ jobs:
           # tbb backend on
           - { compiler: gcc, version: "13", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
           - { compiler: gcc, version: "14", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: gcc, version: "15", cuda: "no", hip: "no", container: "gcc:15.1.0" }
           # clang host compiler
           - { compiler: clang, version: "17", cuda: "no", hip: "no", container: "ubuntu:24.04" }
           - { compiler: clang, version: "18", cuda: "no", hip: "no", container: "ubuntu:24.04" }
