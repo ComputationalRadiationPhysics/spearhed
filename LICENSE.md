@@ -15,6 +15,7 @@ following licenses apply:
 The **main simulation** is licensed under the **GPLv3+**. See
 [COPYING](COPYING). If not stated otherwise explicitly, that affects:
  - `include/spearhed`
+ - `tests/spearhed`
 
 ### SPMacc
 SPMacc is a part of the PMacc project, developed as an official 
