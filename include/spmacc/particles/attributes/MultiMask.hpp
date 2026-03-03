@@ -24,6 +24,8 @@
 #include "llamaLite/llamaLite.hpp"
 #include "spmacc/particles/traits.hpp"
 
+#include <pmacc/attribute/FunctionSpecifier.hpp>
+
 namespace pmacc::spearhed
 {
     namespace tags
@@ -35,7 +37,7 @@ namespace pmacc::spearhed
     template<>
     struct InitValue<tags::MultiMaskField>
     {
-        constexpr void operator()(auto multiMaskView, uint8_t val) const
+        HDINLINE constexpr void operator()(auto multiMaskView, uint8_t val) const
         {
             *multiMaskView = val;
         }

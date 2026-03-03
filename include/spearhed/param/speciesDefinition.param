@@ -29,6 +29,8 @@
 #include "spmacc/ParticleDescription.hpp"
 #include "spmacc/meta/String.hpp"
 
+#include <pmacc/meta/String.hpp>
+
 #include <cstdint>
 #include <type_traits>
 
@@ -37,7 +39,7 @@ namespace spearhed
     using namespace tags;
 
     auto particleDesc = pmacc::spearhed::createParticleDescription(
-        SPMACC_CSTRING("fluid"){},
+        PMACC_CSTRING("fluid"){},
         std::integral_constant<uint32_t, numFrameSlots>{},
         ll::Record<idField, MultiMaskField, posField, massField, velField>{});
 

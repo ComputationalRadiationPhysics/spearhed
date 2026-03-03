@@ -11,6 +11,7 @@
 #include "llamaLite/SoAView.hpp"
 #include "llamaLite/Tuple.hpp"
 #include "llamaLite/tag/TagPath.hpp"
+#include "utility.hpp"
 
 #include <array>
 #include <cstddef>
@@ -79,7 +80,8 @@ namespace llama_lite
                 }
                 else
                 {
-                    return std::span{child};
+                    using ElementType = LL_TYPEOF(child[0]);
+                    return std::span<ElementType>{child};
                 }
             }
             else
@@ -145,23 +147,23 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA tag)
+        [[nodiscard]] constexpr auto operator[](RA tag)
         {
             return view(tag);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA tag) const
+        [[nodiscard]] constexpr auto operator[](RA tag) const
         {
             return view(tag);
         }
 
-        [[nodiscard]] auto operator[](size_type idx)
+        [[nodiscard]] constexpr auto operator[](size_type idx)
         {
             return SoAIndexedView(*this, idx);
         }
 
-        [[nodiscard]] auto operator[](size_type idx) const
+        [[nodiscard]] constexpr auto operator[](size_type idx) const
         {
             return SoAIndexedView(*this, idx);
         }

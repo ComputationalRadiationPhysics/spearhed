@@ -30,6 +30,7 @@
 #include "spmacc/topology/Point.hpp"
 #include "spmacc/topology/PointStorage.hpp"
 
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/test/PMaccFixture.hpp>
@@ -39,8 +40,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
-constexpr auto testHeapSize = 256ull * 1024 * 1024;
-
 
 // Define expected bounds
 // We use a float value that can be exactly represented to avoid precision issues in comparison
@@ -56,20 +55,23 @@ constexpr PosType defaultPos{0.5f, 0.5f, 0.5f};
 // - Others -> Center
 struct SetPosFunctor
 {
-    void operator()(auto& worker, auto& particle)
+    HDINLINE constexpr void operator()(auto& worker, auto& particle)
     {
         using namespace spearhed;
 
         // Reset all to center first
-        particle[spearhed::pos].get() = defaultPos;
+        constexpr auto def = defaultPos;
+        particle[spearhed::pos].get() = def;
         // Set outliers to define the bounding box
         if(*particle[particleId] == 0)
         {
-            particle[spearhed::pos].get() = expectedMin;
+            constexpr auto min = expectedMin;
+            particle[spearhed::pos].get() = min;
         }
         else if(*particle[particleId] == 1)
         {
-            particle[spearhed::pos].get() = expectedMax;
+            constexpr auto max = expectedMax;
+            particle[spearhed::pos].get() = max;
         }
     }
 };
@@ -90,16 +92,17 @@ TEST_CASE("UpdateRegionBounds Validation", "[integration][particles][bounds]")
     // Setup Device Heap
     std::shared_ptr<spearhed::DeviceHeap> deviceHeap;
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+    constexpr auto testHeapSize = 256ull * 1024 * 1024;
     auto& deviceManager = pmacc::manager::Device<pmacc::ComputeDevice>::get();
     auto alpakaDevice = deviceManager.current();
     auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
 
-    deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
+    deviceHeap = std::make_shared<spearhed::DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
     alpaka::wait(alpakaQueue);
     deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, testHeapSize);
     alpaka::wait(alpakaQueue);
 
-    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(deviceHeap);
     dc.consume(std::move(mallocMCBuffer));
 #endif
     dc.get<pmacc::IdProvider>("globalId")->reset();
@@ -154,5 +157,6 @@ TEST_CASE("UpdateRegionBounds Validation", "[integration][particles][bounds]")
         REQUIRE(region.volume.max[d] == expectedMax[d]);
     }
 
+    dc.clean();
     env.finalize();
 }

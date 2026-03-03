@@ -36,7 +36,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
-constexpr auto testHeapSize = 256ull * 1024 * 1024;
 
 // Functor: Atomically add particle IDs to the sum
 struct SumFunc
@@ -63,18 +62,19 @@ TEST_CASE("ForEachParticleInPRBuf Validation", "[integration][particles][foreach
     std::shared_ptr<spearhed::DeviceHeap> deviceHeap;
 
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+    constexpr auto testHeapSize = 256ull * 1024 * 1024;
     auto& deviceManager = pmacc::manager::Device<pmacc::ComputeDevice>::get();
     auto alpakaDevice = deviceManager.current();
     auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
 
     // Create and resize heap
-    deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
+    deviceHeap = std::make_shared<spearhed::DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
     alpaka::wait(alpakaQueue);
 
     deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, testHeapSize);
     alpaka::wait(alpakaQueue);
 
-    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(deviceHeap);
     dc.consume(std::move(mallocMCBuffer));
 #endif
 
@@ -135,6 +135,5 @@ TEST_CASE("ForEachParticleInPRBuf Validation", "[integration][particles][foreach
     INFO("Expected Sum: " << expectedSum);
 
     REQUIRE(h_sum == expectedSum);
-
-    env.finalize();
+    dc.clean();
 }

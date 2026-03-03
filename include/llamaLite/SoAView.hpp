@@ -55,7 +55,7 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA tag) requires(sizeof...(RAs) == 1)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(sizeof...(RAs) == 1)
         {
             using ViewRA = typename SingleElementPack<RAs...>::type;
             using Path = append_t<ViewRA, RA>;
@@ -128,13 +128,13 @@ namespace llama_lite
             }
             else
             {
-                using Path = RA;
+                using Path = to_path_t<RA>;
                 return SoAIndexedView<TSoA, Path>(*(this->soa), idx, Path{});
             }
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto operator[](RA query) const
+        [[nodiscard]] constexpr auto operator[](RA) const
             requires((sizeof...(RAs) > 1) && IsInSet<to_path_t<RA>, to_path_t<RAs>...>)
         {
             return SoAIndexedView<TSoA, to_path_t<RA>>(*this);

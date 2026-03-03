@@ -19,7 +19,7 @@ namespace llama_lite
     };
 
     template<typename T>
-    concept IsTag = std::derived_from<T, TagBase> && std::is_empty_v<T>;
+    concept IsTag = std::derived_from<std::remove_cvref_t<T>, TagBase> && std::is_empty_v<T>;
 
 
     template<IsTag... Tags>
@@ -27,12 +27,12 @@ namespace llama_lite
 
     template<typename T>
     concept IsTagPath = requires {
-        typename T::TagsTuple;
-        { T::depth } -> std::convertible_to<size_t>;
+        typename std::remove_cvref_t<T>::TagsTuple;
+        { std::remove_cvref_t<T>::depth } -> std::convertible_to<size_t>;
     };
 
     template<typename T>
-    concept IsRecordAccess = IsTag<T> || IsTagPath<T>;
+    concept IsRecordAccess = IsTag<std::remove_cvref_t<T>> || IsTagPath<std::remove_cvref_t<T>>;
 
     // ToPath: Normalize Tag or TagPath to TagPath
     template<IsRecordAccess RA, bool = IsTagPath<RA>>
@@ -41,13 +41,13 @@ namespace llama_lite
     template<IsRecordAccess RA>
     struct ToPath<RA, false>
     {
-        using type = TagPath<RA>;
+        using type = TagPath<std::remove_cvref_t<RA>>;
     };
 
     template<IsRecordAccess RA>
     struct ToPath<RA, true>
     {
-        using type = RA;
+        using type = std::remove_cvref_t<RA>;
     };
 
     template<IsRecordAccess RA>
@@ -58,6 +58,7 @@ namespace llama_lite
         template<IsTag... Tags>
         struct TagPathTraits
         {
+            constexpr bool operator==(TagPathTraits const&) const = default;
         };
 
         template<IsTag H, IsTag... T>
@@ -65,6 +66,7 @@ namespace llama_lite
         {
             using HeadTag = H;
             using TailPath = TagPath<T...>;
+            constexpr bool operator==(TagPathTraits const&) const = default;
         };
 
     } // namespace detail
@@ -74,6 +76,8 @@ namespace llama_lite
     {
         static constexpr size_t depth = sizeof...(Tags);
 
+        constexpr bool operator==(TagPath const&) const = default;
+
         using TagsTuple = Tuple<Tags...>;
 
         // Element Access
@@ -82,15 +86,25 @@ namespace llama_lite
         using tag_at = std::tuple_element_t<I, TagsTuple>;
 
         // Path Manipulation
-        template<size_t N>
-        requires(N <= depth)
-        using take_first = decltype([]<size_t... I>(std::index_sequence<I...>)
-                                    { return TagPath<tag_at<I>...>{}; }(std::make_index_sequence<N>{}));
+        template<size_t... I>
+        static consteval auto take_first_helper(std::index_sequence<I...>)
+        {
+            return TagPath<tag_at<I>...>{};
+        }
 
         template<size_t N>
         requires(N <= depth)
-        using drop_first = decltype([]<size_t... I>(std::index_sequence<I...>)
-                                    { return TagPath<tag_at<I + N>...>{}; }(std::make_index_sequence<depth - N>{}));
+        using take_first = decltype(take_first_helper(std::make_index_sequence<N>{}));
+
+        template<size_t N, size_t... I>
+        static consteval auto drop_first_helper(std::index_sequence<I...>)
+        {
+            return TagPath<tag_at<I + N>...>{};
+        }
+
+        template<size_t N>
+        requires(N <= depth)
+        using drop_first = decltype(drop_first_helper<N>(std::make_index_sequence<depth - N>{}));
 
         // Path Comparisons
 

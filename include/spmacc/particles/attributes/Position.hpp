@@ -23,6 +23,8 @@
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
 
+#include <pmacc/attribute/FunctionSpecifier.hpp>
+
 namespace pmacc::spearhed
 {
     namespace tags
@@ -36,7 +38,7 @@ namespace pmacc::spearhed
     template<>
     struct InitValue<tags::posField>
     {
-        constexpr void operator()(auto posView, float val) const
+        HDINLINE constexpr void operator()(auto posView, float val) const
         {
             *posView[tags::x] = val;
             *posView[tags::y] = val;
@@ -47,7 +49,7 @@ namespace pmacc::spearhed
     template<>
     struct InitZero<tags::posField>
     {
-        constexpr void operator()(auto posView) const
+        HDINLINE constexpr void operator()(auto posView) const
         {
             *posView[tags::x] = {0.f};
             *posView[tags::y] = {0.f};

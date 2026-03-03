@@ -23,6 +23,8 @@
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
 
+#include <pmacc/attribute/FunctionSpecifier.hpp>
+
 namespace spearhed
 {
     namespace tags
@@ -45,7 +47,7 @@ namespace pmacc::spearhed
     template<>
     struct InitValue<::spearhed::tags::velField>
     {
-        constexpr void operator()(auto velView, float val) const
+        HDINLINE constexpr void operator()(auto velView, float val) const
         {
             *velView[tags::x] = val;
             *velView[tags::y] = val;
@@ -56,7 +58,7 @@ namespace pmacc::spearhed
     template<>
     struct InitZero<::spearhed::tags::velField>
     {
-        constexpr void operator()(auto velView) const
+        HDINLINE constexpr void operator()(auto velView) const
         {
             *velView[tags::x] = {0.f};
             *velView[tags::y] = {0.f};

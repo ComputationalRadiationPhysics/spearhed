@@ -70,18 +70,18 @@ namespace pmacc::spearhed
             }
         }
 
-        [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
-        {
-            AABB result;
-            //  mask assumes all threads in warp are active (standard for reduction)
-            // constexpr auto active_mask = 0xffff'ffff;
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                result.min[i] = alpaka::warp::shfl_down(worker.getAcc(), min[i], delta, width);
-                result.max[i] = alpaka::warp::shfl_down(worker.getAcc(), max[i], delta, width);
-            }
-            return result;
-        }
+        // [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
+        // {
+        //     AABB result;
+        //     //  mask assumes all threads in warp are active (standard for reduction)
+        //     // constexpr auto active_mask = 0xffff'ffff;
+        //     for(unsigned i = 0; i < DIM; ++i)
+        //     {
+        //         result.min[i] = alpaka::warp::shfl_down(worker.getAcc(), min[i], delta, width);
+        //         result.max[i] = alpaka::warp::shfl_down(worker.getAcc(), max[i], delta, width);
+        //     }
+        //     return result;
+        // }
 
         // This may need to be optimized later
         friend constexpr bool intersects(const AABB& a, const AABB& b)

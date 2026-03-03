@@ -73,7 +73,8 @@ namespace pmacc
             using SoAType = ll::SoA<ParticleRecord, frameSize>;
 
             SoAType particlesSoa;
-            [[no_unique_address]] FlagTuple flags;
+            // this should not have storage else we will get severe memory bloat due to padding to ensure alignment
+            // [[no_unique_address]] FlagTuple flags;
 
 
         public:
@@ -140,17 +141,17 @@ namespace pmacc
             }
 
             // Helper to access flags by Type
-            template<typename T>
-            [[nodiscard]] constexpr T& getFlag(T)
-            {
-                return std::get<T>(flags);
-            }
+            // template<typename T>
+            // [[nodiscard]] constexpr T& getFlag(T)
+            // {
+            //     return std::get<T>(flags);
+            // }
 
-            template<typename T>
-            [[nodiscard]] constexpr T const& getFlag(T) const
-            {
-                return std::get<T>(flags);
-            }
+            // template<typename T>
+            // [[nodiscard]] constexpr T const& getFlag(T) const
+            // {
+            //     return std::get<T>(flags);
+            // }
         };
     } // namespace spearhed
 

@@ -22,7 +22,6 @@
 #include "spearhed/param/dimension.param"
 #include "spearhed/param/mallocMC.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
-#include "spmacc/ParticleRegion.hpp"
 
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/test/PMaccFixture.hpp>
@@ -30,12 +29,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
-static pmacc::test::PMaccFixture<TEST_DIM> fixture;
-
-constexpr auto testHeapSize = 256ull * 1024 * 1024; // 256 MiB for testing (vs 2GB in production)
 
 TEST_CASE("Particle Creation and ID Sum Validation", "[integration][particles]")
 {
+    pmacc::test::PMaccFixture<TEST_DIM> fixture;
     uint64_t maxRanks = pmacc::Environment<TEST_DIM>::get().GridController().getGpuNodes().productOfComponents();
     uint64_t rank = pmacc::Environment<TEST_DIM>::get().GridController().getScalarPosition();
 
@@ -47,18 +44,19 @@ TEST_CASE("Particle Creation and ID Sum Validation", "[integration][particles]")
     std::shared_ptr<spearhed::DeviceHeap> deviceHeap;
 
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+    constexpr auto testHeapSize = 256ull * 1024 * 1024;
     auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
     auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
 
     // Create initial empty allocator
-    deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
+    deviceHeap = std::make_shared<spearhed::DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
     alpaka::wait(alpakaQueue);
 
     // We assume sufficient memory is availabe
-    deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, TestHeapSize);
+    deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, testHeapSize);
     alpaka::wait(alpakaQueue);
 
-    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(deviceHeap);
     dc.consume(std::move(mallocMCBuffer));
 #endif
 
@@ -95,5 +93,5 @@ TEST_CASE("Particle Creation and ID Sum Validation", "[integration][particles]")
 
     INFO("Total Particles Created: " << totalParticles);
     REQUIRE(actualSum == expectedSum);
-    pmacc::Environment<TEST_DIM>::get().finalize();
+    dc.clean();
 }
