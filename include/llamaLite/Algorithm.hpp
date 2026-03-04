@@ -136,16 +136,14 @@ namespace llama_lite
     }
 
     // Helper aliases for cleaner syntax (optional)
-    template<IsRecord R, template<typename> typename VisitorTrait, auto... Paths>
-    requires(IsRecordAccess<decltype(Paths)> && ...)
-    constexpr void iterate_only(auto&& view, auto&&... args)
+    template<IsRecord R, template<typename> typename VisitorTrait, IsRecordAccess auto... Paths, typename... Args>
+    constexpr void iterate_only(auto&& view, Args&&... args)
     {
         iterate<R, selectors::Include<decltype(Paths)...>, VisitorTrait>(LL_FORWARD(view), LL_FORWARD(args)...);
     }
 
-    template<IsRecord R, template<typename> typename VisitorTrait, auto... Paths>
-    requires(IsRecordAccess<decltype(Paths)> && ...)
-    constexpr void iterate_except(auto&& view, auto&&... args)
+    template<IsRecord R, template<typename> typename VisitorTrait, IsRecordAccess auto... Paths, typename... Args>
+    constexpr void iterate_except(auto&& view, Args&&... args)
     {
         iterate<R, selectors::Exclude<decltype(Paths)...>, VisitorTrait>(LL_FORWARD(view), LL_FORWARD(args)...);
     }

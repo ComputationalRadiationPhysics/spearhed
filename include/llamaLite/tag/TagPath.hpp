@@ -53,28 +53,33 @@ namespace llama_lite
     template<IsRecordAccess RA>
     using to_path_t = typename ToPath<RA>::type;
 
-    namespace detail
-    {
-        template<IsTag... Tags>
-        struct TagPathTraits
-        {
-            constexpr bool operator==(TagPathTraits const&) const = default;
-        };
+    // namespace detail
+    // {
+    //     template<IsTag... Tags>
+    //     struct PathHeadTail
+    //     {
+    //         using Head = void;
+    //         using Tail = void;
+    //         constexpr bool operator==(PathHeadTail const&) const = default;
+    //     };
 
-        template<IsTag H, IsTag... T>
-        struct TagPathTraits<H, T...>
-        {
-            using HeadTag = H;
-            using TailPath = TagPath<T...>;
-            constexpr bool operator==(TagPathTraits const&) const = default;
-        };
+    //     template<IsTag H, IsTag... T>
+    //     struct PathHeadTail<H, T...>
+    //     {
+    //         using Head = H;
+    //         using Tail = TagPath<T...>;
+    //         constexpr bool operator==(PathHeadTail const&) const = default;
+    //     };
 
-    } // namespace detail
+    // } // namespace detail
 
     template<IsTag... Tags>
-    struct TagPath : public detail::TagPathTraits<Tags...>
+    struct TagPath
     {
         static constexpr size_t depth = sizeof...(Tags);
+
+        // using HeadTag = typename detail::PathHeadTail<Tags...>::Head;
+        // using TailPath = typename detail::PathHeadTail<Tags...>::Tail;
 
         constexpr bool operator==(TagPath const&) const = default;
 
@@ -82,7 +87,7 @@ namespace llama_lite
 
         // Element Access
         template<size_t I>
-        requires(I < depth)
+        requires(I < sizeof...(Tags))
         using tag_at = std::tuple_element_t<I, TagsTuple>;
 
         // Path Manipulation
@@ -93,7 +98,7 @@ namespace llama_lite
         }
 
         template<size_t N>
-        requires(N <= depth)
+        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
         using take_first = decltype(take_first_helper(std::make_index_sequence<N>{}));
 
         template<size_t N, size_t... I>
@@ -103,10 +108,19 @@ namespace llama_lite
         }
 
         template<size_t N>
-        requires(N <= depth)
-        using drop_first = decltype(drop_first_helper<N>(std::make_index_sequence<depth - N>{}));
+        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
+        using drop_first = decltype(drop_first_helper<N>(std::make_index_sequence<sizeof...(Tags) - N>{}));
 
         // Path Comparisons
+        static consteval auto head() requires(sizeof...(Tags) > 0)
+        {
+            return tag_at<0>{};
+        }
+
+        static consteval auto tail() requires(sizeof...(Tags) > 0)
+        {
+            return drop_first<1>{};
+        }
 
         /// Exact equality
         template<IsRecordAccess RA>
@@ -194,7 +208,7 @@ namespace llama_lite
     using append_t = typename Append<RA1, RA2>::type;
 
     template<IsRecordAccess LHS, IsRecordAccess RHS>
-    [[nodiscard]] constexpr auto operator/(LHS, RHS) noexcept
+    [[nodiscard]] consteval auto operator/(LHS, RHS) noexcept
     {
         return append_t<LHS, RHS>{};
     }

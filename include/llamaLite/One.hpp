@@ -53,8 +53,8 @@ namespace llama_lite
         {
             using Path = typename ToPath<RA>::type;
 
-            constexpr uint32_t idx = CurrentRecord::template getIndex<typename Path::HeadTag>();
-            using ValueT = typename CurrentRecord::template value_type_for<typename Path::HeadTag>;
+            constexpr uint32_t idx = CurrentRecord::template getIndex<decltype(Path::head())>();
+            using ValueT = typename CurrentRecord::template value_type_for<decltype(Path::head())>;
 
             auto& child = tuple::get<idx>(storage);
 
@@ -81,7 +81,7 @@ namespace llama_lite
                 }
                 else
                 {
-                    return resolveLeaf<typename Path::TailPath, ValueT>(child);
+                    return resolveLeaf<decltype(Path::tail()), ValueT>(child);
                 }
             }
         }
