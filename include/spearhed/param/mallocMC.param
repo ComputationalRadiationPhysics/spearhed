@@ -42,13 +42,18 @@ namespace spearhed
     using DeviceHeapConfig
         = mallocMC::CreationPolicies::FlatterScatterAlloc::DefaultHeapConfig<blockSize, pageSize, wastefactor>;
 
+    struct ShrinkConfig : mallocMC::AlignmentPolicies::Shrink<>::Properties
+    {
+        static constexpr auto dataAlignment = 128;
+    };
+
     using DeviceHeap = mallocMC::Allocator<
         alpaka::AccToTag<pmacc::Acc<DIM1>>,
         mallocMC::CreationPolicies::FlatterScatter<DeviceHeapConfig>,
         mallocMC::DistributionPolicies::Noop,
         mallocMC::OOMPolicies::ReturnNull,
         mallocMC::ReservePoolPolicies::AlpakaBuf<pmacc::Acc<DIM1>>,
-        mallocMC::AlignmentPolicies::Shrink<>>;
+        mallocMC::AlignmentPolicies::Shrink<ShrinkConfig>>;
 
 } // namespace spearhed
 

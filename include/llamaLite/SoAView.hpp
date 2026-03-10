@@ -30,27 +30,32 @@ namespace llama_lite
         TSoA* soa;
 
         // constructor only available if RAs exist in the TSoA record
-        SoAView(TSoA& soa_, RAs...) requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-            : soa{&soa_} {};
+        constexpr SoAView(TSoA& soa_, RAs...) noexcept
+            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+            : soa{&soa_}
+        {
+        }
 
         template<typename... ParentRAs>
-        SoAView(SoAView<TSoA, ParentRAs...> view, RAs...)
+        constexpr SoAView(SoAView<TSoA, ParentRAs...> view, RAs...) noexcept
             requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-                    && (IsInSet<RAs, ParentRAs...> && ...)
-            : soa{view.soa} {};
+                    && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
+            : soa{view.soa}
+        {
+        }
 
-        [[nodiscard]] decltype(auto) operator[](uint32_t idx)
+        [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx)
         {
             return SoAIndexedView(*this, idx);
         }
 
-        [[nodiscard]] decltype(auto) operator[](uint32_t idx) const
+        [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx) const
         {
             return SoAIndexedView(*this, idx);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] decltype(auto) operator[](RA tag) requires(sizeof...(RAs) == 1) //&& (RAs::isRootOf(tag) || ...)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(sizeof...(RAs) == 1)
         {
             using ViewRA = typename SingleElementPack<RAs...>::type;
             using Path = append_t<ViewRA, RA>;
@@ -71,42 +76,49 @@ namespace llama_lite
         consteval SoAIndexedView() = default;
 
         // constructor only available if RAs exist in the TSoA record
-        SoAIndexedView(TSoA& soa_, uint32_t index, RAs...)
+        constexpr SoAIndexedView(TSoA& soa_, uint32_t index, RAs...) noexcept
             requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
             : soa{&soa_}
-            , idx{index} {};
+            , idx{index}
+        {
+        }
 
-        SoAIndexedView(SoAView<TSoA, RAs...> view, uint32_t index) : soa{view.soa}, idx{index} {};
+        constexpr SoAIndexedView(SoAView<TSoA, RAs...> view, uint32_t index) noexcept : soa{view.soa}, idx{index} {};
 
         template<typename... ParentRAs>
-        SoAIndexedView(SoAView<TSoA, ParentRAs...> view, uint32_t index, RAs...)
+        constexpr SoAIndexedView(SoAView<TSoA, ParentRAs...> view, uint32_t index, RAs...) noexcept
             requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-                        && (IsInSet<RAs, ParentRAs...> && ...)
+                        && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
             : soa{view.soa}
-            , idx{index} {};
+            , idx{index}
+        {
+        }
 
         template<typename... ParentRAs>
-        SoAIndexedView(SoAIndexedView<TSoA, ParentRAs...> idxView, RAs...)
+        constexpr SoAIndexedView(SoAIndexedView<TSoA, ParentRAs...> idxView, RAs...) noexcept
             requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-                        && (IsInSet<RAs, ParentRAs...> && ...)
+                        && (IsInSet<to_path_t<RAs>, ParentRAs...> && ...)
             : soa{idxView.soa}
-            , idx{idxView.idx} {};
+            , idx{idxView.idx}
+        {
+        }
 
         // conversion constructor to defined RAs from another view.
         template<typename... OtherRAs>
-        SoAIndexedView(SoAIndexedView<TSoA, OtherRAs...> const& other)
+        constexpr SoAIndexedView(SoAIndexedView<TSoA, OtherRAs...> const& other) noexcept
             requires(
                         // Allow conversion from Root view
                         sizeof...(OtherRAs) == 0 ||
                         // OR Ensure all RAs in this view are present in the OtherRAs
-                        (IsInSet<RAs, OtherRAs...> && ...))
+                        (IsInSet<to_path_t<RAs>, to_path_t<OtherRAs>...> && ...))
             : soa{other.soa}
-            , idx{other.idx} {};
+            , idx{other.idx}
+        {
+        }
 
         // TODO add checks on RA being valid for the soa record
         template<IsRecordAccess RA>
-        [[nodiscard]] decltype(auto) operator[](RA) const
-            requires(sizeof...(RAs) <= 1) //&& (RAs::isRootOf(tag) || ...)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(sizeof...(RAs) <= 1)
         {
             if constexpr(sizeof...(RAs) == 1)
             {
@@ -116,34 +128,34 @@ namespace llama_lite
             }
             else
             {
-                using Path = RA;
+                using Path = to_path_t<RA>;
                 return SoAIndexedView<TSoA, Path>(*(this->soa), idx, Path{});
             }
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA query) const
-            requires((sizeof...(RAs) > 1) && (RAs::isRootOf(query) || ...) && IsInSet<RA, RAs...>)
+        [[nodiscard]] constexpr auto operator[](RA) const
+            requires((sizeof...(RAs) > 1) && IsInSet<to_path_t<RA>, to_path_t<RAs>...>)
         {
-            return SoAIndexedView(*this, query);
+            return SoAIndexedView<TSoA, to_path_t<RA>>(*this);
         }
 
         // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
         // for example implicitly when the user requests it
-        [[nodiscard]] decltype(auto) operator*()
+        [[nodiscard]] constexpr decltype(auto) operator*()
             requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
         {
             return soa->template getLeaf<RAs...>()[idx];
         }
 
-        [[nodiscard]] decltype(auto) operator*() const
+        [[nodiscard]] constexpr decltype(auto) operator*() const
             requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
         {
             return soa->template getLeaf<RAs...>()[idx];
         }
 
         // requires we are a leaf node or AsType is
-        [[nodiscard]] decltype(auto) get() requires(
+        [[nodiscard]] constexpr decltype(auto) get() requires(
             (sizeof...(RAs) == 1)
             && (TSoA::record_type::template isLeaf<RAs...>()
                 || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
@@ -161,7 +173,7 @@ namespace llama_lite
             }
         }
 
-        [[nodiscard]] decltype(auto) get() const requires(
+        [[nodiscard]] constexpr decltype(auto) get() const requires(
             (sizeof...(RAs) == 1)
             && (TSoA::record_type::template isLeaf<RAs...>()
                 || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::

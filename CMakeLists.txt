@@ -51,12 +51,16 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # Enable Interprocedural Optimization (LTO)
-include(CheckIPOSupported)
-check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_output)
-if(_ipo_supported)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-else()
-    message(WARNING "IPO is not supported: ${_ipo_output}")
+option(SPEARHED_ENABLE_IPO "Enable IPO/LTO")
+
+if(SPEARHED_ENABLE_IPO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_output)
+    if(_ipo_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    else()
+        message(WARNING "IPO is not supported: ${_ipo_output}")
+    endif()
 endif()
 
 # interface library for common compile options

@@ -106,7 +106,7 @@ TEST_CASE("LlamaLite Record Iteration Policies", "[llamaLite][iteration]")
         // - TagB: Not target, check children -> Enter
         //   - TagC: Is target -> Skip
         //   - TagD: Safe -> Visit
-        llama_lite::iterate_except<OuterRecord, TrackingVisitor, TagB / TagC>(root_view, visited);
+        llama_lite::iterate_except<OuterRecord, TrackingVisitor, ll::append_t<TagB_t, TagC_t>{}>(root_view, visited);
 
         CHECK(visited == std::vector<std::string>{"TagA", "TagD"});
     }

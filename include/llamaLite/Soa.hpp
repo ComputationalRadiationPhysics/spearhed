@@ -11,6 +11,7 @@
 #include "llamaLite/SoAView.hpp"
 #include "llamaLite/Tuple.hpp"
 #include "llamaLite/tag/TagPath.hpp"
+#include "utility.hpp"
 
 #include <array>
 #include <cstddef>
@@ -64,8 +65,8 @@ namespace llama_lite
         {
             using Path = typename ToPath<RA>::type;
 
-            constexpr uint32_t idx = CurrentRecord::template getIndex<typename Path::HeadTag>();
-            using ValueT = typename CurrentRecord::template value_type_for<typename Path::HeadTag>;
+            constexpr uint32_t idx = CurrentRecord::template getIndex<decltype(Path::head())>();
+            using ValueT = typename CurrentRecord::template value_type_for<decltype(Path::head())>;
 
             auto& child = tuple::get<idx>(storage);
 
@@ -79,7 +80,8 @@ namespace llama_lite
                 }
                 else
                 {
-                    return std::span{child};
+                    using ElementType = LL_TYPEOF(child[0]);
+                    return std::span<ElementType>{child};
                 }
             }
             else
@@ -92,7 +94,7 @@ namespace llama_lite
                 }
                 else
                 {
-                    return resolveLeaf<typename Path::TailPath, ValueT>(child);
+                    return resolveLeaf<decltype(Path::tail()), ValueT>(child);
                 }
             }
         }
@@ -132,26 +134,36 @@ namespace llama_lite
             return detail::resolveLeaf<RA, R>(channels_);
         }
 
-        template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA)
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags)
         {
-            using Path = to_path_t<RA>;
-            return SoAView(*this, Path{});
+            return SoAView<SoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags) const
+        {
+            return SoAView<SoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA) const
+        [[nodiscard]] constexpr auto operator[](RA tag)
         {
-            using Path = to_path_t<RA>;
-            return SoAView(*this, Path{});
+            return view(tag);
         }
 
-        [[nodiscard]] auto operator[](size_type idx)
+        template<IsRecordAccess RA>
+        [[nodiscard]] constexpr auto operator[](RA tag) const
+        {
+            return view(tag);
+        }
+
+        [[nodiscard]] constexpr auto operator[](size_type idx)
         {
             return SoAIndexedView(*this, idx);
         }
 
-        [[nodiscard]] auto operator[](size_type idx) const
+        [[nodiscard]] constexpr auto operator[](size_type idx) const
         {
             return SoAIndexedView(*this, idx);
         }

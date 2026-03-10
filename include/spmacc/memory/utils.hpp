@@ -33,7 +33,11 @@ namespace pmacc::spearhed::memory
     static constexpr int allocationMaxRetries = 13;
 
     // Raw allocation and retry logic using mallocMC
-    [[nodiscard]] constexpr void* allocateRawMemory(auto const& worker, auto const& deviceHeapHandle, size_t size)
+    [[nodiscard]] constexpr void* allocateRawMemory(
+        auto const& worker,
+        auto deviceHeapHandle,
+        size_t size,
+        std::align_val_t alignment)
     {
         for(int i = 0; i < allocationMaxRetries; ++i)
         {
@@ -44,7 +48,7 @@ namespace pmacc::spearhed::memory
 #else
             // Use nothrow to ensure nullptr is returned on failure,
             // preventing exceptions from breaking the retry loop.
-            rawPtr = operator new(size, std::nothrow);
+            rawPtr = operator new(size, alignment, std::nothrow);
 #endif
             if(rawPtr != nullptr)
             {
@@ -56,9 +60,9 @@ namespace pmacc::spearhed::memory
 
     // Allocates memory unintialized
     template<typename T>
-    [[nodiscard]] constexpr T* allocateMemory(auto const& worker, auto const& deviceHeapHandle)
+    [[nodiscard]] constexpr T* allocateMemory(auto const& worker, auto deviceHeapHandle)
     {
-        void* mem = allocateRawMemory(worker, deviceHeapHandle, sizeof(T));
+        void* mem = allocateRawMemory(worker, deviceHeapHandle, sizeof(T), std::align_val_t{alignof(T)});
         if(mem)
         {
             return static_cast<T*>(mem);

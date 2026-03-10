@@ -19,55 +19,54 @@
 
 #pragma once
 
-#include "spearhed/particles/attributes/Position.hpp"
-#include "spearhed/topology/CoordinateSystem.hpp"
+#include "spmacc/particles/attributes/Cartesian.hpp"
+#include "spmacc/topology/CoordinateSystem.hpp"
 
-namespace spearhed
+#include <pmacc/math/vector/Vector.hpp>
+
+namespace pmacc::spearhed
 {
-    using namespace spearhed::tags;
-
     template<CoordinateSystem CS>
     struct PointValueStorage;
 
     template<typename T>
-    struct PointValueStorage<Cartesian<T, 3>>
+    struct PointValueStorage<Cartesian<T, 3>> : public pmacc::math::Vector<T, 3>
     {
-        T x, y, z;
-
+        using Base = pmacc::math::Vector<T, 3>;
         constexpr PointValueStorage() = default;
 
-        constexpr PointValueStorage(T x_, T y_, T z_) : x(x_), y(y_), z(z_)
+        constexpr PointValueStorage(T x_, T y_, T z_) : Base(x_, y_, z_)
         {
         }
 
         [[nodiscard]] constexpr T get_x() const
         {
-            return x;
+            return Base::operator[](0);
         }
 
         [[nodiscard]] constexpr T get_y() const
         {
-            return y;
+            return Base::operator[](1);
         }
 
         [[nodiscard]] constexpr T get_z() const
         {
-            return z;
+            return Base::operator[](2);
         }
 
-        [[nodiscard]] constexpr T& get_x()
+        [[nodiscard]] constexpr T get_x()
         {
-            return x;
+            return Base::operator[](0);
         }
 
-        [[nodiscard]] constexpr T& get_y()
+        [[nodiscard]] constexpr T get_y()
         {
-            return y;
+            return Base::operator[](1);
         }
 
-        [[nodiscard]] constexpr T& get_z()
+        [[nodiscard]] constexpr T get_z()
         {
-            return z;
+            return Base::operator[](2);
         }
     };
 
@@ -86,17 +85,17 @@ namespace spearhed
 
         [[nodiscard]] constexpr T& get_x() const
         {
-            return *pointView[x];
+            return *pointView[tags::x];
         }
 
         [[nodiscard]] constexpr T& get_y() const
         {
-            return *pointView[y];
+            return *pointView[tags::y];
         }
 
         [[nodiscard]] constexpr T& get_z() const
         {
-            return *pointView[z];
+            return *pointView[tags::z];
         }
     };
 
@@ -111,13 +110,13 @@ namespace spearhed
 
         [[nodiscard]] constexpr T& get_x() const
         {
-            return *pointView[x];
+            return *pointView[tags::x];
         }
 
         [[nodiscard]] constexpr T& get_y() const
         {
-            return *pointView[y];
+            return *pointView[tags::y];
         }
     };
 
-} // namespace spearhed
+} // namespace pmacc::spearhed

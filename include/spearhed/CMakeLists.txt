@@ -7,10 +7,6 @@ add_library(spearhed-hostonly STATIC ${SRCFILES})
 
 target_link_libraries(spearhed-hostonly PUBLIC project_options MPI::MPI_CXX Boost::program_options llamaLite)
 
-# Some host compiled libraries depend on std::filesystem,
-# compatibility to std::experimental::filesystem is handled in pmacc.
-target_link_libraries(spearhed-hostonly PRIVATE pmacc::filesystem)
-
 if(NOT WIN32)
     target_link_libraries(spearhed-hostonly PRIVATE m)
 endif()

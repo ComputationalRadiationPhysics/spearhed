@@ -1,6 +1,6 @@
 /* Copyright 2025-2026 Tapish Narwal
  *
- * This file is part of SPEARHED, derived from PIConGPU.
+ * This file is part of SPEARHED.
  *
  * SPEARHED is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,16 +19,23 @@
 
 #pragma once
 
-#include "spmacc/topology/CoordinateSystem.hpp"
+#include "spearhed/ParticleView.hpp"
+#include "spearhed/param/dimension.param"
+#include "spearhed/particles/attributes/Velocity.hpp"
+#include "spmacc/particles/attributes/Position.hpp"
 
-#include <pmacc/dimensions/Definition.hpp>
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 
 namespace spearhed
 {
-    using T_Dim = pmacc::spearhed::T_Dim;
-    constexpr T_Dim simDim = DIM3;
-    using CS = pmacc::spearhed::Cartesian<float, simDim>;
+    struct PushVelocity
+    {
+        HDINLINE constexpr void operator()(auto worker, ParticleView<pos, vel> view, T_dt delt) const
+        {
+            *view[pos][x] += *view[vel][x] * delt;
+            *view[pos][y] += *view[vel][y] * delt;
+            *view[pos][z] += *view[vel][z] * delt;
+        }
+    };
 
-    using T_dt = float;
-    constexpr T_dt dt = 0.01f;
 } // namespace spearhed

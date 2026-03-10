@@ -1,4 +1,4 @@
-/* Copyright 2015-2026 Rene Widera, Tapish Narwal
+/* Copyright 2025-2026 Tapish Narwal
  *
  * This file is part of PMacc.
  *
@@ -21,16 +21,26 @@
 
 #pragma once
 
-#include <pmacc/particles/memory/dataTypes/Pointer.hpp>
+#include "llamaLite/llamaLite.hpp"
+#include "spmacc/particles/traits.hpp"
 
-#include <boost/mpl/placeholders.hpp>
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 
 namespace pmacc::spearhed
 {
-    template<typename T_Type = boost::mpl::_1>
-    struct NextPtr
+    namespace tags
     {
-        PMACC_ALIGN(next, T_Type*);
+        DEFINE_TAG(multiMask);
+        using MultiMaskField = ll::Field<multiMask_t, uint8_t>;
+    } // namespace tags
+
+    template<>
+    struct InitValue<tags::MultiMaskField>
+    {
+        HDINLINE constexpr void operator()(auto multiMaskView, uint8_t val) const
+        {
+            *multiMaskView = val;
+        }
     };
 
 } // namespace pmacc::spearhed

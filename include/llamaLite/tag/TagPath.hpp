@@ -19,7 +19,7 @@ namespace llama_lite
     };
 
     template<typename T>
-    concept IsTag = std::derived_from<T, TagBase> && std::is_empty_v<T>;
+    concept IsTag = std::derived_from<std::remove_cvref_t<T>, TagBase> && std::is_empty_v<T>;
 
 
     template<IsTag... Tags>
@@ -27,12 +27,12 @@ namespace llama_lite
 
     template<typename T>
     concept IsTagPath = requires {
-        typename T::TagsTuple;
-        { T::depth } -> std::convertible_to<size_t>;
+        typename std::remove_cvref_t<T>::TagsTuple;
+        { std::remove_cvref_t<T>::depth } -> std::convertible_to<size_t>;
     };
 
     template<typename T>
-    concept IsRecordAccess = IsTag<T> || IsTagPath<T>;
+    concept IsRecordAccess = IsTag<std::remove_cvref_t<T>> || IsTagPath<std::remove_cvref_t<T>>;
 
     // ToPath: Normalize Tag or TagPath to TagPath
     template<IsRecordAccess RA, bool = IsTagPath<RA>>
@@ -41,58 +41,86 @@ namespace llama_lite
     template<IsRecordAccess RA>
     struct ToPath<RA, false>
     {
-        using type = TagPath<RA>;
+        using type = TagPath<std::remove_cvref_t<RA>>;
     };
 
     template<IsRecordAccess RA>
     struct ToPath<RA, true>
     {
-        using type = RA;
+        using type = std::remove_cvref_t<RA>;
     };
 
     template<IsRecordAccess RA>
     using to_path_t = typename ToPath<RA>::type;
 
-    namespace detail
-    {
-        template<IsTag... Tags>
-        struct TagPathTraits
-        {
-        };
+    // namespace detail
+    // {
+    //     template<IsTag... Tags>
+    //     struct PathHeadTail
+    //     {
+    //         using Head = void;
+    //         using Tail = void;
+    //         constexpr bool operator==(PathHeadTail const&) const = default;
+    //     };
 
-        template<IsTag H, IsTag... T>
-        struct TagPathTraits<H, T...>
-        {
-            using HeadTag = H;
-            using TailPath = TagPath<T...>;
-        };
+    //     template<IsTag H, IsTag... T>
+    //     struct PathHeadTail<H, T...>
+    //     {
+    //         using Head = H;
+    //         using Tail = TagPath<T...>;
+    //         constexpr bool operator==(PathHeadTail const&) const = default;
+    //     };
 
-    } // namespace detail
+    // } // namespace detail
 
     template<IsTag... Tags>
-    struct TagPath : public detail::TagPathTraits<Tags...>
+    struct TagPath
     {
         static constexpr size_t depth = sizeof...(Tags);
+
+        // using HeadTag = typename detail::PathHeadTail<Tags...>::Head;
+        // using TailPath = typename detail::PathHeadTail<Tags...>::Tail;
+
+        constexpr bool operator==(TagPath const&) const = default;
 
         using TagsTuple = Tuple<Tags...>;
 
         // Element Access
         template<size_t I>
-        requires(I < depth)
+        requires(I < sizeof...(Tags))
         using tag_at = std::tuple_element_t<I, TagsTuple>;
 
         // Path Manipulation
-        template<size_t N>
-        requires(N <= depth)
-        using take_first = decltype([]<size_t... I>(std::index_sequence<I...>)
-                                    { return TagPath<tag_at<I>...>{}; }(std::make_index_sequence<N>{}));
+        template<size_t... I>
+        static consteval auto take_first_helper(std::index_sequence<I...>)
+        {
+            return TagPath<tag_at<I>...>{};
+        }
 
         template<size_t N>
-        requires(N <= depth)
-        using drop_first = decltype([]<size_t... I>(std::index_sequence<I...>)
-                                    { return TagPath<tag_at<I + N>...>{}; }(std::make_index_sequence<depth - N>{}));
+        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
+        using take_first = decltype(take_first_helper(std::make_index_sequence<N>{}));
+
+        template<size_t N, size_t... I>
+        static consteval auto drop_first_helper(std::index_sequence<I...>)
+        {
+            return TagPath<tag_at<I + N>...>{};
+        }
+
+        template<size_t N>
+        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
+        using drop_first = decltype(drop_first_helper<N>(std::make_index_sequence<sizeof...(Tags) - N>{}));
 
         // Path Comparisons
+        static consteval auto head() requires(sizeof...(Tags) > 0)
+        {
+            return tag_at<0>{};
+        }
+
+        static consteval auto tail() requires(sizeof...(Tags) > 0)
+        {
+            return drop_first<1>{};
+        }
 
         /// Exact equality
         template<IsRecordAccess RA>
@@ -180,7 +208,7 @@ namespace llama_lite
     using append_t = typename Append<RA1, RA2>::type;
 
     template<IsRecordAccess LHS, IsRecordAccess RHS>
-    [[nodiscard]] constexpr auto operator/(LHS, RHS) noexcept
+    [[nodiscard]] consteval auto operator/(LHS, RHS) noexcept
     {
         return append_t<LHS, RHS>{};
     }

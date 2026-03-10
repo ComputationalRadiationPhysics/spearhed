@@ -69,7 +69,7 @@ function(add_test_target target_prefix folder)
                     set(_test_target_name "${target_prefix}${test_folder_name}_${source_file_name}")
                     message(DEBUG "  add test target ${_test_target_name}: ${source_file}")
 
-                    add_executable(${_test_target_name} ${source_file})
+                    alpaka_add_executable(${_test_target_name} ${source_file})
                     get_filename_component(src_dir ${source_file} DIRECTORY)
                     target_include_directories(${_test_target_name} PRIVATE ${src_dir})
                     if(EXISTS "${test_folder}/include")
@@ -79,7 +79,7 @@ function(add_test_target target_prefix folder)
 
                     target_link_libraries(
                         ${_test_target_name}
-                        PRIVATE Catch2::Catch2WithMain alpaka::alpaka spearhed-hostonly
+                        PRIVATE Catch2::Catch2WithMain alpaka::alpaka spearhed-hostonly pmacc::pmacc
                     )
                     catch_discover_tests(${_test_target_name})
                 endif()
@@ -89,3 +89,4 @@ function(add_test_target target_prefix folder)
 endfunction()
 
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
+add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)

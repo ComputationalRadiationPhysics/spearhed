@@ -46,7 +46,7 @@ namespace pmacc::spearhed::memory
         {
         }
 
-        HDINLINE FramePointer(PtrType const ptrIn) : Base(ptrIn)
+        HDINLINE FramePointer(T_Type* const ptrIn) : Base(ptrIn)
         {
         }
 

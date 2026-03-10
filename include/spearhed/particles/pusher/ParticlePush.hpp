@@ -1,6 +1,6 @@
 /* Copyright 2025-2026 Tapish Narwal
  *
- * This file is part of SPEARHED, derived from PIConGPU.
+ * This file is part of SPEARHED.
  *
  * SPEARHED is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,16 +19,26 @@
 
 #pragma once
 
-#include "spmacc/topology/CoordinateSystem.hpp"
-
-#include <pmacc/dimensions/Definition.hpp>
+#include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/particles/pusher/PushVelocity.hpp"
+#include "spmacc/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 
 namespace spearhed
 {
-    using T_Dim = pmacc::spearhed::T_Dim;
-    constexpr T_Dim simDim = DIM3;
-    using CS = pmacc::spearhed::Cartesian<float, simDim>;
+    struct ParticlePush
+    {
+        void operator()(uint32_t currentStep) const
+        {
+            auto& dc = pmacc::Environment<>::get().DataConnector();
+            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
 
-    using T_dt = float;
-    constexpr T_dt dt = 0.01f;
+            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, PushVelocity{}, dt);
+            // forEachParticleInPR();
+            // Push particles
+            // PushDistance{}();
+            // Update bounding boxes
+        }
+    };
+
 } // namespace spearhed

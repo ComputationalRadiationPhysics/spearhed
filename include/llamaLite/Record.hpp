@@ -91,7 +91,7 @@ namespace llama_lite
             if constexpr(Path::depth == 0)
                 return true;
 
-            using Head = typename Path::HeadTag;
+            using Head = decltype(Path::head());
             if constexpr(!hasTag<Head>())
             {
                 return false;
@@ -110,11 +110,12 @@ namespace llama_lite
 
                     if constexpr(IsRecord<FieldType>)
                     {
-                        return FieldType::template hasPath<typename Path::TailPath>();
+                        return FieldType::template hasPath<decltype(Path::tail())>();
                     }
                     else
                     {
-                        return false; // Path continues but field is a leaf
+                        // Path continues but field is a leaf
+                        return false;
                     }
                 }
             }
@@ -125,7 +126,7 @@ namespace llama_lite
         {
             using Path = typename ToPath<Query>::type;
 
-            constexpr std::size_t idx = getIndex<typename Path::HeadTag>();
+            constexpr std::size_t idx = getIndex<decltype(Path::head())>();
             using CurrentField = std::tuple_element_t<idx, fields_tuple_type>;
 
             if constexpr(Path::depth == 1)
@@ -138,7 +139,7 @@ namespace llama_lite
                     IsRecord<typename CurrentField::value_type>,
                     "TagPath continues but the field at this level is not a Record.");
 
-                using Tail = typename Path::TailPath;
+                using Tail = decltype(Path::tail());
                 using Result = typename CurrentField::value_type::template field_for<Tail>;
                 return Result{};
             }
