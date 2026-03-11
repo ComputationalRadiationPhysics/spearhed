@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "catch2/catch_test_macros.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param/speciesTraits.param"
 #include "spmacc/ParticleRegionBuffer.hpp"
@@ -39,7 +40,11 @@
 struct CheckParticlePos
 {
     template<typename T_Worker, typename T_PRBox>
-    HDINLINE constexpr auto operator()(T_Worker const& worker, T_PRBox prDeviceBox, int numParticleRegions) const
+    HDINLINE constexpr auto operator()(
+        T_Worker const& worker,
+        T_PRBox prDeviceBox,
+        int numParticleRegions,
+        int* d_errorCount) const
     {
         auto const blockIdx = worker.blockDomIdx();
         // Process all particle regions
@@ -68,14 +73,8 @@ struct CheckParticlePos
                         {
                             if(!particle[spearhed::pos].get().isApprox(1.f))
                             {
-                                printf(
-                                    "particle position incorrect. Got pos x %g vel x %g\n",
-                                    particle[spearhed::pos].get().get_x(),
-                                    *particle[spearhed::vel][spearhed::x]);
-                            }
-                            else
-                            {
-                                printf("true\n");
+                                // Increment error counter on device
+                                alpaka::atomicAdd(worker.getAcc(), d_errorCount, 1, alpaka::hierarchy::Blocks{});
                             }
                         }
                     });
@@ -100,7 +99,18 @@ struct ValidatePush
         auto& dc = pmacc::Environment<>::get().DataConnector();
         auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>("PRBuf");
 
+        pmacc::HostDeviceBuffer<int, 1> errorBuffer(1u);
+        errorBuffer.getHostBuffer().setValue(0);
+        errorBuffer.hostToDevice();
+
         PMACC_LOCKSTEP_KERNEL(CheckParticlePos{})
-            .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+            .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(
+                numBlocks))(prBuf.getDeviceDataBox(), prBuf.size, errorBuffer.getDeviceBuffer().data());
+
+        errorBuffer.deviceToHost();
+        int const totalErrors = errorBuffer.getHostBuffer().data()[0];
+
+        INFO("Number of particles with incorrect positions: " << totalErrors);
+        REQUIRE(totalErrors == 0);
     }
 };
