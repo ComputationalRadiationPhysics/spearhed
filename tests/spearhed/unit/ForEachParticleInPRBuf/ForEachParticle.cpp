@@ -19,16 +19,12 @@
 
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 
-#include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param/dimension.param"
-#include "spearhed/param/mallocMC.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
-#include "spmacc/ParticleRegion.hpp"
+#include "spearhed/test/SpearhedParticleFixture.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/core/Positioning.hpp>
@@ -40,62 +36,20 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 // Functor: Atomically add particle IDs to the sum
 struct SumFunc
 {
-    constexpr void operator()(auto& worker, auto& particle, auto sum_db) const
+    HDINLINE constexpr void operator()(auto& worker, auto& particle, auto sum_db) const
     {
         alpaka::atomicAdd(worker.getAcc(), &sum_db(0), *particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
     }
 };
 
-TEST_CASE("ForEachParticleInPRBuf Validation", "[integration][particles][foreach]")
+using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integration][particles][foreach]")
 {
-    // Environment & Allocator Setup
-    pmacc::test::PMaccFixture<TEST_DIM> fixture;
-    auto& env = pmacc::Environment<TEST_DIM>::get();
+    constexpr uint64_t numRegions = 2;
 
-    uint64_t maxRanks = env.GridController().getGpuNodes().productOfComponents();
-    uint64_t rank = env.GridController().getScalarPosition();
-
-    auto& dc = pmacc::Environment<>::get().DataConnector();
-    auto idProvider = std::make_shared<pmacc::IdProvider>("globalId", rank, maxRanks);
-    dc.share(idProvider);
-
-    std::shared_ptr<spearhed::DeviceHeap> deviceHeap;
-
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-    constexpr auto testHeapSize = 256ull * 1024 * 1024;
-    auto& deviceManager = pmacc::manager::Device<pmacc::ComputeDevice>::get();
-    auto alpakaDevice = deviceManager.current();
-    auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-
-    // Create and resize heap
-    deviceHeap = std::make_shared<spearhed::DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
-    alpaka::wait(alpakaQueue);
-
-    deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, testHeapSize);
-    alpaka::wait(alpakaQueue);
-
-    auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(deviceHeap);
-    dc.consume(std::move(mallocMCBuffer));
-#endif
-
-    dc.get<pmacc::IdProvider>("globalId")->reset();
-
-    //  Particle Region Setup
-    using PRType = spearhed::PRType;
-    auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
-    dc.share(prBuf);
-
-    prBuf->create(2);
-    PRType boundedParticles{deviceHeap->getAllocatorHandle()};
-
-    // Push two regions
-    prBuf->pushBack(boundedParticles);
-    prBuf->pushBack(boundedParticles);
-    prBuf->buffer->hostToDevice();
-
-    // Initialize particles
+    setupRegions(numRegions);
     spearhed::InitParticles{}();
-
 
     // Execute ForEachParticleInPRBuf Test
     // Allocate memory for reduction sum
@@ -119,7 +73,6 @@ TEST_CASE("ForEachParticleInPRBuf Validation", "[integration][particles][foreach
 
     //  Validation
     uint64_t totalParticles = 0;
-    constexpr uint64_t numRegions = 2;
 
     // Calculate expected sum analytically based on InitParticles logic
     for(uint64_t i = 0; i < numRegions; ++i)
@@ -135,5 +88,4 @@ TEST_CASE("ForEachParticleInPRBuf Validation", "[integration][particles][foreach
     INFO("Expected Sum: " << expectedSum);
 
     REQUIRE(h_sum == expectedSum);
-    dc.clean();
 }
