@@ -17,14 +17,13 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spmacc/RegionBoundsUpdate.hpp"
-
+#include "ValidatePush.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param/dimension.param"
 #include "spearhed/param/speciesTraits.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/ParticleRegion.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
@@ -43,57 +42,14 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 // We use a float value that can be exactly represented to avoid precision issues in comparison
 using CS = pmacc::spearhed::Cartesian<float, TEST_DIM>;
 using PosType = pmacc::spearhed::Point<CS, pmacc::spearhed::PointValueStorage<CS>>;
-constexpr PosType expectedMin{0.125f, 0.125f, 0.125f};
-constexpr PosType expectedMax{0.875f, 0.875f, 0.875f};
-constexpr PosType defaultPos{0.5f, 0.5f, 0.5f};
-
-// Functor to set specific particle positions:
-// - ID 0 -> Min corner
-// - ID 1 -> Max corner
-// - Others -> Center
-struct SetPosFunctor
-{
-    HDINLINE constexpr void operator()(auto& worker, auto& particle)
-    {
-        using namespace spearhed;
-
-        // Reset all to center first
-        constexpr auto def = defaultPos;
-        particle[spearhed::pos].get() = def;
-        // Set outliers to define the bounding box
-        if(*particle[particleId] == 0)
-        {
-            constexpr auto min = expectedMin;
-            particle[spearhed::pos].get() = min;
-        }
-        else if(*particle[particleId] == 1)
-        {
-            constexpr auto max = expectedMax;
-            particle[spearhed::pos].get() = max;
-        }
-    }
-};
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
-TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration][particles][bounds]")
+TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][particles][pusher]")
 {
     setupRegions(1);
-
-    // Initialize and modify positions
     spearhed::InitParticles{}();
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, SetPosFunctor{});
 
-    // Execute
-    pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-
-    // Validation
-    prBuf->buffer->deviceToHost();
-    auto const& region = prBuf->buffer->getHostBuffer().getDataBox()(0);
-
-    for(unsigned d = 0; d < TEST_DIM; ++d)
-    {
-        REQUIRE(region.volume.min[d] == expectedMin[d]);
-        REQUIRE(region.volume.max[d] == expectedMax[d]);
-    }
+    spearhed::ParticlePush{}(1);
+    ValidatePush{}();
 }

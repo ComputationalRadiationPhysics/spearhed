@@ -25,7 +25,6 @@
 #include "spearhed/param/memory.param"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
-#include "spearhed/particles/pusher/ValidatePush.hpp"
 #include "spmacc/AABB.hpp"
 #include "spmacc/ParticleRegion.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
@@ -170,7 +169,6 @@ namespace spearhed
     void Simulation::runOneStep(uint32_t currentStep)
     {
         ParticlePush{}(currentStep);
-        ValidatePush{}();
     }
 
     void Simulation::init()
