@@ -20,7 +20,7 @@
 #pragma once
 
 #include "llamaLite/llamaLite.hpp"
-#include "spearhed/param/speciesDefinition.param"
+#include "spearhed/param.hpp"
 #include "spmacc/particles/View.hpp"
 
 namespace spearhed

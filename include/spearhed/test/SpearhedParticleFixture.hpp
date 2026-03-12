@@ -20,7 +20,7 @@
 #pragma once
 
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/param/mallocMC.param"
+#include "spearhed/param.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
 
 #include <pmacc/alpakaHelper/acc.hpp>

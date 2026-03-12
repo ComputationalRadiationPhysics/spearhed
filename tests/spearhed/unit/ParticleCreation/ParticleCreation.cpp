@@ -19,8 +19,7 @@
 
 #include "ValidateIdSum.hpp"
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/param/dimension.param"
-#include "spearhed/param/mallocMC.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 

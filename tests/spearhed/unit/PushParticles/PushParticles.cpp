@@ -19,8 +19,7 @@
 
 #include "ValidatePush.hpp"
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/param/dimension.param"
-#include "spearhed/param/speciesTraits.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"

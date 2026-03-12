@@ -19,29 +19,11 @@
 
 #pragma once
 
-#include "Field.hpp"
-#include "Record.hpp"
+// clang-format off
+#include "spearhed/param/dimension.param"
 #include "spearhed/param/memory.param"
-#include "spearhed/param/speciesAttributes.param"
-#include "spearhed/particles/attributes/Id.hpp"
-#include "spearhed/particles/attributes/Mass.hpp"
-#include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/ParticleDescription.hpp"
-#include "spmacc/meta/String.hpp"
+#include "spearhed/param/mallocMC.param"
+#include "spearhed/param/speciesDefinition.param"
+#include "spearhed/param/speciesTraits.param"
 
-#include <pmacc/meta/String.hpp>
-
-#include <cstdint>
-#include <type_traits>
-
-namespace spearhed
-{
-    using namespace tags;
-
-    constexpr auto particleDesc = pmacc::spearhed::createParticleDescription(
-        PMACC_CSTRING("fluid"){},
-        std::integral_constant<uint32_t, numFrameSlots>{},
-        ll::Record<idField, MultiMaskField, posField, massField, velField>{});
-
-    // ll::SoA<Pos<2, float>>,
-} // namespace spearhed
+// clang-format on

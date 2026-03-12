@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "spearhed/param/dimension.param"
+#include "spearhed/param.hpp"
 
 #include <pmacc/Environment.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>

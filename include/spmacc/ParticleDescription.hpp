@@ -76,7 +76,7 @@ namespace pmacc::spearhed
             pmacc::spearhed::meta::isUnique_v<FlagsList>);
 
         template<typename NewFrameExtensionSeq>
-        consteval auto replaceFrameExtensionSeq()
+        consteval auto replaceFrameExtensionSeq() const
         {
             return ParticleDescription<T_Name, T_NumSlots, T_ParticleRecord, T_Flags, NewFrameExtensionSeq>{};
         }

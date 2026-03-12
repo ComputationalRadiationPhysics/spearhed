@@ -39,7 +39,7 @@ namespace pmacc::spearhed
         // Does not communicate this to the GPU yet
         // Actually I want to have the ParticleRegion to be an SoA, and i want to resize the SoA and then hold a
         // HDBuffer to the current SoA
-        auto create(int capacity)
+        auto create(size_t capacity)
         {
             buffer = pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>(pmacc::DataSpace<DIM1>(capacity), false);
         }

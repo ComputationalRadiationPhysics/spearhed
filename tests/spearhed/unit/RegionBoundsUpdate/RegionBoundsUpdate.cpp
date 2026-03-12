@@ -20,8 +20,7 @@
 #include "spmacc/RegionBoundsUpdate.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/param/dimension.param"
-#include "spearhed/param/speciesTraits.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/ParticleRegion.hpp"

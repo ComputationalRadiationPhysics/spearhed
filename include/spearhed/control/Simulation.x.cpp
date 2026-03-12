@@ -21,12 +21,9 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/control/DomainAdjuster.hpp"
-#include "spearhed/param/mallocMC.param"
-#include "spearhed/param/memory.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
-#include "spmacc/AABB.hpp"
-#include "spmacc/ParticleRegion.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>

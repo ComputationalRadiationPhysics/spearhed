@@ -21,15 +21,12 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/ParticleView.hpp"
-#include "spearhed/param/speciesAttributes.param"
-#include "spearhed/param/speciesDefinition.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
-#include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/attributes/Position.hpp"
-#include "traits.hpp"
 
 #include <pmacc/assert.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>

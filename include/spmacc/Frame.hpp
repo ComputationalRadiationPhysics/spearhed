@@ -22,7 +22,7 @@
 #pragma once
 
 #include "llamaLite/llamaLite.hpp"
-#include "spearhed/param/speciesAttributes.param"
+#include "spearhed/param.hpp"
 #include "spmacc/ParticleDescription.hpp"
 #include "spmacc/meta/TypeList.hpp"
 
@@ -40,7 +40,6 @@ namespace pmacc
         template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription, typename T_ValueTypeSeq>
         struct Particle;
 
-
         /** Frame is a storage for arbitrary number >0 of Particles with attributes
          * move only type
          *
@@ -51,9 +50,6 @@ namespace pmacc
          * @tparam T_Flags sequence with identifiers to add flags on a frame
          *                 (e.g. useSolverXY, calcRadiation, ...)
          */
-        template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
-        struct Frame;
-
         template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
         struct Frame
             : pmacc::spearhed::meta::InheritComponentsFrom<
