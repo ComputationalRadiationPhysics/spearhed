@@ -19,7 +19,7 @@
 
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 
-#include "spearhed/param/dimension.param"
+#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 

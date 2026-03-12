@@ -19,8 +19,7 @@
 
 #pragma once
 
-#include "spearhed/param/mallocMC.param"
-#include "spearhed/param/speciesDefinition.param"
+#include "spearhed/param.hpp"
 #include "spmacc/AABB.hpp"
 #include "spmacc/Frame.hpp"
 #include "spmacc/ListPointer.hpp"

@@ -84,6 +84,7 @@ target_compile_options(
         -Wextra
         -Wpedantic
         -Wconversion
+        -Wno-sign-conversion
         -Wno-unknown-pragmas
         -Wno-unused-parameter
         -Wno-unused-local-typedefs>

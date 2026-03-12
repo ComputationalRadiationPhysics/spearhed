@@ -11,7 +11,6 @@
 #include "traits.hpp"
 #include "utility.hpp"
 
-#include <iostream>
 #include <utility>
 
 namespace llama_lite

@@ -19,8 +19,7 @@
 
 #pragma once
 
-#include "spearhed/param/dimension.param"
-#include "spearhed/param/mallocMC.param"
+#include "spearhed/param.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
