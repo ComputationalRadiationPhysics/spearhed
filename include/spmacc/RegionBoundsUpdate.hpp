@@ -111,7 +111,7 @@ namespace pmacc::spearhed
                 // auto const warpIdx = threadIdx / warpSize;
 
                 // // Warp-Level reduction using shuffle
-                // // Each thread combines its result with a neighbor down the warp
+                // // Each thread combines its result with a neighbour down the warp
                 // for(int offset = warpSize / 2; offset > 0; offset /= 2)
                 // {
                 //     localBounds.extend(localBounds.shuffle_down(worker, offset));
