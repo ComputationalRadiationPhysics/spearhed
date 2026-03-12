@@ -167,5 +167,43 @@ namespace llama_lite
         // using accessor_for_field = accessor_t<Field<QueryTag, field_for<QueryTag>>>;
     };
 
+    // Forward declaration for recursion
+    template<IsRecord R, IsTagPath CurrentPath = TagPath<>>
+    struct GetLeafPaths;
+
+    namespace detail
+    {
+
+        // Base case: Field is a leaf
+        template<IsField F, IsTagPath CurrentPath, bool IsRec = IsRecord<typename F::value_type>>
+        struct FieldLeafPaths
+        {
+            using type = Tuple<append_t<CurrentPath, typename F::tag_type>>;
+        };
+
+        // Recursive case: Field is a nested Record
+        template<IsField F, IsTagPath CurrentPath>
+        struct FieldLeafPaths<F, CurrentPath, true>
+        {
+            using type =
+                typename GetLeafPaths<typename F::value_type, append_t<CurrentPath, typename F::tag_type>>::type;
+        };
+
+        template<typename FieldsTuple, IsTagPath CurrentPath>
+        struct GetLeafPathsImpl;
+
+        template<IsField... Fs, IsTagPath CurrentPath>
+        struct GetLeafPathsImpl<Tuple<Fs...>, CurrentPath>
+        {
+            using type = typename ConcatTuples<typename FieldLeafPaths<Fs, CurrentPath>::type...>::type;
+        };
+    } // namespace detail
+
+    // Extracts a Tuple of all complete TagPaths leading to leaf fields
+    template<IsRecord R, IsTagPath CurrentPath>
+    struct GetLeafPaths
+    {
+        using type = typename detail::GetLeafPathsImpl<typename R::fields_tuple_type, CurrentPath>::type;
+    };
 
 } // namespace llama_lite

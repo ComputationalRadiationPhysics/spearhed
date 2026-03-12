@@ -102,6 +102,28 @@ namespace llama_lite
         return Tuple{LL_FORWARD(args)...};
     }
 
+    // Flatten multiple Tuples into one for metaprogramming with Tuple types which hold tags
+    template<typename... Tuples>
+    struct ConcatTuples;
+
+    template<>
+    struct ConcatTuples<>
+    {
+        using type = Tuple<>;
+    };
+
+    template<typename... Ts>
+    struct ConcatTuples<Tuple<Ts...>>
+    {
+        using type = Tuple<Ts...>;
+    };
+
+    template<typename... T1, typename... T2, typename... Rest>
+    struct ConcatTuples<Tuple<T1...>, Tuple<T2...>, Rest...>
+    {
+        using type = typename ConcatTuples<Tuple<T1..., T2...>, Rest...>::type;
+    };
+
     namespace tuple
     {
         template<size_t T_idx>
