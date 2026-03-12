@@ -24,6 +24,7 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
+#include "spmacc/NeighbourRegions.hpp"
 #include "spmacc/ParticleRegionBuffer.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
@@ -166,6 +167,9 @@ namespace spearhed
     void Simulation::runOneStep(uint32_t currentStep)
     {
         ParticlePush{}(currentStep);
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
+        auto [neighborRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, 5);
     }
 
     void Simulation::init()

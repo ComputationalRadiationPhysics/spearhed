@@ -70,6 +70,20 @@ namespace pmacc::spearhed
             }
         }
 
+        /**
+         * Returns a new AABB expanded by a margin in all directions
+         */
+        constexpr AABB expand(TAxis margin) const
+        {
+            AABB result = *this;
+            for(unsigned i = 0; i < DIM; ++i)
+            {
+                result.min[i] -= margin;
+                result.max[i] += margin;
+            }
+            return result;
+        }
+
         // [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
         // {
         //     AABB result;
