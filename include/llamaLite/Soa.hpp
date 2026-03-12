@@ -63,9 +63,9 @@ namespace llama_lite
         template<IsRecordAccess RA, typename CurrentRecord, typename CurrentStorage>
         static constexpr auto resolveLeaf(CurrentStorage& storage)
         {
-            using Path = typename ToPath<RA>::type;
+            using Path = to_path_t<RA>;
 
-            constexpr uint32_t idx = CurrentRecord::template getIndex<decltype(Path::head())>();
+            constexpr uint32_t idx = CurrentRecord::getIndex(Path::head());
             using ValueT = typename CurrentRecord::template value_type_for<decltype(Path::head())>;
 
             auto& child = tuple::get<idx>(storage);

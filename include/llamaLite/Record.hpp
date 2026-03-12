@@ -59,7 +59,7 @@ namespace llama_lite
         }();
 
         template<IsTag QueryTag>
-        [[nodiscard]] static consteval uint32_t getIndex()
+        [[nodiscard]] static consteval uint32_t getIndex(QueryTag)
         {
             static_assert((std::is_same_v<typename Fs::tag_type, QueryTag> || ...), "Tag not found in Record");
 
@@ -77,22 +77,21 @@ namespace llama_lite
 
         // check if tag exists in the top level of the fields in the record
         template<IsTag QueryTag>
-        [[nodiscard]] static consteval bool hasTag()
+        [[nodiscard]] static consteval bool hasTag(QueryTag)
         {
             return (std::is_same_v<typename Fs::tag_type, QueryTag> || ...);
         }
 
         template<IsRecordAccess Query>
-        [[nodiscard]] static consteval bool hasPath()
+        [[nodiscard]] static consteval bool hasPath(Query)
         {
-            using Path = typename ToPath<Query>::type;
+            using Path = to_path_t<Query>;
 
             // empty path exists in all records
             if constexpr(Path::depth == 0)
                 return true;
 
-            using Head = decltype(Path::head());
-            if constexpr(!hasTag<Head>())
+            if constexpr(!hasTag(Path::head()))
             {
                 return false;
             }
@@ -105,12 +104,12 @@ namespace llama_lite
                 else
                 {
                     // Check recursively
-                    constexpr size_t idx = getIndex<Head>();
+                    constexpr size_t idx = getIndex(Path::head());
                     using FieldType = std::tuple_element_t<idx, fields_tuple_type>::value_type;
 
                     if constexpr(IsRecord<FieldType>)
                     {
-                        return FieldType::template hasPath<decltype(Path::tail())>();
+                        return FieldType::hasPath(Path::tail());
                     }
                     else
                     {
@@ -124,9 +123,9 @@ namespace llama_lite
         template<IsRecordAccess Query>
         [[nodiscard]] static consteval auto resolvePathToField()
         {
-            using Path = typename ToPath<Query>::type;
+            using Path = to_path_t<Query>;
 
-            constexpr std::size_t idx = getIndex<decltype(Path::head())>();
+            constexpr std::size_t idx = getIndex(Path::head());
             using CurrentField = std::tuple_element_t<idx, fields_tuple_type>;
 
             if constexpr(Path::depth == 1)

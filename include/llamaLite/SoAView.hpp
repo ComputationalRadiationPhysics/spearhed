@@ -206,7 +206,7 @@ namespace llama_lite
     //         sizeof...(RAs) == 0,
     //         typename TSoA::record_type,
     //         typename TSoA::record_type::template value_type_for<
-    //             typename ToPath<std::tuple_element_t<0, Tuple<RAs...>>>::type>>;
+    //             to_path_t<std::tuple_element_t<0, Tuple<RAs...>>>>>;
 
     //     // We inspect the structure of the record currently pointed to by this View
     //     using Fields = typename CurrentRecordType::fields_tuple_type;
