@@ -59,7 +59,7 @@ namespace llama_lite
         }();
 
         template<IsTag QueryTag>
-        [[nodiscard]] static consteval uint32_t getIndex()
+        [[nodiscard]] static consteval uint32_t getIndex(QueryTag)
         {
             static_assert((std::is_same_v<typename Fs::tag_type, QueryTag> || ...), "Tag not found in Record");
 
@@ -77,22 +77,21 @@ namespace llama_lite
 
         // check if tag exists in the top level of the fields in the record
         template<IsTag QueryTag>
-        [[nodiscard]] static consteval bool hasTag()
+        [[nodiscard]] static consteval bool hasTag(QueryTag)
         {
             return (std::is_same_v<typename Fs::tag_type, QueryTag> || ...);
         }
 
         template<IsRecordAccess Query>
-        [[nodiscard]] static consteval bool hasPath()
+        [[nodiscard]] static consteval bool hasPath(Query)
         {
-            using Path = typename ToPath<Query>::type;
+            using Path = to_path_t<Query>;
 
             // empty path exists in all records
             if constexpr(Path::depth == 0)
                 return true;
 
-            using Head = decltype(Path::head());
-            if constexpr(!hasTag<Head>())
+            if constexpr(!hasTag(Path::head()))
             {
                 return false;
             }
@@ -105,12 +104,12 @@ namespace llama_lite
                 else
                 {
                     // Check recursively
-                    constexpr size_t idx = getIndex<Head>();
+                    constexpr size_t idx = getIndex(Path::head());
                     using FieldType = std::tuple_element_t<idx, fields_tuple_type>::value_type;
 
                     if constexpr(IsRecord<FieldType>)
                     {
-                        return FieldType::template hasPath<decltype(Path::tail())>();
+                        return FieldType::hasPath(Path::tail());
                     }
                     else
                     {
@@ -124,9 +123,9 @@ namespace llama_lite
         template<IsRecordAccess Query>
         [[nodiscard]] static consteval auto resolvePathToField()
         {
-            using Path = typename ToPath<Query>::type;
+            using Path = to_path_t<Query>;
 
-            constexpr std::size_t idx = getIndex<decltype(Path::head())>();
+            constexpr std::size_t idx = getIndex(Path::head());
             using CurrentField = std::tuple_element_t<idx, fields_tuple_type>;
 
             if constexpr(Path::depth == 1)
@@ -168,5 +167,43 @@ namespace llama_lite
         // using accessor_for_field = accessor_t<Field<QueryTag, field_for<QueryTag>>>;
     };
 
+    // Forward declaration for recursion
+    template<IsRecord R, IsTagPath CurrentPath = TagPath<>>
+    struct GetLeafPaths;
+
+    namespace detail
+    {
+
+        // Base case: Field is a leaf
+        template<IsField F, IsTagPath CurrentPath, bool IsRec = IsRecord<typename F::value_type>>
+        struct FieldLeafPaths
+        {
+            using type = Tuple<append_t<CurrentPath, typename F::tag_type>>;
+        };
+
+        // Recursive case: Field is a nested Record
+        template<IsField F, IsTagPath CurrentPath>
+        struct FieldLeafPaths<F, CurrentPath, true>
+        {
+            using type =
+                typename GetLeafPaths<typename F::value_type, append_t<CurrentPath, typename F::tag_type>>::type;
+        };
+
+        template<typename FieldsTuple, IsTagPath CurrentPath>
+        struct GetLeafPathsImpl;
+
+        template<IsField... Fs, IsTagPath CurrentPath>
+        struct GetLeafPathsImpl<Tuple<Fs...>, CurrentPath>
+        {
+            using type = typename ConcatTuples<typename FieldLeafPaths<Fs, CurrentPath>::type...>::type;
+        };
+    } // namespace detail
+
+    // Extracts a Tuple of all complete TagPaths leading to leaf fields
+    template<IsRecord R, IsTagPath CurrentPath>
+    struct GetLeafPaths
+    {
+        using type = typename detail::GetLeafPathsImpl<typename R::fields_tuple_type, CurrentPath>::type;
+    };
 
 } // namespace llama_lite

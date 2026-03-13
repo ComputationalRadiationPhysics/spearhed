@@ -190,6 +190,34 @@ namespace llama_lite
                 return *(*this);
             }
         }
+
+        // deep copy
+        template<typename OtherTSoA, typename... OtherRAs>
+        constexpr SoAIndexedView& operator=(SoAIndexedView<OtherTSoA, OtherRAs...> other)
+        {
+            // assert(this->idx == other.idx);
+            using SrcR = typename OtherTSoA::record_type;
+            using DestR = record_type;
+
+            using DestLeafPaths = GetLeafPaths<DestR>::type;
+            [&]<typename... Paths>(Tuple<Paths...>)
+            {
+                static_assert(
+                    (SrcR::hasPath(Paths{}) && ...),
+                    "Source SoA does not contain all required paths to fulfill this SubRecord.");
+
+                static_assert(
+                    (std::is_same_v<
+                         typename DestR::template value_type_for<Paths>,
+                         typename SrcR::template value_type_for<Paths>>
+                     && ...),
+                    "Type mismatch between source and destination fields.");
+
+                ((*other[Paths{}] = *(*this)[Paths{}]), ...);
+            }(DestLeafPaths{});
+
+            return *this;
+        }
     };
 
     // template<template<typename> typename Func, typename T_Record, IsRecordAccess... RAs>
@@ -206,7 +234,7 @@ namespace llama_lite
     //         sizeof...(RAs) == 0,
     //         typename TSoA::record_type,
     //         typename TSoA::record_type::template value_type_for<
-    //             typename ToPath<std::tuple_element_t<0, Tuple<RAs...>>>::type>>;
+    //             to_path_t<std::tuple_element_t<0, Tuple<RAs...>>>>>;
 
     //     // We inspect the structure of the record currently pointed to by this View
     //     using Fields = typename CurrentRecordType::fields_tuple_type;

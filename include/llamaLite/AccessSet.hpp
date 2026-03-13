@@ -18,7 +18,7 @@ namespace llama_lite
      * Even though including pos implies including pos/x
      */
     template<IsRecord R, IsRecordAccess... RAs>
-    requires(R::template hasPath<RAs>() && ...) && ((countTypeOccurrences<RAs, RAs...>() == 1) && ...)
+    requires(R::hasPath(RAs{}) && ...) && ((countTypeOccurrences<RAs, RAs...>() == 1) && ...)
     struct AccessList
     {
         using record_type = R;
@@ -29,13 +29,13 @@ namespace llama_lite
         template<IsRecordAccess Query>
         [[nodiscard]] static consteval bool contains()
         {
-            return (std::is_same_v<typename ToPath<Query>::type, typename ToPath<RAs>::type> || ...);
+            return (std::is_same_v<to_path_t<Query>, to_path_t<RAs>> || ...);
         }
 
         template<IsRecord R2>
         [[nodiscard]] static consteval bool validFor(R2 = {})
         {
-            return (R2::template hasPath<RAs> && ...);
+            return (R2::hasPath(RAs{}) && ...);
         }
     };
 
@@ -44,8 +44,7 @@ namespace llama_lite
      * Even though excluding pos implies excluding pos/x
      */
     template<IsRecord R, IsRecordAccess... ExcludedRAs>
-    requires(R::template hasPath<ExcludedRAs>() && ...)
-            && ((countTypeOccurrences<ExcludedRAs, ExcludedRAs...>() == 1) && ...)
+    requires(R::hasPath(ExcludedRAs{}) && ...) && ((countTypeOccurrences<ExcludedRAs, ExcludedRAs...>() == 1) && ...)
     struct AccessWithExclusions
     {
     private:
@@ -95,7 +94,7 @@ namespace llama_lite
         template<IsRecordAccess Query>
         [[nodiscard]] static consteval bool isExcluded()
         {
-            return (std::is_same_v<typename ToPath<Query>::type, typename ToPath<ExcludedRAs>::type> || ...);
+            return (std::is_same_v<to_path_t<Query>, to_path_t<ExcludedRAs>> || ...);
         }
 
     public:
@@ -110,7 +109,7 @@ namespace llama_lite
         template<IsRecordAccess Query>
         [[nodiscard]] static consteval bool contains(Query = {})
         {
-            return !isExcluded<Query>() && R::template hasPath<Query>();
+            return !isExcluded<Query>() && R::hasPath(Query{});
         }
 
         template<IsRecord QueryRecord>
@@ -150,7 +149,7 @@ namespace llama_lite
                     else
                     {
                         // Path is included. Query must have it.
-                        if constexpr(!QueryRec::template hasPath<CurrentPath>())
+                        if constexpr(!QueryRec::hasPath(CurrentPath{}))
                         {
                             return false;
                         }

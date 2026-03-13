@@ -63,13 +63,13 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     // Region 2 expands to [3.4, 5.6] -> Intersects Region 2 only
     constexpr float smoothingLength = 0.6f;
 
-    auto [neighborRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, smoothingLength);
+    auto [neighbourRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, smoothingLength);
 
     // Validation
-    neighborRegions.deviceToHost();
+    neighbourRegions.deviceToHost();
     regionOffsets.deviceToHost();
 
-    auto const& h_neighbors = neighborRegions.getHostBuffer().getDataBox();
+    auto const& h_neighbours = neighbourRegions.getHostBuffer().getDataBox();
     auto const& h_offsets = regionOffsets.getHostBuffer().getDataBox();
 
     // Validate inclusive prefix sum offsets
@@ -78,12 +78,12 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     REQUIRE(h_offsets(2) == 4); // Region 1 matches: 0, 1
     REQUIRE(h_offsets(3) == 5); // Region 2 matches: 2
 
-    // Validate neighbor IDs
-    REQUIRE(h_neighbors(0) == 0);
-    REQUIRE(h_neighbors(1) == 1);
+    // Validate neighbour IDs
+    REQUIRE(h_neighbours(0) == 0);
+    REQUIRE(h_neighbours(1) == 1);
 
-    REQUIRE(h_neighbors(2) == 0);
-    REQUIRE(h_neighbors(3) == 1);
+    REQUIRE(h_neighbours(2) == 0);
+    REQUIRE(h_neighbours(3) == 1);
 
-    REQUIRE(h_neighbors(4) == 2);
+    REQUIRE(h_neighbours(4) == 2);
 }

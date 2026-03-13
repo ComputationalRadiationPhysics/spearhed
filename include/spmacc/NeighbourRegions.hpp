@@ -40,13 +40,13 @@ namespace pmacc::spearhed
         /**
          * Functor to find neighbouring volumes.
          * @tparam OpMode is count, only counts the number of neighbours, else the neighbour ids are written
-         * into the neighborRegionsBox
+         * into the neighbourRegionsBox
          */
         template<OpMode mode>
-        struct FindNeighborRegionsFunctor
+        struct FindNeighbourRegionsFunctor
         {
             // TODO Consider iterating otherIdx = blockIdx + 1; otherIdx < numRegions. The tradeoff is that populating
-            // the neighbors bidirectionally requires atomicAdd for the offsets and writing, but halves the arithmetic
+            // the neighbours bidirectionally requires atomicAdd for the offsets and writing, but halves the arithmetic
             // bounds-checking cost.
             DINLINE void operator()(
                 auto const& worker,
@@ -94,7 +94,7 @@ namespace pmacc::spearhed
         };
     } // namespace detail
 
-    // returns mapping of regions to their neighbours {neighborRegions, regionOffsets}
+    // returns mapping of regions to their neighbours {neighbourRegions, regionOffsets}
     // regionOffsets is an exclusive scan and neighbourRegions holds the list of neighbours
     // regionOffsets[myRegionIdx] and regionOffsets[myRegionIdx+1] defines the way to index into neighbourRegions of
     // myRegionIdx
@@ -109,9 +109,9 @@ namespace pmacc::spearhed
 
             static constexpr uint32_t threadsPerBlock = 32;
 
-            // Count neighbors per volume
+            // Count neighbours per volume
             // We reuse the regionOffsets array to store temporary counts
-            PMACC_LOCKSTEP_KERNEL(detail::FindNeighborRegionsFunctor<detail::OpMode::Count>{})
+            PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
                     prBuf.getDeviceDataBox(),
                     numRegions,
@@ -130,21 +130,21 @@ namespace pmacc::spearhed
             uint32_t totalPairs = h_offsets[numRegions];
             regionOffsets.hostToDevice();
 
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> neighborRegions(pmacc::DataSpace<DIM1>{totalPairs});
+            pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
 
-            // Populate the neighbor IDs
+            // Populate the neighbour IDs
             if(totalPairs > 0)
             {
-                PMACC_LOCKSTEP_KERNEL(detail::FindNeighborRegionsFunctor<detail::OpMode::Write>{})
+                PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{})
                     .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
                         prBuf.getDeviceDataBox(),
                         numRegions,
                         regionOffsets.getDeviceBuffer().getDataBox(),
-                        neighborRegions.getDeviceBuffer().getDataBox(),
+                        neighbourRegions.getDeviceBuffer().getDataBox(),
                         smoothingLength);
             }
 
-            return std::pair{std::move(neighborRegions), std::move(regionOffsets)};
+            return std::pair{std::move(neighbourRegions), std::move(regionOffsets)};
         }
     };
 
