@@ -59,33 +59,25 @@ namespace llama_lite
             // Gather all nested paths that continue past this Tag
             using TailsList = typename ConcatTuples<typename MatchingTail<Tag, Paths>::type...>::type;
 
-            template<typename Tails, bool Exact>
-            struct Evaluator;
-
-            // 1. Path matches exactly: Keep the entire field, including all nested structures.
-            template<typename Tails>
-            struct Evaluator<Tails, true>
+            static consteval auto evaluate()
             {
-                using type = Tuple<F>;
-            };
+                if constexpr(exact_match)
+                {
+                    return std::type_identity<Tuple<F>>{};
+                }
+                else if constexpr(std::is_same_v<TailsList, Tuple<>>)
+                {
+                    return std::type_identity<Tuple<>>{};
+                }
+                else
+                {
+                    static_assert(IsRecord<Value>, "Sub-record path continues, but requested field is a leaf.");
+                    using SubRec = typename SubRecordFromList<TailsList, Value>::type;
+                    return std::type_identity<Tuple<Field<Tag, SubRec>>>{};
+                }
+            }
 
-            // 2. Path continues: Validate field is a Record, then recurse down.
-            template<typename FirstTail, typename... RestTails>
-            struct Evaluator<Tuple<FirstTail, RestTails...>, false>
-            {
-                static_assert(IsRecord<Value>, "Sub-record path continues, but requested field is a leaf.");
-                using SubRec = typename SubRecordFromList<Tuple<FirstTail, RestTails...>, Value>::type;
-                using type = Tuple<Field<Tag, SubRec>>;
-            };
-
-            // 3. No match and no continuing paths: Drop this field entirely.
-            template<>
-            struct Evaluator<Tuple<>, false>
-            {
-                using type = Tuple<>;
-            };
-
-            using type = typename Evaluator<TailsList, exact_match>::type;
+            using type = typename decltype(evaluate())::type;
         };
 
         // Maps ProcessField over the Tuple of fields
