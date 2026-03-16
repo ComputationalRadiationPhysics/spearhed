@@ -22,7 +22,7 @@
 #pragma once
 
 #include "spmacc/particles/attributes/MultiMask.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -68,7 +68,7 @@ namespace pmacc::spearhed
                             auto particle = (*frameItr)[idx];
                             if(*particle[tags::multiMask])
                             {
-                                localBounds.extend(particle[tags::pos].get());
+                                localBounds.extend(particle[tags::relativePos].get());
                             }
                         });
                 }

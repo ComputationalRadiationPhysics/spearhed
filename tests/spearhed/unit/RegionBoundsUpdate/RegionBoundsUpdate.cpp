@@ -24,6 +24,7 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
@@ -58,17 +59,17 @@ struct SetPosFunctor
 
         // Reset all to center first
         constexpr auto def = defaultPos;
-        particle[spearhed::pos].get() = def;
+        particle[spearhed::relativePos].get() = def;
         // Set outliers to define the bounding box
         if(*particle[particleId] == 0)
         {
             constexpr auto min = expectedMin;
-            particle[spearhed::pos].get() = min;
+            particle[spearhed::relativePos].get() = min;
         }
         else if(*particle[particleId] == 1)
         {
             constexpr auto max = expectedMax;
-            particle[spearhed::pos].get() = max;
+            particle[spearhed::relativePos].get() = max;
         }
     }
 };

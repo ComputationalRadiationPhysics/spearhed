@@ -26,7 +26,7 @@
 #include "spmacc/particles/View.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/topology/Distance.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -83,7 +83,8 @@ namespace pmacc::spearhed
 
                 // We currently load the selected properties into shared memory for one full frame size.
                 // We can think of changing (increasing/decreasing) the number of particles cached
-                using CachedType = ll::SoA<ll::sub_record_t<RecordType, tags::pos, tags::multiMask>, frameSize>;
+                using CachedType
+                    = ll::SoA<ll::sub_record_t<RecordType, tags::relativePos, tags::multiMask>, frameSize>;
 
                 auto const startFrame = (regionIdx == 0) ? 0 : framesScanBox[regionIdx - 1];
                 auto const localFrameIdx = blockIdx - startFrame;
@@ -152,11 +153,11 @@ namespace pmacc::spearhed
                                         auto cachedNeighbourParticle = smemCache[j];
                                         if(*cachedNeighbourParticle[tags::multiMask])
                                         {
-                                            //  can add a check for self interaction, neighbourRegionIdx == regionIdx
-                                            //  && ownFrameRawPtr == neighbourFrameRawPtr && (myIdx == j);
+                                            // can add a check for self interaction, neighbourRegionIdx == regionIdx
+                                            // && ownFrameRawPtr == neighbourFrameRawPtr && myIdx == j
                                             if(distance(
-                                                   ownParticle[tags::pos].get(),
-                                                   cachedNeighbourParticle[tags::pos].get())
+                                                   ownParticle[tags::relativePos].get(),
+                                                   cachedNeighbourParticle[tags::relativePos].get())
                                                < interactionRadius)
                                             {
                                                 auto neighbourParticle = neighbourFramePtr[j];

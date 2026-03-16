@@ -28,6 +28,7 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spmacc/ParticleDescription.hpp"
 #include "spmacc/meta/String.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 
 #include <pmacc/meta/String.hpp>
 
@@ -41,7 +42,7 @@ namespace spearhed
     constexpr auto particleDesc = pmacc::spearhed::createParticleDescription(
         PMACC_CSTRING("fluid"){},
         std::integral_constant<uint32_t, numFrameSlots>{},
-        ll::Record<idField, MultiMaskField, posField, massField, velField>{});
+        ll::Record<idField, MultiMaskField, relativePosField, massField, velField>{});
 
     // ll::SoA<Pos<2, float>>,
 } // namespace spearhed

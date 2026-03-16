@@ -20,7 +20,7 @@
 #pragma once
 
 #include "spearhed/param/dimension.param"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/topology/Point.hpp"
 #include "spmacc/topology/PointStorage.hpp"
 
@@ -28,15 +28,15 @@ namespace llama_lite::traits
 {
 
     template<>
-    struct AsType<pmacc::spearhed::tags::posField>
+    struct AsType<pmacc::spearhed::tags::relativePosField>
     {
-        template<typename T_PosView>
-        constexpr auto operator()(T_PosView posFieldView) const
+        template<typename T_RelPosView>
+        constexpr auto operator()(T_RelPosView relativePosFieldView) const
         {
             using type
-                = pmacc::spearhed::Point<spearhed::CS, pmacc::spearhed::PointViewStorage<spearhed::CS, T_PosView>>;
+                = pmacc::spearhed::Point<spearhed::CS, pmacc::spearhed::PointViewStorage<spearhed::CS, T_RelPosView>>;
 
-            return type{posFieldView};
+            return type{relativePosFieldView};
         }
     };
 

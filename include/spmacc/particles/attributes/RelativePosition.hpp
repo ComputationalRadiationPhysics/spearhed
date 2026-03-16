@@ -29,31 +29,31 @@ namespace pmacc::spearhed
 {
     namespace tags
     {
-        DEFINE_TAG(pos);
+        DEFINE_TAG(relativePos);
 
-        using posField
-            = ll::Field<pos_t, ll::Record<ll::Field<x_t, float>, ll::Field<y_t, float>, ll::Field<z_t, float>>>;
+        using relativePosField = ll::
+            Field<relativePos_t, ll::Record<ll::Field<x_t, float>, ll::Field<y_t, float>, ll::Field<z_t, float>>>;
     } // namespace tags
 
     template<>
-    struct InitValue<tags::posField>
+    struct InitValue<tags::relativePosField>
     {
-        HDINLINE constexpr void operator()(auto posView, float val) const
+        HDINLINE constexpr void operator()(auto relativePosView, float val) const
         {
-            *posView[tags::x] = val;
-            *posView[tags::y] = val;
-            *posView[tags::z] = val;
+            *relativePosView[tags::x] = val;
+            *relativePosView[tags::y] = val;
+            *relativePosView[tags::z] = val;
         }
     };
 
     template<>
-    struct InitZero<tags::posField>
+    struct InitZero<tags::relativePosField>
     {
-        HDINLINE constexpr void operator()(auto posView) const
+        HDINLINE constexpr void operator()(auto relativePosView) const
         {
-            *posView[tags::x] = {0.f};
-            *posView[tags::y] = {0.f};
-            *posView[tags::z] = {0.f};
+            *relativePosView[tags::x] = {0.f};
+            *relativePosView[tags::y] = {0.f};
+            *relativePosView[tags::z] = {0.f};
         }
     };
 

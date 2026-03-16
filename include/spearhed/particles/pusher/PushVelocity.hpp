@@ -22,7 +22,7 @@
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -30,11 +30,11 @@ namespace spearhed
 {
     struct PushVelocity
     {
-        HDINLINE constexpr void operator()(auto worker, ParticleView<pos, vel> view, T_dt delt) const
+        HDINLINE constexpr void operator()(auto worker, ParticleView<relativePos, vel> view, T_dt delt) const
         {
-            *view[pos][x] += *view[vel][x] * delt;
-            *view[pos][y] += *view[vel][y] * delt;
-            *view[pos][z] += *view[vel][z] * delt;
+            *view[relativePos][x] += *view[vel][x] * delt;
+            *view[relativePos][y] += *view[vel][y] * delt;
+            *view[relativePos][z] += *view[vel][z] * delt;
         }
     };
 
