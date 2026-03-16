@@ -161,9 +161,9 @@ namespace llama_lite
                 || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
                     value))
         {
-            if constexpr(traits::IsTraitSpecialized<
-                             traits::AsType,
-                             typename TSoA::record_type::template field_for<RAs...>>::value)
+            if constexpr(
+                traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
+                    value)
             {
                 return traits::AsType<typename TSoA::record_type::template field_for<RAs...>>{}(*this);
             }
@@ -179,9 +179,9 @@ namespace llama_lite
                 || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
                     value))
         {
-            if constexpr(traits::IsTraitSpecialized<
-                             traits::AsType,
-                             typename TSoA::record_type::template field_for<RAs...>>::value)
+            if constexpr(
+                traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
+                    value)
             {
                 return traits::AsType<typename TSoA::record_type::template field_for<RAs...>>{}(*this);
             }
