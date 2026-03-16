@@ -100,6 +100,7 @@ jobs:
                           --slave /usr/bin/g++ g++ /usr/bin/g++-13
         export CC=gcc-13
         export CXX=g++-13
+        NPROC=$(nproc)
         mkdir build && cd build
         cmake -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
@@ -108,7 +109,7 @@ jobs:
               ${spearhed_cmake_flags} \
               -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=ON \
               ..
-        ninja
+        ninja -j$NPROC
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
