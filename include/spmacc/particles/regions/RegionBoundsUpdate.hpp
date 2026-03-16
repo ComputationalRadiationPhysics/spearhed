@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>

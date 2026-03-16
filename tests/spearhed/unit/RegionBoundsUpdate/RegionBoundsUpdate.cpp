@@ -17,14 +17,14 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spmacc/RegionBoundsUpdate.hpp"
+#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/ParticleRegion.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
 #include "spmacc/topology/PointStorage.hpp"

@@ -22,8 +22,8 @@
 #include "catch2/catch_test_macros.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/lockstep/ForEach.hpp>

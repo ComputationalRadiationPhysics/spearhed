@@ -19,7 +19,7 @@
 
 #include "spearhed/param.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/NeighbourRegions.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
