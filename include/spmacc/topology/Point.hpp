@@ -21,6 +21,7 @@
 
 #include "spmacc/topology/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
+#include "spmacc/topology/PointStorage.hpp"
 
 #include <concepts>
 #include <iostream>
@@ -74,6 +75,13 @@ namespace pmacc::spearhed
 
         using Storage::Storage;
 
+    private:
+        template<std::size_t... Is>
+        constexpr Point(Scalar val, std::index_sequence<Is...>) noexcept : Storage{(static_cast<void>(Is), val)...}
+        {
+        }
+
+    public:
         // template<CoordinateSystem OtherCS, typename OtherStorage>
         // constexpr explicit(false) Point(Point<OtherCS, OtherStorage> const& other) noexcept
         // {
@@ -121,27 +129,49 @@ namespace pmacc::spearhed
         template<typename OtherStorage>
         constexpr Point& operator=(Point<CS, OtherStorage> const& other) noexcept
         {
-            if constexpr(dim == 3)
-            {
-                (*this)[tags::x] = other[tags::x];
-                (*this)[tags::y] = other[tags::y];
-                (*this)[tags::z] = other[tags::z];
-            }
-            else if constexpr(dim == 2)
-            {
-                (*this)[tags::x] = other[tags::x];
-                (*this)[tags::y] = other[tags::y];
-            }
-            else if constexpr(dim == 1)
-            {
-                (*this)[tags::x] = other[tags::x];
-            }
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] = other[tag]; });
             return *this;
         }
 
         [[nodiscard]] friend constexpr bool operator==(Point const& p, Scalar const val) noexcept
         {
             return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return p[tag] == val; });
+        }
+
+        template<typename OtherStorage>
+        constexpr Point& operator+=(Point<CS, OtherStorage> const& other) noexcept
+        {
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += other[tag]; });
+            return *this;
+        }
+
+        constexpr Point& operator+=(Scalar const val) noexcept
+        {
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += val; });
+            return *this;
+        }
+
+        // TODO always return value storage
+        template<typename OtherStorage>
+        [[nodiscard]] friend constexpr Point<CS, PointValueStorage<CS>> operator+(
+            Point lhs,
+            Point<CS, OtherStorage> const& rhs) noexcept
+        {
+            Point<CS, PointValueStorage<CS>> result = lhs;
+            return result += rhs;
+        }
+
+        [[nodiscard]] friend constexpr Point operator+(Point lhs, Scalar const val) noexcept
+        {
+            Point<CS, PointValueStorage<CS>> result = lhs;
+            return result += val;
+        }
+
+        [[nodiscard]] friend constexpr Point operator+(Scalar const val, Point rhs) noexcept
+        {
+            // Valid because addition is commutative
+            Point<CS, PointValueStorage<CS>> result = rhs;
+            return result += val;
         }
 
         [[nodiscard]] constexpr bool isApprox(Point const& other, Scalar eps = std::numeric_limits<Scalar>::epsilon())

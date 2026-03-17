@@ -40,16 +40,6 @@ namespace pmacc::spearhed
         using CS = Cartesian<TAxis, DIM>;
         using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
-        constexpr void reset()
-        {
-            pmacc::spearhed::for_each_tag<CS>(
-                [&](auto tag)
-                {
-                    min[tag] = std::numeric_limits<TAxis>::max();
-                    max[tag] = std::numeric_limits<TAxis>::lowest();
-                });
-        }
-
         constexpr void extend(Pnt const& point)
         {
             pmacc::spearhed::for_each_tag<CS>(
@@ -93,6 +83,13 @@ namespace pmacc::spearhed
             return result;
         }
 
+        template<typename T_Storage>
+        constexpr Pnt getPosition(spearhed::Point<CS, T_Storage> const& relativePos) const
+        {
+            PMACC_ASSERT(relativePos > min && relativePos < max);
+            return origin + relativePos;
+        }
+
         // [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
         // {
         //     AABB result;
@@ -113,7 +110,11 @@ namespace pmacc::spearhed
                                                    { return !(a.min[tag] > b.max[tag] || a.max[tag] < b.min[tag]); });
         }
 
-        Pnt min;
-        Pnt max;
+        // The position of this Volume in the global coordinate system
+        Pnt origin{TAxis{0}};
+
+        // The extents of the box, relative to the box origin.
+        Pnt min{std::numeric_limits<TAxis>::max()};
+        Pnt max{std::numeric_limits<TAxis>::lowest()};
     };
 } // namespace pmacc::spearhed

@@ -47,7 +47,7 @@ namespace pmacc
                 return particleFrameList;
             }
 
-            TVolume volume;
+            TVolume volume{};
             FrameList<T_Frame, T_DeviceHeapHandle> particleFrameList;
         };
     } // namespace spearhed

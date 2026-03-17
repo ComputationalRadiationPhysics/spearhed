@@ -84,6 +84,7 @@ target_compile_options(
         -Wextra
         -Wpedantic
         -Wconversion
+        -Wno-c2y-extensions
         -Wno-sign-conversion
         -Wno-unknown-pragmas
         -Wno-unused-parameter

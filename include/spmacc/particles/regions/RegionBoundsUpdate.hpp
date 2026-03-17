@@ -56,7 +56,6 @@ namespace pmacc::spearhed
 
                 // Thread-Local Accumulation
                 VolumeType localBounds;
-                localBounds.reset();
 
                 auto& frameList = region.particleFrameList;
                 for(auto frameItr = frameList.begin(); frameItr != frameList.end(); ++frameItr)

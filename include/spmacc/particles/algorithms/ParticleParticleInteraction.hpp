@@ -78,6 +78,8 @@ namespace pmacc::spearhed
                 auto& region = prDeviceBox[regionIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
+                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+
                 using RecordType = typename FrameType::ParticleRecord;
                 constexpr uint32_t frameSize = FrameType::frameSize;
 
@@ -89,26 +91,13 @@ namespace pmacc::spearhed
                 auto const startFrame = (regionIdx == 0) ? 0 : framesScanBox[regionIdx - 1];
                 auto const localFrameIdx = blockIdx - startFrame;
 
-                // SMEM Allocations
-                PMACC_SMEM(worker, ownFramePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
-                PMACC_SMEM(worker, neighbourFramePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
-
                 // Cache array for neighbour attributes to reduce global memory reads
                 PMACC_SMEM(worker, smemCache, CachedType);
 
-                auto onlyMaster = pmacc::lockstep::makeMaster(worker);
-                onlyMaster(
-                    [&]()
-                    {
-                        auto itr = frameList.begin();
-                        for(int i = 0; i < static_cast<int>(localFrameIdx); i++)
-                        {
-                            ++itr;
-                        }
-                        ownFramePtr = memory::FramePointer{&(*itr)};
-                    });
-
-                worker.sync();
+                auto itr = frameList.begin();
+                std::advance(itr, localFrameIdx);
+                memory::FramePointer const ownFramePtr{&*itr};
+                VolumeType const ownVolume = region.volume;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
@@ -123,12 +112,11 @@ namespace pmacc::spearhed
 
                     for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
                     {
-                        onlyMaster([&]() { neighbourFramePtr = memory::FramePointer{&*it}; });
-                        worker.sync();
-
+                        memory::FramePointer const neighbourFramePtr{&*it};
+                        VolumeType const neighbourVolume = neighbourRegion.volume;
                         // Cooperatively load neighbour attributes into shared memory
                         forEachSlot(
-                            [&](uint32_t const idx)
+                            [&, neighbourFramePtr](uint32_t const idx)
                             {
                                 auto nParticle = neighbourFramePtr[idx];
                                 bool const isValid = ValidParticlePredicate{}(nParticle);
@@ -143,7 +131,7 @@ namespace pmacc::spearhed
 
                         // Interact own particles against the populated SMEM buffer
                         forEachSlot(
-                            [&](uint32_t const myIdx)
+                            [&, ownFramePtr, ownVolume, neighbourFramePtr, neighbourVolume](uint32_t const myIdx)
                             {
                                 auto ownParticle = ownFramePtr[myIdx];
                                 if(ValidParticlePredicate{}(ownParticle))
@@ -156,8 +144,9 @@ namespace pmacc::spearhed
                                             // can add a check for self interaction, neighbourRegionIdx == regionIdx
                                             // && ownFrameRawPtr == neighbourFrameRawPtr && myIdx == j
                                             if(distance(
-                                                   ownParticle[tags::relativePos].get(),
-                                                   cachedNeighbourParticle[tags::relativePos].get())
+                                                   ownVolume.getPosition(ownParticle[tags::relativePos].get()),
+                                                   neighbourVolume.getPosition(
+                                                       cachedNeighbourParticle[tags::relativePos].get()))
                                                < interactionRadius)
                                             {
                                                 auto neighbourParticle = neighbourFramePtr[j];
