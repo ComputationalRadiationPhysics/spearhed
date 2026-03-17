@@ -19,9 +19,9 @@
 
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include <cstdint>
+#include <tuple>
 
 namespace pmacc::spearhed
 {
@@ -43,73 +43,84 @@ namespace pmacc::spearhed
     concept CoordinateSystem = requires {
         // type in which the coordinates are stored
         typename CS::Scalar;
+        typename CS::tags;
         { CS::dimension } -> std::convertible_to<std::size_t>;
         { CS::metricKind } -> std::convertible_to<MetricKind>;
     };
 
-    // Cartesian coordinate system chart
-    template<typename T, T_Dim Dim>
-    struct Cartesian
+    // Compile time mapping from Index to Tag type
+    template<CoordinateSystem CS, std::size_t I>
+    requires(I < std::tuple_size_v<typename CS::tags>)
+    using tag_of = std::tuple_element_t<I, typename CS::tags>;
+
+    // Compile time mapping from Tag to Index using a generalized helper
+    template<CoordinateSystem CS, typename T>
+    [[nodiscard]] consteval std::size_t index_of() noexcept
     {
-        static constexpr char const* name = "Cartesian";
-        using Scalar = T;
-        static constexpr std::size_t dimension = Dim;
-        static constexpr MetricKind metricKind = MetricKind::Orthonormal;
-
-        // Math conversions
-        static constexpr void from_spherical(double r, double th, double ph, double& x, double& y, double& z)
+        constexpr auto find_index = []<std::size_t... Is>(std::index_sequence<Is...>)
         {
-            x = r * std::sin(th) * std::cos(ph);
-            y = r * std::sin(th) * std::sin(ph);
-            z = r * std::cos(th);
-        }
+            std::size_t match = -1;
+            [[maybe_unused]] bool _
+                = ((std::same_as<T, std::tuple_element_t<Is, typename CS::tags>> ? (match = Is, true) : false) || ...);
+            return match;
+        };
 
-        // No-op for self conversion
-        static constexpr void from_cartesian(double x, double y, double z, double& out_x, double& out_y, double& out_z)
-        {
-            out_x = x;
-            out_y = y;
-            out_z = z;
-        }
-    };
+        constexpr std::size_t idx = find_index(std::make_index_sequence<std::tuple_size_v<typename CS::tags>>{});
+        static_assert(idx != static_cast<std::size_t>(-1), "Tag not found in coordinate system.");
 
-    // Polar coordinate system chart
-    template<typename T, T_Dim Dim>
-    struct Polar
+        return idx;
+    }
+
+    template<auto Start, auto End, typename F>
+    constexpr void constexpr_for(F&& f)
     {
-        static constexpr char const* name = "Polar";
-        using Scalar = T;
-        static constexpr std::size_t dimension = Dim;
-        static constexpr MetricKind metricKind = MetricKind::Orthonormal;
-    };
+        [&]<auto... Is>(std::integer_sequence<decltype(Start), Is...>)
+        {
+            (f(std::integral_constant<decltype(Start), Start + Is>{}), ...);
+        }(std::make_integer_sequence<decltype(Start), End - Start>{});
+    }
 
-    //     template<typename T, T_Dim Dim>
-    // struct Spherical
-    // {
-    //     static constexpr char const* name = "Spherical";
-    //     using Scalar = T;
-    //     static constexpr std::size_t dimension = Dim;
-    //     static constexpr MetricKind metricKind = MetricKind::Orthonormal;
-    //     static constexpr void from_cartesian(double x, double y, double z, double& r, double& th, double& ph)
-    //     {
-    //         r = std::sqrt(x * x + y * y + z * z);
-    //         th = (r > 1e-12) ? std::acos(z / r) : 0.0;
-    //         ph = std::atan2(y, x);
-    //     }
+    template<CoordinateSystem CS, typename F>
+    constexpr void for_each_index(F&& f) noexcept
+    {
+        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        [&]<std::size_t... Is>(std::index_sequence<Is...>)
+        { (f(std::integral_constant<std::size_t, Is>{}), ...); }(std::make_index_sequence<N>{});
+    }
 
-    //     static constexpr void from_spherical(
-    //         double r,
-    //         double th,
-    //         double ph,
-    //         double& out_r,
-    //         double& out_th,
-    //         double& out_ph)
-    //     {
-    //         out_r = r;
-    //         out_th = th;
-    //         out_ph = ph;
-    //     }
-    // };
+    template<CoordinateSystem CS, typename F>
+    constexpr void for_each_enum_tag(F&& f) noexcept
+    {
+        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        [&]<std::size_t... Is>(std::index_sequence<Is...>)
+        {
+            (f(std::integral_constant<std::size_t, Is>{}, pmacc::spearhed::tag_of<CS, Is>{}), ...);
+        }(std::make_index_sequence<N>{});
+    }
+
+    template<CoordinateSystem CS, typename F>
+    constexpr void for_each_tag(F&& f) noexcept
+    {
+        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        [&]<std::size_t... Is>(std::index_sequence<Is...>)
+        { (f(pmacc::spearhed::tag_of<CS, Is>{}), ...); }(std::make_index_sequence<N>{});
+    }
+
+    template<CoordinateSystem CS, typename F>
+    constexpr bool all_of_tag(F&& f) noexcept
+    {
+        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        return [&]<std::size_t... Is>(std::index_sequence<Is...>)
+        { return (f(pmacc::spearhed::tag_of<CS, Is>{}) && ...); }(std::make_index_sequence<N>{});
+    }
+
+    template<CoordinateSystem CS, typename F>
+    constexpr bool any_of_tag(F&& f) noexcept
+    {
+        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        return [&]<std::size_t... Is>(std::index_sequence<Is...>)
+        { return (f(pmacc::spearhed::tag_of<CS, Is>{}) || ...); }(std::make_index_sequence<N>{});
+    }
 
 
 } // namespace pmacc::spearhed

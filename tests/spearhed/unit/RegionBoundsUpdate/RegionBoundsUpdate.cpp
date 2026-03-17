@@ -91,9 +91,10 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     prBuf->buffer->deviceToHost();
     auto const& region = prBuf->buffer->getHostBuffer().getDataBox()(0);
 
-    for(unsigned d = 0; d < TEST_DIM; ++d)
-    {
-        REQUIRE(region.volume.min[d] == expectedMin[d]);
-        REQUIRE(region.volume.max[d] == expectedMax[d]);
-    }
+    pmacc::spearhed::for_each_tag<spearhed::CS>(
+        [&](auto tag)
+        {
+            REQUIRE(region.volume.min[tag] == expectedMin[tag]);
+            REQUIRE(region.volume.max[tag] == expectedMax[tag]);
+        });
 }

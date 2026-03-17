@@ -19,54 +19,32 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Cartesian.hpp"
+#include "spmacc/topology/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
-#include <pmacc/math/vector/Vector.hpp>
+#include <array>
 
 namespace pmacc::spearhed
 {
     template<CoordinateSystem CS>
     struct PointValueStorage;
 
-    template<typename T>
-    struct PointValueStorage<Cartesian<T, 3>> : public pmacc::math::Vector<T, 3>
+    template<typename T, T_Dim Dim>
+    struct PointValueStorage<Cartesian<T, Dim>> : public std::array<T, Dim>
     {
-        using Base = pmacc::math::Vector<T, 3>;
-        constexpr PointValueStorage() = default;
+        using Base = std::array<T, Dim>;
+        using CS = Cartesian<T, Dim>;
 
-        constexpr PointValueStorage(T x_, T y_, T z_) : Base(x_, y_, z_)
+        template<CartesianTag Tag>
+        [[nodiscard]] constexpr T& operator[](Tag) noexcept
         {
+            return std::get<index_of<CS, Tag>()>(*this);
         }
 
-        [[nodiscard]] constexpr T get_x() const
+        template<CartesianTag Tag>
+        [[nodiscard]] constexpr T operator[](Tag) const noexcept
         {
-            return Base::operator[](0);
-        }
-
-        [[nodiscard]] constexpr T get_y() const
-        {
-            return Base::operator[](1);
-        }
-
-        [[nodiscard]] constexpr T get_z() const
-        {
-            return Base::operator[](2);
-        }
-
-        [[nodiscard]] constexpr T get_x()
-        {
-            return Base::operator[](0);
-        }
-
-        [[nodiscard]] constexpr T get_y()
-        {
-            return Base::operator[](1);
-        }
-
-        [[nodiscard]] constexpr T get_z()
-        {
-            return Base::operator[](2);
+            return std::get<index_of<CS, Tag>()>(*this);
         }
     };
 
@@ -74,48 +52,38 @@ namespace pmacc::spearhed
     template<CoordinateSystem CS, typename PointViewType>
     struct PointViewStorage;
 
-    template<typename T, typename PointViewType>
-    struct PointViewStorage<Cartesian<T, 3>, PointViewType>
+    template<typename T, T_Dim Dim, typename PointViewType>
+    struct PointViewStorage<Cartesian<T, Dim>, PointViewType>
     {
         PointViewType pointView;
+        using CS = Cartesian<T, Dim>;
 
         constexpr PointViewStorage(PointViewType pV) : pointView(pV)
         {
         }
 
-        [[nodiscard]] constexpr T& get_x() const
+        template<CartesianTag Tag>
+        [[nodiscard]] constexpr T& operator[](Tag t) noexcept
         {
-            return *pointView[tags::x];
+            return *pointView[t];
         }
 
-        [[nodiscard]] constexpr T& get_y() const
+        template<CartesianTag Tag>
+        [[nodiscard]] constexpr T operator[](Tag t) const noexcept
         {
-            return *pointView[tags::y];
+            return *pointView[t];
         }
 
-        [[nodiscard]] constexpr T& get_z() const
+        template<std::size_t I>
+        [[nodiscard]] constexpr T& get() noexcept
         {
-            return *pointView[tags::z];
-        }
-    };
-
-    template<typename T, typename PointViewType>
-    struct PointViewStorage<Cartesian<T, 2>, PointViewType>
-    {
-        PointViewType pointView;
-
-        constexpr PointViewStorage(PointViewType pV) : pointView(pV)
-        {
+            return *pointView[tag_of<CS, I>{}];
         }
 
-        [[nodiscard]] constexpr T& get_x() const
+        template<std::size_t I>
+        [[nodiscard]] constexpr T get() const noexcept
         {
-            return *pointView[tags::x];
-        }
-
-        [[nodiscard]] constexpr T& get_y() const
-        {
-            return *pointView[tags::y];
+            return *pointView[tag_of<CS, I>{}];
         }
     };
 

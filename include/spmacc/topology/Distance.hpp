@@ -34,9 +34,9 @@ namespace pmacc::spearhed
         Point<pmacc::spearhed::Cartesian<T_Distance, Dim>, StorageA> pointA,
         Point<pmacc::spearhed::Cartesian<T_Distance, Dim>, StorageB> pointB) noexcept -> T_Distance
     {
-        auto const dx = pointA.get_x() - pointB.get_x();
-        auto const dy = pointA.get_y() - pointB.get_y();
-        auto const dz = pointA.get_z() - pointB.get_z();
+        auto const dx = pointA[tags::x] - pointB[tags::x];
+        auto const dy = pointA[tags::y] - pointB[tags::y];
+        auto const dz = pointA[tags::z] - pointB[tags::z];
 
         if constexpr(Dim == 1)
         {

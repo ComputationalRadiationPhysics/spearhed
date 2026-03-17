@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "spmacc/topology/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <concepts>
@@ -84,23 +85,36 @@ namespace pmacc::spearhed
         // constexpr Point& operator=(Point<OtherCS, OtherStorage> const& other) noexcept
         // {
         // }
+        template<std::convertible_to<Scalar>... Args>
+        requires(sizeof...(Args) == dim)
+        constexpr Point(Args... args) noexcept : Storage{static_cast<Scalar>(args)...}
+        {
+        }
 
+        // broadcast
+        constexpr explicit Point(Scalar val) noexcept requires(dim > 1)
+            : Point(val, std::make_index_sequence<dim>{})
+        {
+        }
+
+        // Using `requires(T v) { Storage{v, v, v}; })` instead of `std::constructible_from` because the latter checks
+        // for paren() init support and this disables brace elison for Storage and thus returns false
         template<typename OtherStorage>
-        requires(dim == 3 && std::constructible_from<Storage, T, T, T>)
+        requires(dim == 3 && requires(T v) { Storage{v, v, v}; })
         constexpr Point(Point<CS, OtherStorage> const& other) noexcept
-            : Storage(other.get_x(), other.get_y(), other.get_z())
+            : Storage({other[tags::x], other[tags::y], other[tags::z]})
         {
         }
 
         template<typename OtherStorage>
-        requires(dim == 2 && std::constructible_from<Storage, T, T>)
-        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage(other.get_x(), other.get_y())
+        requires(dim == 2 && requires(T v) { Storage{v, v}; })
+        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage({other[tags::x], other[tags::y]})
         {
         }
 
         template<typename OtherStorage>
-        requires(dim == 1 && std::constructible_from<Storage, T>)
-        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage(other.get_x())
+        requires(dim == 1 && requires(T v) { Storage{v}; })
+        constexpr Point(Point<CS, OtherStorage> const& other) noexcept : Storage({other[tags::x]})
         {
         }
 
@@ -109,90 +123,55 @@ namespace pmacc::spearhed
         {
             if constexpr(dim == 3)
             {
-                this->get_x() = other.get_x();
-                this->get_y() = other.get_y();
-                this->get_z() = other.get_z();
+                (*this)[tags::x] = other[tags::x];
+                (*this)[tags::y] = other[tags::y];
+                (*this)[tags::z] = other[tags::z];
             }
             else if constexpr(dim == 2)
             {
-                this->get_x() = other.get_x();
-                this->get_y() = other.get_y();
+                (*this)[tags::x] = other[tags::x];
+                (*this)[tags::y] = other[tags::y];
             }
             else if constexpr(dim == 1)
             {
-                this->get_x() = other.get_x();
+                (*this)[tags::x] = other[tags::x];
             }
             return *this;
         }
 
         [[nodiscard]] friend constexpr bool operator==(Point const& p, Scalar const val) noexcept
         {
-            if constexpr(dim == 3)
-            {
-                return p.get_x() == val && p.get_y() == val && p.get_z() == val;
-            }
-            else if constexpr(dim == 2)
-            {
-                return p.get_x() == val && p.get_y() == val;
-            }
-            else
-            {
-                return p.get_x() == val;
-            }
+            return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return p[tag] == val; });
         }
 
         [[nodiscard]] constexpr bool isApprox(Point const& other, Scalar eps = std::numeric_limits<Scalar>::epsilon())
             const noexcept
         {
-            if constexpr(dim == 3)
-            {
-                return detail::abs_diff(this->get_x(), other.get_x()) <= eps
-                       && detail::abs_diff(this->get_y(), other.get_y()) <= eps
-                       && detail::abs_diff(this->get_z(), other.get_z()) <= eps;
-            }
-            else if constexpr(dim == 2)
-            {
-                return detail::abs_diff(this->get_x(), other.get_x()) <= eps
-                       && detail::abs_diff(this->get_y(), other.get_y()) <= eps;
-            }
-            else
-            {
-                return detail::abs_diff(this->get_x(), other.get_x()) <= eps;
-            }
+            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
+                                                   { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
         }
 
         // Check if all components of this Point are approximately equal to a Scalar value
         [[nodiscard]] constexpr bool isApprox(Scalar val, Scalar eps = std::numeric_limits<Scalar>::epsilon())
             const noexcept
         {
-            if constexpr(dim == 3)
-            {
-                return detail::abs_diff(this->get_x(), val) <= eps && detail::abs_diff(this->get_y(), val) <= eps
-                       && detail::abs_diff(this->get_z(), val) <= eps;
-            }
-            else if constexpr(dim == 2)
-            {
-                return detail::abs_diff(this->get_x(), val) <= eps && detail::abs_diff(this->get_y(), val) <= eps;
-            }
-            else
-            {
-                return detail::abs_diff(this->get_x(), val) <= eps;
-            }
+            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
+                                                   { return detail::abs_diff((*this)[tag], val) <= eps; });
         }
 
         friend std::ostream& operator<<(std::ostream& os, Point const& p)
         {
             if constexpr(dim == 3)
             {
-                return os << "(" << p.get_x() << ", " << p.get_y() << ", " << p.get_z() << ")";
+                return os << "(" << p[tags::x] << ", " << p[tags::y] << ", " << p[tags::z] << ")";
             }
             else if constexpr(dim == 2)
             {
-                return os << "(" << p.get_x() << ", " << p.get_y() << ")";
+                return os << "(" << p[tags::x] << ", " << p[tags::y] << ")";
             }
             else
             {
-                return os << "(" << p.get_x() << ")";
+                return os << "(" << p[tags::x] << ")";
             }
         }
     };
@@ -216,7 +195,8 @@ namespace pmacc::spearhed
     //     {
     //         // if constexpr(std::same_as<To, Cartesian>)
     //         // {
-    //         // OtherCS::from_spherical(a, b, c, this->get_x(), this->template get<1>(), this->template get<2>());
+    //         // OtherCS::from_spherical(a, b, c, (*this)[tags::x], this->template get<1>(), this->template
+    //         get<2>());
     //         // }
     //         // elif so on
     //     }
