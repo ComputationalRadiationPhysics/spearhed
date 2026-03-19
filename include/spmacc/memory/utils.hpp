@@ -43,7 +43,6 @@ namespace pmacc::spearhed::memory
         {
             void* rawPtr = nullptr;
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-            // Explicit cast required for C++
             rawPtr = deviceHeapHandle.malloc(worker.getAcc(), size);
 #else
             // Use nothrow to ensure nullptr is returned on failure,

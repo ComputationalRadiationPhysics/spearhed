@@ -48,12 +48,12 @@ namespace spearhed::test
         {
             auto& env = pmacc::Environment<DIM>::get();
 
-            // 1. ID Provider Setup
+            // ID Provider Setup
             uint64_t maxRanks = env.GridController().getGpuNodes().productOfComponents();
             uint64_t rank = env.GridController().getScalarPosition();
             dc.share(std::make_shared<pmacc::IdProvider>("globalId", rank, maxRanks));
 
-            // 2. Device Heap Setup
+            // Device Heap Setup
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
             constexpr auto testHeapSize = 256ull * 1024 * 1024;
             auto& deviceManager = pmacc::manager::Device<pmacc::ComputeDevice>::get();
@@ -69,7 +69,7 @@ namespace spearhed::test
 #endif
             dc.template get<pmacc::IdProvider>("globalId")->reset();
 
-            // 3. Particle Region Buffer Setup
+            // Particle Region Buffer Setup
             prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
             dc.share(prBuf);
         }

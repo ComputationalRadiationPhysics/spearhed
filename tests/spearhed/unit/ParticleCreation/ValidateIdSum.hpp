@@ -114,24 +114,22 @@ struct ComputeParticleIdSum
 {
     auto operator()() const -> uint64_t
     {
-        constexpr int numBlocks = 256;
         constexpr uint32_t threadsPerBlock = 256;
-
-        pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(pmacc::DataSpace<DIM1>{numBlocks});
 
         auto& dc = pmacc::Environment<>::get().DataConnector();
         auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>("PRBuf");
+        pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(prBuf.size);
 
         PMACC_LOCKSTEP_KERNEL(reduce::detail::SumParticleIds{})
-            .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(
-                numBlocks))(prBuf.getDeviceDataBox(), prBuf.size, partialSums.getDeviceBuffer().getDataBox());
+            .config<threadsPerBlock>(
+                prBuf.size)(prBuf.getDeviceDataBox(), prBuf.size, partialSums.getDeviceBuffer().getDataBox());
 
         partialSums.deviceToHost();
 
         auto hostData = partialSums.getHostBuffer().getDataBox();
         uint64_t totalSum = 0;
 
-        for(int i = 0; i < numBlocks; ++i)
+        for(int i = 0; i < prBuf.size; ++i)
         {
             totalSum += hostData[i];
         }

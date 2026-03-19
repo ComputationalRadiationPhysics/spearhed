@@ -182,12 +182,13 @@ namespace spearhed
                 int framesInRegion = 0;
 
                 // Linear search for the particle region where this block falls in the inclusive scan
+                // TODO use binary search
                 for(int i = 0; i < numParticleRegions; ++i)
                 {
                     int endFrameIdx = framesPerParticleRegionScan[i];
                     int startFrameIdx = (i == 0) ? 0 : (framesPerParticleRegionScan[i - 1]);
 
-                    if(blockIdx >= startFrameIdx && blockIdx <= endFrameIdx)
+                    if(blockIdx >= startFrameIdx && blockIdx < endFrameIdx)
                     {
                         particleRegionIdx = i;
                         framesOffset = blockIdx - startFrameIdx;
@@ -197,6 +198,7 @@ namespace spearhed
                 }
 
                 PMACC_ASSERT(particleRegionIdx != -1);
+                PMACC_ASSERT(framesOffset < framesInRegion);
 
                 auto& particleRegion = prDeviceBox[particleRegionIdx];
 
