@@ -86,10 +86,10 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
             auto point = posZero.get();
 
             // Modify data via high-level Point interface
-            point.get_x() = 10.11f;
+            point[tags::x] = 10.11f;
 
             // Verify reflected changes in Point interface
-            CHECK(point.get_x() == Catch::Approx(10.11f));
+            CHECK(point[tags::x] == Catch::Approx(10.11f));
             // Verify reflected changes in underlying SoA
             CHECK(*pos_view[tags::x][0] == Catch::Approx(10.11f));
         }

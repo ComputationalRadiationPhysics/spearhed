@@ -33,4 +33,8 @@ namespace pmacc::spearhed
 
     } // namespace tags
 
+    // // Restrict access to valid cartesian tags
+    template<typename T>
+    concept CartesianTag = std::same_as<T, tags::x_t> || std::same_as<T, tags::y_t> || std::same_as<T, tags::z_t>;
+
 } // namespace pmacc::spearhed

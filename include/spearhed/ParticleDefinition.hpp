@@ -20,11 +20,11 @@
 #pragma once
 
 #include "spearhed/param.hpp"
-#include "spmacc/AABB.hpp"
 #include "spmacc/Frame.hpp"
 #include "spmacc/ListPointer.hpp"
-#include "spmacc/ParticleRegion.hpp"
 #include "spmacc/meta/ComponentList.hpp"
+#include "spmacc/particles/regions/AABB.hpp"
+#include "spmacc/particles/regions/ParticleRegion.hpp"
 
 #include <pmacc/meta/Pair.hpp>
 #include <pmacc/meta/conversion/MakeSeq.hpp>

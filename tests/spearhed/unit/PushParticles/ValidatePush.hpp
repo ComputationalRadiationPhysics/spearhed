@@ -22,8 +22,8 @@
 #include "catch2/catch_test_macros.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -71,7 +71,7 @@ struct CheckParticlePos
                         // Only sum valid particles
                         if(*particle[spearhed::multiMask])
                         {
-                            if(!particle[spearhed::pos].get().isApprox(1.f))
+                            if(!particle[spearhed::relativePos].get().isApprox(1.f))
                             {
                                 // Increment error counter on device
                                 alpaka::atomicAdd(worker.getAcc(), d_errorCount, 1, alpaka::hierarchy::Blocks{});

@@ -24,9 +24,9 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/memory/FramePointer.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/assert.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>

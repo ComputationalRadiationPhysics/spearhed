@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "spmacc/topology/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/dimensions/Definition.hpp>

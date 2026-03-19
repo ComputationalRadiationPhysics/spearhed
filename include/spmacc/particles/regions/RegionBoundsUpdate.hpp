@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
-#include "spmacc/particles/attributes/Position.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
@@ -56,7 +56,6 @@ namespace pmacc::spearhed
 
                 // Thread-Local Accumulation
                 VolumeType localBounds;
-                localBounds.reset();
 
                 auto& frameList = region.particleFrameList;
                 for(auto frameItr = frameList.begin(); frameItr != frameList.end(); ++frameItr)
@@ -68,7 +67,7 @@ namespace pmacc::spearhed
                             auto particle = (*frameItr)[idx];
                             if(*particle[tags::multiMask])
                             {
-                                localBounds.extend(particle[tags::pos].get());
+                                localBounds.extend(particle[tags::relativePos].get());
                             }
                         });
                 }

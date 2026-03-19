@@ -24,8 +24,8 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
-#include "spmacc/NeighbourRegions.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>

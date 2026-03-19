@@ -50,7 +50,7 @@ namespace spearhed
 
         void addOptions(boost::program_options::options_description desc)
         {
-            options.push_back(desc);
+            options.push_back(std::move(desc));
         }
 
         /**

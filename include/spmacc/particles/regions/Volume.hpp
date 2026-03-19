@@ -21,6 +21,15 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Cartesian.hpp"
-#include "spmacc/particles/attributes/MultiMask.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
+#include <concepts>
+
+namespace pmacc::spearhed
+{
+    template<typename V>
+    concept Volume = requires(V const& vol, typename V::Pnt const& pnt) {
+        typename V::CS;
+        typename V::Pnt;
+        { vol.getPosition(pnt) } -> std::same_as<typename V::Pnt>;
+    };
+
+} // namespace pmacc::spearhed

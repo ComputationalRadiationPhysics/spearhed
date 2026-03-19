@@ -25,6 +25,7 @@
 #include "spmacc/topology/Point.hpp"
 #include "spmacc/topology/PointStorage.hpp"
 
+#include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/math/vector/Vector.hpp>
 
@@ -39,34 +40,30 @@ namespace pmacc::spearhed
         using CS = Cartesian<TAxis, DIM>;
         using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
-        constexpr void reset()
-        {
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                min[i] = std::numeric_limits<TAxis>::max();
-                max[i] = std::numeric_limits<TAxis>::lowest();
-            }
-        }
-
         constexpr void extend(Pnt const& point)
         {
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                if(point[i] < min[i])
-                    min[i] = point[i];
-                if(point[i] > max[i])
-                    max[i] = point[i];
-            }
+            pmacc::spearhed::for_each_tag<CS>(
+                [&](auto tag)
+                {
+                    if(point[tag] < min[tag])
+                        min[tag] = point[tag];
+                    if(point[tag] > max[tag])
+                        max[tag] = point[tag];
+                });
         }
 
         constexpr void extend(AABB const& other)
         {
             for(unsigned i = 0; i < DIM; ++i)
             {
-                if(other.min[i] < min[i])
-                    min[i] = other.min[i];
-                if(other.max[i] > max[i])
-                    max[i] = other.max[i];
+                pmacc::spearhed::for_each_tag<CS>(
+                    [&](auto tag)
+                    {
+                        if(other.min[tag] < min[tag])
+                            min[tag] = other.min[tag];
+                        if(other.max[tag] > max[tag])
+                            max[tag] = other.max[tag];
+                    });
             }
         }
 
@@ -76,12 +73,21 @@ namespace pmacc::spearhed
         constexpr AABB expand(TAxis margin) const
         {
             AABB result = *this;
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                result.min[i] -= margin;
-                result.max[i] += margin;
-            }
+            pmacc::spearhed::for_each_tag<CS>(
+                [&](auto tag)
+                {
+                    result.min[tag] -= margin;
+                    result.max[tag] += margin;
+                });
+
             return result;
+        }
+
+        template<typename T_Storage>
+        constexpr Pnt getPosition(spearhed::Point<CS, T_Storage> const& relativePos) const
+        {
+            PMACC_ASSERT(relativePos > min && relativePos < max);
+            return origin + relativePos;
         }
 
         // [[nodiscard]] constexpr AABB shuffle_down(auto worker, unsigned delta, int width) const
@@ -100,18 +106,15 @@ namespace pmacc::spearhed
         // This may need to be optimized later
         friend constexpr bool intersects(const AABB& a, const AABB& b)
         {
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                // Check for separation along axis i
-                if(a.min[i] > b.max[i] || a.max[i] < b.min[i])
-                {
-                    return false;
-                }
-            }
-            return true;
+            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
+                                                   { return !(a.min[tag] > b.max[tag] || a.max[tag] < b.min[tag]); });
         }
 
-        Pnt min;
-        Pnt max;
+        // The position of this Volume in the global coordinate system
+        Pnt origin{TAxis{0}};
+
+        // The extents of the box, relative to the box origin.
+        Pnt min{std::numeric_limits<TAxis>::max()};
+        Pnt max{std::numeric_limits<TAxis>::lowest()};
     };
 } // namespace pmacc::spearhed

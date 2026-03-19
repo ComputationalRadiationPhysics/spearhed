@@ -19,7 +19,7 @@
 
 #include "spearhed/param.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/NeighbourRegions.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -40,20 +40,38 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     prBuf->buffer->deviceToHost();
     auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
 
-    for(unsigned d = 0; d < TEST_DIM; ++d)
-    {
-        // Region 0: [0.0, 1.0]
-        hostRegions(0).volume.min[d] = 0.0f;
-        hostRegions(0).volume.max[d] = 1.0f;
+    pmacc::spearhed::constexpr_for<0ul, TEST_DIM>(
+        [&](auto I)
+        {
+            // Region 0: [0.0, 1.0]
+            std::get<I>(hostRegions(0).volume.min) = 0.0f;
+            std::get<I>(hostRegions(0).volume.max) = 1.0f;
 
-        // Region 1: [1.5, 2.5]
-        hostRegions(1).volume.min[d] = 1.5f;
-        hostRegions(1).volume.max[d] = 2.5f;
+            // Region 1: [1.5, 2.5]
+            std::get<I>(hostRegions(1).volume.min) = 1.5f;
+            std::get<I>(hostRegions(1).volume.max) = 2.5f;
 
-        // Region 2: [4.0, 5.0]
-        hostRegions(2).volume.min[d] = 4.0f;
-        hostRegions(2).volume.max[d] = 5.0f;
-    }
+            // Region 2: [4.0, 5.0]
+            std::get<I>(hostRegions(2).volume.min) = 4.0f;
+            std::get<I>(hostRegions(2).volume.max) = 5.0f;
+        });
+
+    pmacc::spearhed::for_each_tag<spearhed::CS>(
+        [&](auto tag)
+        {
+            // Region 0: [0.0, 1.0]
+            hostRegions(0).volume.min[tag] = 0.0f;
+            hostRegions(0).volume.max[tag] = 1.0f;
+
+            // Region 1: [1.5, 2.5]
+            hostRegions(1).volume.min[tag] = 1.5f;
+            hostRegions(1).volume.max[tag] = 2.5f;
+
+            // Region 2: [4.0, 5.0]
+            hostRegions(2).volume.min[tag] = 4.0f;
+            hostRegions(2).volume.max[tag] = 5.0f;
+        });
+
 
     prBuf->buffer->hostToDevice();
 

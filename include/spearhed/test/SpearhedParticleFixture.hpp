@@ -21,7 +21,7 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/alpakaHelper/acc.hpp>
 #include <pmacc/particles/IdProvider.hpp>

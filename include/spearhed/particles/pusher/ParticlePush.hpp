@@ -21,8 +21,8 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/particles/pusher/PushVelocity.hpp"
-#include "spmacc/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 namespace spearhed
 {

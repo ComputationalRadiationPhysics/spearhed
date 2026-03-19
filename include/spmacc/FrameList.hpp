@@ -45,6 +45,8 @@ namespace pmacc::spearhed
             using value_type = FrameType;
             using pointer = FrameType*;
             using reference = FrameType&;
+            using difference_type = std::ptrdiff_t;
+            using iterator_category = std::forward_iterator_tag;
 
             constexpr Iterator(pointer node = nullptr) : m_current(node)
             {
@@ -62,9 +64,16 @@ namespace pmacc::spearhed
 
             constexpr Iterator& operator++()
             {
-                if(m_current)
-                    m_current = m_current->next;
+                // caller needs to ensure validity of this call
+                m_current = m_current->next;
                 return *this;
+            }
+
+            constexpr Iterator operator++(int)
+            {
+                Iterator tmp = *this;
+                ++(*this);
+                return tmp;
             }
 
             constexpr bool operator==(Iterator const& other) const = default;
