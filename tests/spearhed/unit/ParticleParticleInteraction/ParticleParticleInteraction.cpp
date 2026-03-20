@@ -54,23 +54,26 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
     spearhed::InitParticles{}();
 
     // Setup Neighbour Graph (All-to-All mapping for analytic validation)
-    // In a 2-region simulation, both regions are neighbours of Region 0 and Region 1.
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(4u);
+    int const totalNeighbours = numRegions * numRegions;
+    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(totalNeighbours);
     auto h_neighbours = neighbourRegions.getHostBuffer().data();
-    // Neighbours of Region 0
-    h_neighbours[0] = 0;
-    h_neighbours[1] = 1;
-    // Neighbours of Region 1
-    h_neighbours[2] = 0;
-    h_neighbours[3] = 1;
-    neighbourRegions.hostToDevice();
 
-    // Offsets point to the start of each region's neighbour list in the array above.
+    // Offsets point to the start of each region's neighbour list in h_neighbours.
     pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
     auto h_offsets = regionOffsets.getHostBuffer().data();
-    h_offsets[0] = 0;
-    h_offsets[1] = 2;
-    h_offsets[2] = 4;
+
+    for(int i = 0; i < numRegions; ++i)
+    {
+        h_offsets[i] = i * numRegions;
+        for(int j = 0; j < numRegions; ++j)
+        {
+            h_neighbours[i * numRegions + j] = j;
+        }
+    }
+    // Set the final boundary offset
+    h_offsets[numRegions] = totalNeighbours;
+
+    neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
 
     using T_Count = uint64_t;
