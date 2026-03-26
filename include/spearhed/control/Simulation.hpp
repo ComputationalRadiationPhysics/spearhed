@@ -74,7 +74,6 @@ namespace spearhed
 
         // layout parameter
         std::vector<uint32_t> devices;
-        std::vector<double> domainSize;
         std::vector<uint32_t> periodic;
 
         bool showVersionOnce{false};

@@ -20,6 +20,7 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
+#include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 namespace spearhed
@@ -31,6 +32,8 @@ namespace spearhed
         = requires(T a, pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) {
               // Requires a method named setupRegions with matching arguments that returns void
               { a.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
+              // Requires a domain member describing the full simulation domain
+              { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
           };
 
 

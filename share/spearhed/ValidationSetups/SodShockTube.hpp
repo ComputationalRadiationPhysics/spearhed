@@ -27,6 +27,8 @@ namespace spearhed
 {
     struct SodShockTube
     {
+        pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
             PRType boundedParticles{deviceHeap.getAllocatorHandle()};
@@ -36,11 +38,11 @@ namespace spearhed
             auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
 
             // Define the left region
-            pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {0.0, 0.0, 0.0}, {0.5, 1.0, 1.0}};
+            pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {-1.0, -1.0, -1.0}, {0.0, 1.0, 1.0}};
             auto leftRegion = PRType{deviceHeapHandle, leftVolume};
 
             // Define the right region
-            auto rightRegion = PRType{deviceHeapHandle, {{0, 0, 0}, {0.5, 0.0, 0.0}, {1.0, 1.0, 1.0}}};
+            auto rightRegion = PRType{deviceHeapHandle, {{0, 0, 0}, {0.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
 
             // Add regions to the particleRegions buffer
             prBuf.pushBack(leftRegion);

@@ -53,8 +53,6 @@ namespace spearhed
             ("no-start-simulation", pmacc::po::bool_switch(&skipSimulation)->default_value(false), "Do not actually run the simulation but initialise everything, skip simulation and finalise.")
             ("devices,d", pmacc::po::value<std::vector<uint32_t>>(&devices)->multitoken(),
              "number of devices in each dimension")
-            ("domain", pmacc::po::value<std::vector<double>>(&domainSize)->multitoken(),
-             "size of the simulation domain in each dimension (floating point)")
             ("numRanksPerDevice,r", pmacc::po::value<uint32_t>(&numRanksPerDevice)->default_value(1u),
              "set the number of MPI ranks using a single device together");
         // clang-format on
@@ -85,10 +83,6 @@ namespace spearhed
             std::cerr << "Warning: " << devices[2] << " devices requested for z in a 2d simulation, this parameter "
                       << "will be reset to 1. Number of MPI ranks must be equal to the number of devices in x * y\n";
 
-
-        PMACC_VERIFY_MSG(
-            domainSize.size() >= 2 && domainSize.size() <= 3,
-            "Invalid or missing domain size.\nuse --domain width height [depth=1.0]");
 
         pmacc::DataSpace<simDim> gpus;
         pmacc::DataSpace<simDim> isPeriodic;
@@ -221,9 +215,9 @@ namespace spearhed
 
         // load density description from param file. How is this independent from the domain size?
         //
-        std::cout << "hello SPH! domain size is " << domainSize[0] << " " << domainSize[1] << std::endl;
-
         auto setup = SodShockTube{};
+
+        std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 
         InitRegions{}(*deviceHeap, setup);
         InitParticles{}();
