@@ -43,7 +43,7 @@ repos:
     hooks:
       - id: check_cpp_code_style
         name: check_cpp_code_style
-        entry: share/check_cpp_code_style.sh
+        entry: share/ci/check_cpp_code_style.sh
         language: system
         files: \.(cpp|def|h|cu|tpp|kernel|loader|unitless|hpp|param)$
         pass_filenames: false
