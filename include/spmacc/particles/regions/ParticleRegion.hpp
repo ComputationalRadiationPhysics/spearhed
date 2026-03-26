@@ -41,6 +41,12 @@ namespace pmacc
             {
             }
 
+            constexpr ParticleRegion(T_DeviceHeapHandle const& deviceHeapHandle, TVolume const& volume)
+                : volume(volume)
+                , particleFrameList{deviceHeapHandle}
+            {
+            }
+
             // return a reference to the Frame list
             auto& getParticleFrameList()
             {

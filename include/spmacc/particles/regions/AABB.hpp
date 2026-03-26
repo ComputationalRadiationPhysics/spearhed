@@ -41,6 +41,12 @@ namespace pmacc::spearhed
 
         using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
+        AABB() = default;
+
+        AABB(Pnt const& origin, Pnt const& min, Pnt const& max) : origin(origin), min(min), max(max)
+        {
+        }
+
         constexpr void extend(Pnt const& point)
         {
             pmacc::spearhed::for_each_tag<CS>(
