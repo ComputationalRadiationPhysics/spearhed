@@ -19,31 +19,32 @@
 
 #pragma once
 
-#include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/SetupInterface.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
-#include <pmacc/Environment.hpp>
-
 namespace spearhed
 {
-    namespace init::detail
+    struct SodShockTube
     {
-    }
-
-    struct InitRegions
-    {
-        void operator()(DeviceHeap const& deviceHeap, SetupInterface auto setup)
+        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
-            dc.share(prBuf);
+            PRType boundedParticles{deviceHeap.getAllocatorHandle()};
 
-            setup.setupRegions(*prBuf, deviceHeap);
+            prBuf.create(2);
 
-            prBuf->buffer->hostToDevice();
+            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
+
+            // Define the left region
+            pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {0.0, 0.0, 0.0}, {0.5, 1.0, 1.0}};
+            auto leftRegion = PRType{deviceHeapHandle, leftVolume};
+
+            // Define the right region
+            auto rightRegion = PRType{deviceHeapHandle, {{0, 0, 0}, {0.5, 0.0, 0.0}, {1.0, 1.0, 1.0}}};
+
+            // Add regions to the particleRegions buffer
+            prBuf.pushBack(leftRegion);
+            prBuf.pushBack(rightRegion);
         }
     };
 } // namespace spearhed

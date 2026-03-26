@@ -22,6 +22,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/control/DomainAdjuster.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/param/setup.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
@@ -251,7 +252,9 @@ namespace spearhed
         //
         std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
 
-        InitRegions{}(*deviceHeap);
+        auto setup = SodShockTube{};
+
+        InitRegions{}(*deviceHeap, setup);
         InitParticles{}();
 
         return 0u;
