@@ -23,6 +23,7 @@
 #include "spearhed/control/DomainAdjuster.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -250,20 +251,7 @@ namespace spearhed
         //
         std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
 
-        PRType boundedParticles{deviceHeap->getAllocatorHandle()};
-
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
-        dc.share(prBuf);
-
-        prBuf->create(2);
-
-        prBuf->pushBack(boundedParticles);
-        // push back creates a copy
-        prBuf->pushBack(boundedParticles);
-
-        prBuf->buffer->hostToDevice();
-
+        InitRegions{}(*deviceHeap);
         InitParticles{}();
 
         return 0u;
