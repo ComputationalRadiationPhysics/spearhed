@@ -20,7 +20,6 @@
 #include "spearhed/control/Simulation.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/control/DomainAdjuster.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/param/setup.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
@@ -54,8 +53,8 @@ namespace spearhed
             ("no-start-simulation", pmacc::po::bool_switch(&skipSimulation)->default_value(false), "Do not actually run the simulation but initialise everything, skip simulation and finalise.")
             ("devices,d", pmacc::po::value<std::vector<uint32_t>>(&devices)->multitoken(),
              "number of devices in each dimension")
-            ("grid,g", pmacc::po::value<std::vector<uint32_t>>(&gridSize)->multitoken(),
-             "size of the simulation grid")
+            ("domain", pmacc::po::value<std::vector<double>>(&domainSize)->multitoken(),
+             "size of the simulation domain in each dimension (floating point)")
             ("numRanksPerDevice,r", pmacc::po::value<uint32_t>(&numRanksPerDevice)->default_value(1u),
              "set the number of MPI ranks using a single device together");
         // clang-format on
@@ -88,28 +87,20 @@ namespace spearhed
 
 
         PMACC_VERIFY_MSG(
-            gridSize.size() >= 2 && gridSize.size() <= 3,
-            "Invalid or missing grid size.\nuse -g width height [depth=1]");
+            domainSize.size() >= 2 && domainSize.size() <= 3,
+            "Invalid or missing domain size.\nuse --domain width height [depth=1.0]");
 
-        // check on correct grid size. fill with default grid size value 1 for missing 3. dimension
-        if(gridSize.size() == 2)
-            gridSize.push_back(1);
-
-        pmacc::DataSpace<simDim> gridSizeGlobal;
         pmacc::DataSpace<simDim> gpus;
         pmacc::DataSpace<simDim> isPeriodic;
 
         for(uint32_t i = 0; i < simDim; ++i)
         {
-            gridSizeGlobal[i] = gridSize[i];
             gpus[i] = devices[i];
             isPeriodic[i] = periodic[i];
         }
 
         pmacc::Environment<simDim>::get().initDevices(gpus, isPeriodic);
         pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
-
-        pmacc::DataSpace<simDim> myGPUpos(gc.getPosition());
 
         if(gc.getGlobalRank() == 0)
         {
@@ -118,26 +109,6 @@ namespace spearhed
                 std::cout << "Alpha development version of SPMacc" << std::endl;
             }
         }
-
-        // by default: use an equal distributed box for all omitted params
-        for(uint32_t dim = 0; dim < simDim; ++dim)
-        {
-            gridSizeLocal[dim] = gridSizeGlobal[dim] / gpus[dim];
-        }
-
-        pmacc::DataSpace<simDim> gridOffset;
-
-        DomainAdjuster domainAdjuster(gpus, myGPUpos, isPeriodic);
-
-        if(!autoAdjustGrid)
-            domainAdjuster.validateOnly();
-
-        domainAdjuster(gridSizeGlobal, gridSizeLocal, gridOffset);
-
-        pmacc::Environment<simDim>::get().initGrids(gridSizeGlobal, gridSizeLocal, gridOffset);
-
-        pmacc::log<pmacc::PMaccVerbose::INFO>("rank %1%; localsize %2%; localoffset %3%;") % myGPUpos.toString()
-            % gridSizeLocal.toString() % gridOffset.toString();
 
         BaseType::pluginLoad();
     }
@@ -250,7 +221,7 @@ namespace spearhed
 
         // load density description from param file. How is this independent from the domain size?
         //
-        std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
+        std::cout << "hello SPH! domain size is " << domainSize[0] << " " << domainSize[1] << std::endl;
 
         auto setup = SodShockTube{};
 

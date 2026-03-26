@@ -74,13 +74,10 @@ namespace spearhed
 
         // layout parameter
         std::vector<uint32_t> devices;
-        std::vector<uint32_t> gridSize;
-        /** Without guards */
-        pmacc::DataSpace<simDim> gridSizeLocal;
+        std::vector<double> domainSize;
         std::vector<uint32_t> periodic;
 
         bool showVersionOnce{false};
-        bool autoAdjustGrid = true;
         uint32_t numRanksPerDevice = 1u;
         bool skipSimulation{false};
     };
