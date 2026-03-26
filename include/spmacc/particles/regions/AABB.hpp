@@ -34,10 +34,11 @@ namespace pmacc::spearhed
     /**
      * Axis aligned bounding box
      */
-    template<typename TAxis, unsigned DIM>
+    template<CoordinateSystem CS>
     struct AABB
     {
-        using CS = Cartesian<TAxis, DIM>;
+        using TAxis = CS::T_Axis;
+
         using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
         constexpr void extend(Pnt const& point)
@@ -54,17 +55,14 @@ namespace pmacc::spearhed
 
         constexpr void extend(AABB const& other)
         {
-            for(unsigned i = 0; i < DIM; ++i)
-            {
-                pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag)
-                    {
-                        if(other.min[tag] < min[tag])
-                            min[tag] = other.min[tag];
-                        if(other.max[tag] > max[tag])
-                            max[tag] = other.max[tag];
-                    });
-            }
+            pmacc::spearhed::for_each_tag<CS>(
+                [&](auto tag)
+                {
+                    if(other.min[tag] < min[tag])
+                        min[tag] = other.min[tag];
+                    if(other.max[tag] > max[tag])
+                        max[tag] = other.max[tag];
+                });
         }
 
         /**

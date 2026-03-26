@@ -42,7 +42,7 @@ namespace pmacc::spearhed
     template<typename CS>
     concept CoordinateSystem = requires {
         // type in which the coordinates are stored
-        typename CS::Scalar;
+        typename CS::T_Axis;
         typename CS::tags;
         { CS::dimension } -> std::convertible_to<std::size_t>;
         { CS::metricKind } -> std::convertible_to<MetricKind>;

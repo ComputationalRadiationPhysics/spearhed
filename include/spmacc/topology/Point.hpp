@@ -70,7 +70,7 @@ namespace pmacc::spearhed
     struct Point<Cartesian<T, Dim>, Storage> : public Storage
     {
         using CS = Cartesian<T, Dim>;
-        using Scalar = typename CS::Scalar;
+        using Scalar = typename CS::T_Axis;
         static constexpr T_Dim dim = CS::dimension;
 
         using Storage::Storage;
