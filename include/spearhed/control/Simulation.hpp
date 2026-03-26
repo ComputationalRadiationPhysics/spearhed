@@ -26,7 +26,7 @@
 
 #include <boost/program_options/options_description.hpp>
 
-#include <memory>
+#include <optional>
 #include <vector>
 
 namespace spearhed
@@ -70,7 +70,7 @@ namespace spearhed
         size_t freeDeviceMemory() const;
 
     private:
-        std::shared_ptr<DeviceHeap> deviceHeap;
+        std::optional<DeviceHeap> deviceHeap{std::nullopt};
 
         // layout parameter
         std::vector<uint32_t> devices;

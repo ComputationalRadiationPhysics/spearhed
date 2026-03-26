@@ -33,6 +33,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace spearhed::test
 {
@@ -40,7 +41,7 @@ namespace spearhed::test
     struct SpearhedParticleFixture
     {
         pmacc::test::PMaccFixture<DIM> pmaccBase{};
-        std::shared_ptr<DeviceHeap> deviceHeap;
+        std::optional<DeviceHeap> deviceHeap{std::nullopt};
         std::shared_ptr<pmacc::spearhed::ParticleRegionBuffer<PRType>> prBuf;
         pmacc::DataConnector& dc;
 
@@ -60,12 +61,10 @@ namespace spearhed::test
             auto alpakaDevice = deviceManager.current();
             auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
 
-            deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
-            alpaka::wait(alpakaQueue);
-            deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, testHeapSize);
+            deviceHeap.emplace(alpakaDevice, alpakaQueue, testHeapSize);
             alpaka::wait(alpakaQueue);
 
-            dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap));
+            dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap));
 #endif
             dc.template get<pmacc::IdProvider>("globalId")->reset();
 

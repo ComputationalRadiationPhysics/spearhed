@@ -174,15 +174,6 @@ namespace spearhed
 
     void Simulation::init()
     {
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
-        /* Create an empty allocator. This one is resized after all exchanges
-         * for particles are created */
-        deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
-        alpaka::wait(alpakaQueue);
-#endif
-
         // Allocate and initialize particle species with all left-over memory below
         // meta::ForEach<VectorAllSpecies, particles::CreateSpecies<boost::mpl::_1>> createSpeciesMemory;
         // createSpeciesMemory(deviceHeap, cellDescription.get());
@@ -214,11 +205,14 @@ namespace spearhed
 
         // initializing the heap for particles
         // TODO use heapsize instead of the hard coded small heap
+        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
+        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
+
         size_t small_heap{2ull * 1024 * 1024 * 1024};
-        deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, small_heap);
+        deviceHeap.emplace(alpakaDevice, alpakaQueue, small_heap);
         alpaka::wait(alpakaQueue);
 
-        auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+        auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap);
         auto& dc = pmacc::Environment<>::get().DataConnector();
         dc.consume(std::move(mallocMCBuffer));
 
