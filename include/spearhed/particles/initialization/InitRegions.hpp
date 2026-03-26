@@ -42,8 +42,6 @@ namespace spearhed
             dc.share(prBuf);
 
             setup.setupRegions(*prBuf, deviceHeap);
-
-            prBuf->buffer->hostToDevice();
         }
     };
 } // namespace spearhed

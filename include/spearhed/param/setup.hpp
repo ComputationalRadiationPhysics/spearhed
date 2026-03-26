@@ -20,36 +20,31 @@
 #pragma once
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/param.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
-/**
- * Temporary file which holds the currently simulated setup
- * NOTE: This is not a param file and thus is not included in spearhed/param.hpp
- * An index of setups can be found in share/spearhed , which holds the source of truth for this setup
- */
 namespace spearhed
 {
-    struct SodShockTube
+    // Default setup. Override at CMake configure time with -DSPEARHED_SETUP_FILE=/path/to/MySetup.hpp
+    struct DefaultSetup
     {
+        pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
-            PRType boundedParticles{deviceHeap.getAllocatorHandle()};
-
-            prBuf.create(2);
+            prBuf.create(1);
 
             auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
 
-            // Define the left region
-            pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {0.0, 0.0, 0.0}, {0.5, 1.0, 1.0}};
-            auto leftRegion = PRType{deviceHeapHandle, leftVolume};
+            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
 
-            // Define the right region
-            auto rightRegion = PRType{deviceHeapHandle, {{0, 0, 0}, {0.5, 0.0, 0.0}, {1.0, 1.0, 1.0}}};
-
-            // Add regions to the particleRegions buffer
-            prBuf.pushBack(leftRegion);
-            prBuf.pushBack(rightRegion);
+            prBuf.pushBack(region);
+            prBuf.buffer->hostToDevice();
         }
     };
+
+    // Our simulation creates the setup instance as Setup{}. So custom setups need to be provide Setup, which must be
+    // default constructible.
+    using Setup = DefaultSetup;
 } // namespace spearhed

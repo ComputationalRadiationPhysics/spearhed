@@ -215,7 +215,7 @@ namespace spearhed
 
         // load density description from param file. How is this independent from the domain size?
         //
-        auto setup = SodShockTube{};
+        auto setup = Setup{};
 
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 

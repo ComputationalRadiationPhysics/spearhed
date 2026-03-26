@@ -19,7 +19,8 @@
 
 #pragma once
 
-#include "spearhed/particles/initialization/SetupInterface.hpp"
+#include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/param.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
@@ -31,8 +32,6 @@ namespace spearhed
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
-            PRType boundedParticles{deviceHeap.getAllocatorHandle()};
-
             prBuf.create(2);
 
             auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
@@ -47,6 +46,9 @@ namespace spearhed
             // Add regions to the particleRegions buffer
             prBuf.pushBack(leftRegion);
             prBuf.pushBack(rightRegion);
+            prBuf.buffer->hostToDevice();
         }
     };
+
+    using Setup = SodShockTube;
 } // namespace spearhed
