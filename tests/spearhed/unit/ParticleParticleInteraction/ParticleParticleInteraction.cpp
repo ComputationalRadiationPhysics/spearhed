@@ -19,6 +19,7 @@
 
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 
+#include "TestSetup.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
@@ -50,7 +51,8 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
 {
     constexpr int numRegions = 2;
 
-    setupRegions(numRegions);
+    auto setup = spearhed::EmptyNRegions<numRegions>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
     spearhed::InitParticles{}();
 
     // Setup Neighbour Graph (All-to-All mapping for analytic validation)

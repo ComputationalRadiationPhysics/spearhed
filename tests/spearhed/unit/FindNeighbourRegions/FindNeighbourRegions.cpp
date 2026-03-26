@@ -17,7 +17,9 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "TestSetup.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/param/mallocMC.param"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 
@@ -34,7 +36,8 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[integration][particles][neighbours]")
 {
-    setupRegions(3);
+    auto setup = spearhed::EmptyNRegions<3>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
 
     // Initialize region volumes manually
     prBuf->buffer->deviceToHost();

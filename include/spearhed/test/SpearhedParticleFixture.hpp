@@ -73,18 +73,6 @@ namespace spearhed::test
             dc.share(prBuf);
         }
 
-        // Helper to initialize N regions and sync to device
-        void setupRegions(size_t numRegions)
-        {
-            prBuf->create(numRegions);
-            PRType boundedParticles{deviceHeap->getAllocatorHandle()};
-            for(size_t i = 0; i < numRegions; ++i)
-            {
-                prBuf->pushBack(boundedParticles);
-            }
-            prBuf->buffer->hostToDevice();
-        }
-
         ~SpearhedParticleFixture()
         {
             dc.clean();

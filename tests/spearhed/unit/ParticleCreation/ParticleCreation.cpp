@@ -17,6 +17,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "TestSetup.hpp"
 #include "ValidateIdSum.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
@@ -36,7 +37,9 @@ TEST_CASE_METHOD(ParticleFixture, "Particle Creation and ID Sum Validation", "[i
 {
     constexpr uint64_t numRegions = 2;
 
-    setupRegions(numRegions);
+    auto setup = spearhed::EmptyNRegions<numRegions>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
+
     spearhed::InitParticles{}();
 
     uint64_t const actualSum = ComputeParticleIdSum{}();

@@ -19,6 +19,7 @@
 
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
+#include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
@@ -78,7 +79,8 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration][particles][bounds]")
 {
-    setupRegions(1);
+    auto setup = spearhed::EmptyNRegions<1>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
 
     // Initialize and modify positions
     spearhed::InitParticles{}();

@@ -17,6 +17,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "TestSetup.hpp"
 #include "ValidatePush.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
@@ -46,7 +47,8 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][particles][pusher]")
 {
-    setupRegions(1);
+    auto setup = spearhed::EmptyNRegions<1>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
     spearhed::InitParticles{}();
 
     spearhed::ParticlePush{}(1);

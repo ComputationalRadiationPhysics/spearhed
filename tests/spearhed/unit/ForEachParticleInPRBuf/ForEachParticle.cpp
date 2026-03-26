@@ -19,6 +19,7 @@
 
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 
+#include "TestSetup.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
@@ -47,8 +48,9 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integration][particles][foreach]")
 {
     constexpr uint64_t numRegions = 2;
+    auto setup = spearhed::EmptyNRegions<numRegions>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
 
-    setupRegions(numRegions);
     spearhed::InitParticles{}();
 
     // Execute ForEachParticleInPRBuf Test
