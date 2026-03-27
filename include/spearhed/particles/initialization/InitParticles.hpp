@@ -57,9 +57,9 @@ namespace spearhed
         // calculate how many particles we need to make in this system
         struct NumParticlesToCreate
         {
-            constexpr auto operator()([[maybe_unused]] auto prDeviceBox, std::integral auto index) const
+            constexpr auto operator()([[maybe_unused]] auto& worker, [[maybe_unused]] auto& particleRegion) const
             {
-                return baseNumParticlesToCreate * (index + 1);
+                return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
             };
         };
 
@@ -85,14 +85,13 @@ namespace spearhed
                 onlyMaster(
                     [&]()
                     {
-                        auto& frameList = prDeviceBox[blockIdx].particleFrameList;
+                        auto& particleRegion = prDeviceBox[blockIdx];
+                        auto& frameList = particleRegion.particleFrameList;
 
-                        constexpr uint32_t frameSize = std::remove_cvref_t<decltype(frameList)>::FrameType::frameSize;
-                        uint32_t numParticles = NumParticlesToCreate{}(prDeviceBox, blockIdx);
-                        uint32_t const numFrames = alpaka::core::divCeil(numParticles, frameSize);
+                        uint32_t numParticles = NumParticlesToCreate{}(worker, particleRegion);
 
                         frameList.setNumParticles(numParticles);
-                        framesPerParticleRegionBox[blockIdx] = numFrames;
+                        framesPerParticleRegionBox[blockIdx] = frameList.numFrames();
                     });
                 // TODO do scan on device
             }
