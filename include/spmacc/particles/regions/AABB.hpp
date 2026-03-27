@@ -41,9 +41,9 @@ namespace pmacc::spearhed
 
         using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
 
-        AABB() = default;
+        constexpr AABB() = default;
 
-        AABB(Pnt const& origin, Pnt const& min, Pnt const& max) : origin(origin), min(min), max(max)
+        constexpr AABB(Pnt const& origin, Pnt const& min, Pnt const& max) : origin(origin), min(min), max(max)
         {
         }
 

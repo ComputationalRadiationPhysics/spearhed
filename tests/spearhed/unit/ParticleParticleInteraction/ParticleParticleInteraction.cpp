@@ -53,7 +53,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
 
     auto setup = spearhed::EmptyNRegions<numRegions>{};
     setup.setupRegions(*prBuf, *deviceHeap);
-    spearhed::InitParticles{}();
+    spearhed::InitParticles{}(setup);
 
     // Setup Neighbour Graph (All-to-All mapping for analytic validation)
     int const totalNeighbours = numRegions * numRegions;
@@ -103,7 +103,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
     uint64_t totalParticles = 0;
     for(uint64_t i = 0; i < numRegions; ++i)
     {
-        totalParticles += spearhed::init::detail::baseNumParticlesToCreate * (i + 1);
+        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
     }
 
     // Expected valid interactions: All particles interact with all other particles exactly once.

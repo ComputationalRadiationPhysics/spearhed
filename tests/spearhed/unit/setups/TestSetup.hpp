@@ -24,12 +24,34 @@
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
+#include <cstdint>
+
 namespace spearhed
 {
+
     template<uint32_t N>
     struct EmptyNRegions
     {
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+
+        uint32_t baseNumParticlesToCreate = 400u;
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(baseNumParticlesToCreate);
+        }
+
+        // calculate how many particles we need to make in this system
+        struct NumParticlesToCreate
+        {
+            constexpr auto operator()(
+                [[maybe_unused]] auto& worker,
+                [[maybe_unused]] auto& particleRegion,
+                uint32_t baseNumParticlesToCreate) const
+            {
+                return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
+            };
+        };
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)
         {

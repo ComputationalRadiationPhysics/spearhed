@@ -35,7 +35,7 @@ namespace spearhed
 
     struct InitRegions
     {
-        void operator()(DeviceHeap const& deviceHeap, SetupInterface auto setup)
+        void operator()(DeviceHeap const& deviceHeap, SetupInterface auto const& setup)
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
             auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();

@@ -49,7 +49,7 @@ TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][p
 {
     auto setup = spearhed::EmptyNRegions<1>{};
     setup.setupRegions(*prBuf, *deviceHeap);
-    spearhed::InitParticles{}();
+    spearhed::InitParticles{}(setup);
 
     spearhed::ParticlePush{}(1);
     ValidatePush{}();

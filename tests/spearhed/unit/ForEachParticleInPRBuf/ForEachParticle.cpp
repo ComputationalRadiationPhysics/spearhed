@@ -51,7 +51,7 @@ TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integra
     auto setup = spearhed::EmptyNRegions<numRegions>{};
     setup.setupRegions(*prBuf, *deviceHeap);
 
-    spearhed::InitParticles{}();
+    spearhed::InitParticles{}(setup);
 
     // Execute ForEachParticleInPRBuf Test
     // Allocate memory for reduction sum
@@ -79,7 +79,7 @@ TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integra
     // Calculate expected sum analytically based on InitParticles logic
     for(uint64_t i = 0; i < numRegions; ++i)
     {
-        totalParticles += spearhed::init::detail::baseNumParticlesToCreate * (i + 1);
+        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
     }
 
     // Sum of arithmetic progression: n*(n-1)/2 because IDs start at 0

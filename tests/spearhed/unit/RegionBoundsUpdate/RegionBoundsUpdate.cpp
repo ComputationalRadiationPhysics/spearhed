@@ -83,7 +83,7 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     setup.setupRegions(*prBuf, *deviceHeap);
 
     // Initialize and modify positions
-    spearhed::InitParticles{}();
+    spearhed::InitParticles{}(setup);
     pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, SetPosFunctor{});
 
     // Execute

@@ -24,6 +24,7 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
+#include "spearhed/particles/initialization/SetupInterface.hpp"
 #include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -43,6 +44,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <tuple>
 #include <type_traits>
 
 #include <unistd.h>
@@ -52,28 +54,19 @@ namespace spearhed
     namespace init::detail
     {
 
-        constexpr auto baseNumParticlesToCreate = 400u;
-
-        // calculate how many particles we need to make in this system
-        struct NumParticlesToCreate
-        {
-            constexpr auto operator()([[maybe_unused]] auto& worker, [[maybe_unused]] auto& particleRegion) const
-            {
-                return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
-            };
-        };
-
         /** Kernel which calculates number of frames needed per particle region
          * One block per particle region
          * Results stored as inclusive prefix sum in framesPerParticleRegionScan
          */
+        template<typename TNumParticlesToCreate>
         struct CalculateFramesPerRegion
         {
             DINLINE constexpr auto operator()(
                 auto const& worker,
                 auto prDeviceBox,
                 int numParticleRegions,
-                auto framesPerParticleRegionBox) const
+                auto framesPerParticleRegionBox,
+                auto... numParticlesToCreateArgs) const
             {
                 auto const blockIdx = worker.blockDomIdx();
 
@@ -88,7 +81,8 @@ namespace spearhed
                         auto& particleRegion = prDeviceBox[blockIdx];
                         auto& frameList = particleRegion.particleFrameList;
 
-                        uint32_t numParticles = NumParticlesToCreate{}(worker, particleRegion);
+                        uint32_t numParticles
+                            = TNumParticlesToCreate{}(worker, particleRegion, numParticlesToCreateArgs...);
 
                         frameList.setNumParticles(numParticles);
                         framesPerParticleRegionBox[blockIdx] = frameList.numFrames();
@@ -231,10 +225,10 @@ namespace spearhed
     struct InitParticles
     {
         /**
-         * @param data box holding all particle regions on the device
-         * @param size number of particle regions in the data box (data box extent)
+         * @param setup setup providing NumParticlesToCreate functor and its args
          */
-        auto operator()()
+        template<SetupInterface TSetup>
+        auto operator()(TSetup const& setup)
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
             auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
@@ -250,18 +244,27 @@ namespace spearhed
              * so that particle init can be independent across blocks and threads
              */
 
+            auto argsForNumParticles = setup.numParticlesToCreateArgs();
+
             // Launch a kernel to calculate num particles & num frames to create for each PR
             // Uses one block for each PR to calculate these 2 numbers.
             // TODO this is very wasteful. Use threads in a block to deal with particle regions and do a on device scan
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
+            std::apply(
+                [&](auto&&... args)
+                {
+                    PMACC_LOCKSTEP_KERNEL(
+                        init::detail::CalculateFramesPerRegion<typename TSetup::NumParticlesToCreate>{})
+                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
+                            prBuf.getDeviceDataBox(),
+                            prBuf.size,
+                            framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                            args...);
+                },
+                argsForNumParticles);
 
-            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion{})
-                .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                    prBuf.getDeviceDataBox(),
-                    prBuf.size,
-                    framesPerParticleRegion.getDeviceBuffer().getDataBox());
 
             framesPerParticleRegion.deviceToHost();
 

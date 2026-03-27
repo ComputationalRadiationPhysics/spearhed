@@ -34,6 +34,12 @@ namespace spearhed
               { a.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
               // Requires a domain member describing the full simulation domain
               { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
+              // Requires a nested NumParticlesToCreate callable type
+              typename T::NumParticlesToCreate;
+              // Requires a method returning args to pass to NumParticlesToCreate
+              // This is currently a std::tuple unpacked on the host side
+              // TODO switch to a device friendly compile time dictionary
+              { a.numParticlesToCreateArgs() };
           };
 
 

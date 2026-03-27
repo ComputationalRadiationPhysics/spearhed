@@ -24,12 +24,30 @@
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
+#include <cstdint>
+#include <tuple>
+
 namespace spearhed
 {
     // Default setup. Override at CMake configure time with -DSPEARHED_SETUP_FILE=/path/to/MySetup.hpp
     struct DefaultSetup
     {
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+
+        uint32_t totalParticles = 1000u;
+
+        struct NumParticlesToCreate
+        {
+            constexpr auto operator()(auto& /*worker*/, auto& /*particleRegion*/, uint32_t totalParticles) const
+            {
+                return totalParticles;
+            }
+        };
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(totalParticles);
+        }
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {

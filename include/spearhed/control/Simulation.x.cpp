@@ -220,7 +220,7 @@ namespace spearhed
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 
         InitRegions{}(*deviceHeap, setup);
-        InitParticles{}();
+        InitParticles{}(setup);
 
         return 0u;
     }
