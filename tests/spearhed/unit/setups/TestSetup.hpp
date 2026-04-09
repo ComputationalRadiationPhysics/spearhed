@@ -42,6 +42,11 @@ namespace spearhed
             return std::make_tuple(baseNumParticlesToCreate);
         }
 
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
+        }
+
         // calculate how many particles we need to make in this system
         struct NumParticlesToCreate
         {
@@ -54,6 +59,21 @@ namespace spearhed
                 // particle count, which makes per-block test validation deterministic.
                 return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
             };
+        };
+
+        // place each particle at the center of its particle region's AABB
+        struct PlaceParticle
+        {
+            DINLINE constexpr void operator()(
+                [[maybe_unused]] auto const& worker,
+                auto& particle,
+                auto const& particleRegion,
+                [[maybe_unused]] uint32_t globalParticleIdx) const
+            {
+                auto const& aabb = particleRegion.volume;
+                pmacc::spearhed::for_each_tag<CS>(
+                    [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+            }
         };
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)

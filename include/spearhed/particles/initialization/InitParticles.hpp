@@ -36,6 +36,8 @@
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
+#include <pmacc/memory/tuple/STLTuple.hpp>
+#include <pmacc/memory/tuple/utility.hpp>
 #include <pmacc/meta/ForEach.hpp>
 #include <pmacc/meta/conversion/ResolveAndRemoveFromSeq.hpp>
 #include <pmacc/particles/IdProvider.hpp>
@@ -66,7 +68,7 @@ namespace spearhed
                 auto prDeviceBox,
                 int numParticleRegions,
                 auto framesPerParticleRegionBox,
-                auto... numParticlesToCreateArgs) const
+                auto numParticlesToCreateArgsTuple) const
             {
                 auto const blockIdx = worker.blockDomIdx();
 
@@ -81,8 +83,9 @@ namespace spearhed
                         auto& particleRegion = prDeviceBox[blockIdx];
                         auto& frameList = particleRegion.particleFrameList;
 
-                        uint32_t numParticles
-                            = TNumParticlesToCreate{}(worker, particleRegion, numParticlesToCreateArgs...);
+                        uint32_t numParticles = pmacc::memory::tuple::apply(
+                            [&](auto&&... args) { return TNumParticlesToCreate{}(worker, particleRegion, args...); },
+                            numParticlesToCreateArgsTuple);
 
                         frameList.setNumParticles(numParticles);
                         framesPerParticleRegionBox[blockIdx] = frameList.numFrames();
@@ -98,13 +101,22 @@ namespace spearhed
         {
             /**
              * @param particleFrameList frameList to which we add our frame
-             * @param numParticlesToCreate
+             * @param particleRegion particle region this frame belongs to
+             * @param numParticlesToCreate number of particles to create in this frame
+             * @param frameOffset index of this frame within its particle region (for computing global particle idx)
+             * @param idGen id generator
+             * @param placeParticle callable that places a single particle
+             * @param placeParticleArgs extra args forwarded to placeParticle
              */
             DINLINE constexpr auto operator()(
                 auto const& worker,
                 auto& particleFrameList,
+                auto const& particleRegion,
                 uint32_t numParticlesToCreate,
-                pmacc::IdGenerator& idGen /** init args */) const
+                uint32_t frameOffset,
+                pmacc::IdGenerator& idGen,
+                auto placeParticle,
+                auto placeParticleArgsTuple) const
             {
                 using TFrameList = std::remove_cvref_t<decltype(particleFrameList)>;
                 using FrameType = TFrameList::FrameType;
@@ -143,6 +155,17 @@ namespace spearhed
 
                             pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
                             pmacc::spearhed::InitValue<velField>{}(particle[vel], 100.f);
+                            pmacc::memory::tuple::apply(
+                                [&](auto&&... args)
+                                {
+                                    placeParticle(
+                                        worker,
+                                        particle,
+                                        particleRegion,
+                                        frameOffset * FrameType::frameSize + idx,
+                                        args...);
+                                },
+                                placeParticleArgsTuple);
                         }
                     });
             }
@@ -164,7 +187,9 @@ namespace spearhed
                 auto prDeviceBox,
                 int numParticleRegions,
                 auto framesPerParticleRegionScan,
-                pmacc::IdGenerator idGen /** init args */) const
+                pmacc::IdGenerator idGen,
+                auto placeParticle,
+                auto placeParticleArgsTuple) const
             {
                 // Use the scan array to find which particle region this block is responsible for
                 // framesPerParticleRegionScan holds the inlcusive prefix sum of frames per region
@@ -212,7 +237,15 @@ namespace spearhed
                     = (framesOffset == framesInRegion - 1) ? particlesInLastFrame : frameSize;
 
                 // Create particles in this frame
-                detail::CreateParticlesInFrame{}(worker, frameList, particlesInThisFrame, idGen);
+                detail::CreateParticlesInFrame{}(
+                    worker,
+                    frameList,
+                    particleRegion,
+                    particlesInThisFrame,
+                    framesOffset,
+                    idGen,
+                    placeParticle,
+                    placeParticleArgsTuple);
             }
         };
     } // namespace init::detail
@@ -244,7 +277,9 @@ namespace spearhed
              * so that particle init can be independent across blocks and threads
              */
 
-            auto argsForNumParticles = setup.numParticlesToCreateArgs();
+            auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(setup.numParticlesToCreateArgs());
+            auto placeParticle = typename TSetup::PlaceParticle{};
+            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(setup.placeParticleArgs());
 
             // Launch a kernel to calculate num particles & num frames to create for each PR
             // Uses one block for each PR to calculate these 2 numbers.
@@ -252,18 +287,12 @@ namespace spearhed
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-            std::apply(
-                [&](auto&&... args)
-                {
-                    PMACC_LOCKSTEP_KERNEL(
-                        init::detail::CalculateFramesPerRegion<typename TSetup::NumParticlesToCreate>{})
-                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                            prBuf.getDeviceDataBox(),
-                            prBuf.size,
-                            framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                            args...);
-                },
-                argsForNumParticles);
+            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename TSetup::NumParticlesToCreate>{})
+                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
+                    prBuf.getDeviceDataBox(),
+                    prBuf.size,
+                    framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                    argsForNumParticles);
 
 
             framesPerParticleRegion.deviceToHost();
@@ -287,11 +316,13 @@ namespace spearhed
                 auto idProvider = dc.get<pmacc::IdProvider>("globalId");
 
                 PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                    .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
+                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
                         prBuf.getDeviceDataBox(),
                         prBuf.size,
                         framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                        idProvider->getDeviceGenerator());
+                        idProvider->getDeviceGenerator(),
+                        placeParticle,
+                        argsForPlaceParticle);
 
                 // wait because otherwise kernel args (framesPerParticleRegion) go out of scope
                 pmacc::eventSystem::waitForAllTasks();
