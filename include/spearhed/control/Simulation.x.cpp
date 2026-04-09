@@ -20,9 +20,10 @@
 #include "spearhed/control/Simulation.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
-#include "spearhed/control/DomainAdjuster.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/param/setup.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -52,8 +53,6 @@ namespace spearhed
             ("no-start-simulation", pmacc::po::bool_switch(&skipSimulation)->default_value(false), "Do not actually run the simulation but initialise everything, skip simulation and finalise.")
             ("devices,d", pmacc::po::value<std::vector<uint32_t>>(&devices)->multitoken(),
              "number of devices in each dimension")
-            ("grid,g", pmacc::po::value<std::vector<uint32_t>>(&gridSize)->multitoken(),
-             "size of the simulation grid")
             ("numRanksPerDevice,r", pmacc::po::value<uint32_t>(&numRanksPerDevice)->default_value(1u),
              "set the number of MPI ranks using a single device together");
         // clang-format on
@@ -85,29 +84,17 @@ namespace spearhed
                       << "will be reset to 1. Number of MPI ranks must be equal to the number of devices in x * y\n";
 
 
-        PMACC_VERIFY_MSG(
-            gridSize.size() >= 2 && gridSize.size() <= 3,
-            "Invalid or missing grid size.\nuse -g width height [depth=1]");
-
-        // check on correct grid size. fill with default grid size value 1 for missing 3. dimension
-        if(gridSize.size() == 2)
-            gridSize.push_back(1);
-
-        pmacc::DataSpace<simDim> gridSizeGlobal;
         pmacc::DataSpace<simDim> gpus;
         pmacc::DataSpace<simDim> isPeriodic;
 
         for(uint32_t i = 0; i < simDim; ++i)
         {
-            gridSizeGlobal[i] = gridSize[i];
             gpus[i] = devices[i];
             isPeriodic[i] = periodic[i];
         }
 
         pmacc::Environment<simDim>::get().initDevices(gpus, isPeriodic);
         pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
-
-        pmacc::DataSpace<simDim> myGPUpos(gc.getPosition());
 
         if(gc.getGlobalRank() == 0)
         {
@@ -116,26 +103,6 @@ namespace spearhed
                 std::cout << "Alpha development version of SPMacc" << std::endl;
             }
         }
-
-        // by default: use an equal distributed box for all omitted params
-        for(uint32_t dim = 0; dim < simDim; ++dim)
-        {
-            gridSizeLocal[dim] = gridSizeGlobal[dim] / gpus[dim];
-        }
-
-        pmacc::DataSpace<simDim> gridOffset;
-
-        DomainAdjuster domainAdjuster(gpus, myGPUpos, isPeriodic);
-
-        if(!autoAdjustGrid)
-            domainAdjuster.validateOnly();
-
-        domainAdjuster(gridSizeGlobal, gridSizeLocal, gridOffset);
-
-        pmacc::Environment<simDim>::get().initGrids(gridSizeGlobal, gridSizeLocal, gridOffset);
-
-        pmacc::log<pmacc::PMaccVerbose::INFO>("rank %1%; localsize %2%; localoffset %3%;") % myGPUpos.toString()
-            % gridSizeLocal.toString() % gridOffset.toString();
 
         BaseType::pluginLoad();
     }
@@ -174,15 +141,6 @@ namespace spearhed
 
     void Simulation::init()
     {
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
-        /* Create an empty allocator. This one is resized after all exchanges
-         * for particles are created */
-        deviceHeap = std::make_shared<DeviceHeap>(alpakaDevice, alpakaQueue, 0u);
-        alpaka::wait(alpakaQueue);
-#endif
-
         // Allocate and initialize particle species with all left-over memory below
         // meta::ForEach<VectorAllSpecies, particles::CreateSpecies<boost::mpl::_1>> createSpeciesMemory;
         // createSpeciesMemory(deviceHeap, cellDescription.get());
@@ -214,11 +172,14 @@ namespace spearhed
 
         // initializing the heap for particles
         // TODO use heapsize instead of the hard coded small heap
+        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
+        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
+
         size_t small_heap{2ull * 1024 * 1024 * 1024};
-        deviceHeap->destructiveResize(alpakaDevice, alpakaQueue, small_heap);
+        deviceHeap.emplace(alpakaDevice, alpakaQueue, small_heap);
         alpaka::wait(alpakaQueue);
 
-        auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(deviceHeap);
+        auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap);
         auto& dc = pmacc::Environment<>::get().DataConnector();
         dc.consume(std::move(mallocMCBuffer));
 
@@ -254,23 +215,12 @@ namespace spearhed
 
         // load density description from param file. How is this independent from the domain size?
         //
-        std::cout << "hello SPH! local grid size is " << gridSizeLocal.x() << " " << gridSizeLocal.y() << std::endl;
+        auto setup = Setup{};
 
-        PRType boundedParticles{deviceHeap->getAllocatorHandle()};
+        std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
-        dc.share(prBuf);
-
-        prBuf->create(2);
-
-        prBuf->pushBack(boundedParticles);
-        // push back creates a copy
-        prBuf->pushBack(boundedParticles);
-
-        prBuf->buffer->hostToDevice();
-
-        InitParticles{}();
+        InitRegions{}(*deviceHeap, setup);
+        InitParticles{}(setup);
 
         return 0u;
     }

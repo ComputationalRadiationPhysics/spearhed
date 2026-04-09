@@ -90,3 +90,17 @@ endfunction()
 
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
+
+## Share a setup among selected tests
+set(_setup_dir ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/setups)
+foreach(
+    t
+    unit_test_FindNeighbourRegions_FindNeighbourRegions
+    unit_test_ParticleCreation_ParticleCreation
+    unit_test_ForEachParticleInPRBuf_ForEachParticle
+    unit_test_ParticleParticleInteraction_ParticleParticleInteraction
+    unit_test_PushParticles_PushParticles
+    unit_test_RegionBoundsUpdate_RegionBoundsUpdate
+)
+    target_include_directories(${t} PRIVATE ${_setup_dir})
+endforeach()

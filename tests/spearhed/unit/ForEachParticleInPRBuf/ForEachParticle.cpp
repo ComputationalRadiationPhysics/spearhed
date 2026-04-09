@@ -19,6 +19,7 @@
 
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 
+#include "TestSetup.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
@@ -47,9 +48,10 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integration][particles][foreach]")
 {
     constexpr uint64_t numRegions = 2;
+    auto setup = spearhed::EmptyNRegions<numRegions>{};
+    setup.setupRegions(*prBuf, *deviceHeap);
 
-    setupRegions(numRegions);
-    spearhed::InitParticles{}();
+    spearhed::InitParticles{}(setup);
 
     // Execute ForEachParticleInPRBuf Test
     // Allocate memory for reduction sum
@@ -77,7 +79,7 @@ TEST_CASE_METHOD(ParticleFixture, "ForEachParticleInPRBuf Validation", "[integra
     // Calculate expected sum analytically based on InitParticles logic
     for(uint64_t i = 0; i < numRegions; ++i)
     {
-        totalParticles += spearhed::init::detail::baseNumParticlesToCreate * (i + 1);
+        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
     }
 
     // Sum of arithmetic progression: n*(n-1)/2 because IDs start at 0

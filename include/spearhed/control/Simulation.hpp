@@ -26,7 +26,7 @@
 
 #include <boost/program_options/options_description.hpp>
 
-#include <memory>
+#include <optional>
 #include <vector>
 
 namespace spearhed
@@ -70,17 +70,13 @@ namespace spearhed
         size_t freeDeviceMemory() const;
 
     private:
-        std::shared_ptr<DeviceHeap> deviceHeap;
+        std::optional<DeviceHeap> deviceHeap{std::nullopt};
 
         // layout parameter
         std::vector<uint32_t> devices;
-        std::vector<uint32_t> gridSize;
-        /** Without guards */
-        pmacc::DataSpace<simDim> gridSizeLocal;
         std::vector<uint32_t> periodic;
 
         bool showVersionOnce{false};
-        bool autoAdjustGrid = true;
         uint32_t numRanksPerDevice = 1u;
         bool skipSimulation{false};
     };

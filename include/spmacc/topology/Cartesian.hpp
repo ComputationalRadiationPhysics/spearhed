@@ -55,7 +55,7 @@ namespace pmacc::spearhed
     struct Cartesian
     {
         static constexpr char const* name = "Cartesian";
-        using Scalar = T;
+        using T_Axis = T;
         static constexpr std::size_t dimension = Dim;
         static constexpr MetricKind metricKind = MetricKind::Orthonormal;
 
@@ -86,7 +86,7 @@ namespace pmacc::spearhed
     struct Polar
     {
         static constexpr char const* name = "Polar";
-        using Scalar = T;
+        using T_Axis = T;
         static constexpr std::size_t dimension = Dim;
         static constexpr MetricKind metricKind = MetricKind::Orthonormal;
     };
@@ -95,7 +95,7 @@ namespace pmacc::spearhed
     // struct Spherical
     // {
     //     static constexpr char const* name = "Spherical";
-    //     using Scalar = T;
+    //     using T_Axis = T;
     //     static constexpr std::size_t dimension = Dim;
     //     static constexpr MetricKind metricKind = MetricKind::Orthonormal;
     //     static constexpr void from_cartesian(double x, double y, double z, double& r, double& th, double& ph)

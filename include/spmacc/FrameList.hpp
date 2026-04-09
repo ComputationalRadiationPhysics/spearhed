@@ -128,6 +128,12 @@ namespace pmacc::spearhed
             return numParticles;
         }
 
+        // Num particles must be set before we can call this
+        HDINLINE constexpr uint32_t numFrames() const
+        {
+            return alpaka::core::divCeil(numParticles, T_Frame::frameSize);
+        }
+
         HDINLINE constexpr void setNumParticles(uint32_t n)
         {
             numParticles = n;
