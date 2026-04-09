@@ -121,4 +121,20 @@ namespace pmacc::spearhed
         Pnt min{std::numeric_limits<TAxis>::max()};
         Pnt max{std::numeric_limits<TAxis>::lowest()};
     };
+
+    /**
+     * Compute the volume of an axis-aligned bounding box.
+     *
+     * The volume is the product of the extent (max - min) along each axis.
+     *
+     * @param aabb The axis-aligned bounding box.
+     * @return The volume as a value of the axis scalar type.
+     */
+    template<CoordinateSystem CS>
+    constexpr auto computeVolume(AABB<CS> const& aabb)
+    {
+        typename AABB<CS>::TAxis v{1};
+        for_each_tag<CS>([&](auto tag) { v *= aabb.max[tag] - aabb.min[tag]; });
+        return v;
+    }
 } // namespace pmacc::spearhed
