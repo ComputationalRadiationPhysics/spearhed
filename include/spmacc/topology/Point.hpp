@@ -22,8 +22,9 @@
 #pragma once
 
 #include "spmacc/topology/Cartesian.hpp"
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
-#include "spmacc/topology/PointStorage.hpp"
+#include "spmacc/topology/Vec.hpp"
 
 #include <concepts>
 #include <iostream>
@@ -34,39 +35,6 @@ namespace pmacc::spearhed
     // Think about alignment and memory laybout
     template<CoordinateSystem CS, typename Storage>
     struct Point;
-
-    namespace detail
-    {
-        template<typename T>
-        static constexpr T abs_diff(T a, T b) noexcept
-        {
-            T const diff = a - b;
-            return diff < T{0} ? -diff : diff;
-        }
-    } // namespace detail
-
-    // {
-    //     using Scalar = typename CS::Scalar;
-
-    //     static constexpr T_Dim dim = CS::dimension;
-
-    //     using Storage::Storage;
-
-    //     // friend constexpr VectorType operator-(Point const& lhs, Point const& rhs) noexcept
-    //     // {
-    //     //     VectorType v;
-    //     //     for(T_Dim i = 0; i < dim; ++i)
-    //     //         v.data_[i] = lhs.data_[i] - rhs.data_[i];
-    //     //     return v;
-    //     // }
-
-    //     // friend constexpr Point operator+(Point p, VectorType const& v) noexcept
-    //     // {
-    //     //     for(T_Dim i = 0; i < dim; ++i)
-    //     //         p.data_[i] += v.data_[i];
-    //     //     return p;
-    //     // }
-    // };
 
     template<typename T, T_Dim Dim, typename Storage>
     struct Point<Cartesian<T, Dim>, Storage> : public Storage
@@ -90,11 +58,6 @@ namespace pmacc::spearhed
         //     transformPoint(other, this);
         // }
 
-        // Assignment operator for View = Value (Scatter) or View = View
-        // template<CoordinateSystem OtherCS, typename OtherStorage>
-        // constexpr Point& operator=(Point<OtherCS, OtherStorage> const& other) noexcept
-        // {
-        // }
         template<std::convertible_to<Scalar>... Args>
         requires(sizeof...(Args) == dim)
         constexpr Point(Args... args) noexcept : Storage{static_cast<Scalar>(args)...}
@@ -135,60 +98,60 @@ namespace pmacc::spearhed
             return *this;
         }
 
-        [[nodiscard]] friend constexpr bool operator==(Point const& p, Scalar const val) noexcept
+        template<typename OtherStorage>
+        [[nodiscard]] friend constexpr bool operator==(Point const& lhs, Point<CS, OtherStorage> const& rhs) noexcept
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return p[tag] == val; });
+            return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return lhs[tag] == rhs[tag]; });
         }
 
         template<typename OtherStorage>
-        constexpr Point& operator+=(Point<CS, OtherStorage> const& other) noexcept
+        [[nodiscard]] friend constexpr bool operator!=(Point const& lhs, Point<CS, OtherStorage> const& rhs) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += other[tag]; });
+            return !(lhs == rhs);
+        }
+
+        template<typename VecStorage>
+        constexpr Point& operator+=(Vec<CS, VecStorage> const& v) noexcept
+        {
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += v[tag]; });
             return *this;
         }
 
-        constexpr Point& operator+=(Scalar const val) noexcept
-        {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += val; });
-            return *this;
-        }
-
-        // TODO always return value storage
         template<typename OtherStorage>
-        [[nodiscard]] friend constexpr Point<CS, PointValueStorage<CS>> operator+(
+        [[nodiscard]] friend constexpr Vec<CS, ValueStorage<CS>> operator-(
             Point lhs,
             Point<CS, OtherStorage> const& rhs) noexcept
         {
-            Point<CS, PointValueStorage<CS>> result = lhs;
-            return result += rhs;
+            Vec<CS, ValueStorage<CS>> result;
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { result[tag] = lhs[tag] - rhs[tag]; });
+            return result;
         }
 
-        [[nodiscard]] friend constexpr Point operator+(Point lhs, Scalar const val) noexcept
+        template<typename VecStorage>
+        [[nodiscard]] friend constexpr Point<CS, ValueStorage<CS>> operator+(
+            Point lhs,
+            Vec<CS, VecStorage> const& v) noexcept
         {
-            Point<CS, PointValueStorage<CS>> result = lhs;
-            return result += val;
+            Point<CS, ValueStorage<CS>> result = lhs;
+            return result += v;
         }
 
-        [[nodiscard]] friend constexpr Point operator+(Scalar const val, Point rhs) noexcept
+        template<typename VecStorage>
+        [[nodiscard]] friend constexpr Point<CS, ValueStorage<CS>> operator+(
+            Vec<CS, VecStorage> const& v,
+            Point rhs) noexcept
         {
-            // Valid because addition is commutative
-            Point<CS, PointValueStorage<CS>> result = rhs;
-            return result += val;
+            Point<CS, ValueStorage<CS>> result = rhs;
+            return result += v;
         }
 
-        [[nodiscard]] constexpr bool isApprox(Point const& other, Scalar eps = std::numeric_limits<Scalar>::epsilon())
-            const noexcept
+        template<typename OtherStorage>
+        [[nodiscard]] constexpr bool isApprox(
+            Point<CS, OtherStorage> const& other,
+            Scalar eps = std::numeric_limits<Scalar>::epsilon()) const noexcept
         {
             return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
                                                    { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
-        }
-
-        // Check if all components of this Point are approximately equal to a Scalar value
-        [[nodiscard]] constexpr bool isApprox(Scalar val, Scalar eps = std::numeric_limits<Scalar>::epsilon())
-            const noexcept
-        {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
-                                                   { return detail::abs_diff((*this)[tag], val) <= eps; });
         }
 
         friend std::ostream& operator<<(std::ostream& os, Point const& p)

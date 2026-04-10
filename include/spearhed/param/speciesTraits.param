@@ -21,8 +21,8 @@
 
 #include "spearhed/param/dimension.param"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/PointStorage.hpp"
 
 namespace llama_lite::traits
 {
@@ -34,7 +34,7 @@ namespace llama_lite::traits
         constexpr auto operator()(T_RelPosView relativePosFieldView) const
         {
             using type
-                = pmacc::spearhed::Point<spearhed::CS, pmacc::spearhed::PointViewStorage<spearhed::CS, T_RelPosView>>;
+                = pmacc::spearhed::Point<spearhed::CS, pmacc::spearhed::ViewStorage<spearhed::CS, T_RelPosView>>;
 
             return type{relativePosFieldView};
         }

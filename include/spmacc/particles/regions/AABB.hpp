@@ -21,9 +21,9 @@
 
 #pragma once
 
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/PointStorage.hpp"
 
 #include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -39,7 +39,7 @@ namespace pmacc::spearhed
     {
         using TAxis = CS::T_Axis;
 
-        using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
+        using Pnt = spearhed::Point<CS, ValueStorage<CS>>;
 
         constexpr AABB() = default;
 
