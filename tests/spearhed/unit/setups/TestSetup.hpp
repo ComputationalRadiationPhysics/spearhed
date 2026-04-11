@@ -49,6 +49,8 @@ namespace spearhed
                 [[maybe_unused]] auto& particleRegion,
                 uint32_t baseNumParticlesToCreate) const
             {
+                // Intentionally scale by (block index + 1) so each block creates a distinct
+                // particle count, which makes per-block test validation deterministic.
                 return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
             };
         };
