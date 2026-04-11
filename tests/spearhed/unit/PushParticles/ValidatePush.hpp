@@ -34,7 +34,7 @@
 
 #include <cstdint>
 
-/** Kernel that checks postion is 1 from all frames in assigned particle regions
+/** Kernel that checks position is 1 from all frames in assigned particle regions
  * Each block processes all frames in a region and outputs partial sum
  */
 struct CheckParticlePos
