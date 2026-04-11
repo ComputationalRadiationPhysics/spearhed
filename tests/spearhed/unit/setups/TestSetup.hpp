@@ -32,6 +32,7 @@ namespace spearhed
     template<uint32_t N>
     struct EmptyNRegions
     {
+        // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t baseNumParticlesToCreate = 400u;
@@ -49,6 +50,8 @@ namespace spearhed
                 [[maybe_unused]] auto& particleRegion,
                 uint32_t baseNumParticlesToCreate) const
             {
+                // Intentionally scale by (block index + 1) so each block creates a distinct
+                // particle count, which makes per-block test validation deterministic.
                 return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
             };
         };
