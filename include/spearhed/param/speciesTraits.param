@@ -33,8 +33,7 @@ namespace llama_lite::traits
         template<typename T_RelPosView>
         constexpr auto operator()(T_RelPosView relativePosFieldView) const
         {
-            using type
-                = pmacc::spearhed::Point<spearhed::CS, pmacc::spearhed::ViewStorage<spearhed::CS, T_RelPosView>>;
+            using type = pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ViewStorage<spearhed::CS, T_RelPosView>>;
 
             return type{relativePosFieldView};
         }
