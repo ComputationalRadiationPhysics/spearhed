@@ -8,7 +8,9 @@
 
 #include "llamaLite/Field.hpp"
 #include "llamaLite/Record.hpp"
+#include "llamaLite/ResolveLeaf.hpp"
 #include "llamaLite/SoAView.hpp"
+#include "llamaLite/Transform.hpp"
 #include "llamaLite/Tuple.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 #include "utility.hpp"
@@ -21,85 +23,24 @@
 namespace llama_lite
 {
 
-    namespace tranform
+    namespace transform
     {
-        template<IsField F, size_t Size>
-        struct SoATransform;
-
-        template<size_t Size, typename... Ts>
-        auto transform_types_soa(Tuple<Ts...>) -> Tuple<typename SoATransform<Ts, Size>::type...>;
+        template<size_t Size>
+        struct PolicySoA
+        {
+            template<typename T>
+            struct Apply
+            {
+                struct alignas(128) type : public std::array<T, Size>
+                {
+                };
+            };
+        };
 
         template<typename Record, size_t Size>
-        using transform_record_soa_t
-            = decltype(transform_types_soa<Size>(std::declval<typename Record::fields_tuple_type>()));
+        using transform_record_soa_t = transform_record_t<Record, PolicySoA<Size>::template Apply>;
 
-        template<IsField F, size_t Size>
-        requires IsRecord<typename F::value_type>
-        struct SoATransform<F, Size>
-        {
-            static constexpr size_t size = Size;
-            using record_type = F::value_type;
-
-            using type = transform_record_soa_t<record_type, Size>;
-        };
-
-        template<IsField F, size_t Size>
-        requires(!IsRecord<typename F::value_type>)
-        struct SoATransform<F, Size>
-        {
-            static constexpr size_t size = Size;
-
-            struct alignas(128) AlignedArray : public std::array<typename F::value_type, Size>
-            {
-            };
-
-            using type = AlignedArray;
-        };
-
-    } // namespace tranform
-
-    namespace detail
-    {
-        template<IsRecordAccess RA, typename CurrentRecord, typename CurrentStorage>
-        static constexpr auto resolveLeaf(CurrentStorage& storage)
-        {
-            using Path = to_path_t<RA>;
-
-            constexpr uint32_t idx = CurrentRecord::getIndex(Path::head());
-            using ValueT = typename CurrentRecord::template value_type_for<decltype(Path::head())>;
-
-            auto& child = tuple::get<idx>(storage);
-
-            if constexpr(Path::depth == 1)
-            {
-                if constexpr(IsRecord<ValueT>)
-                {
-                    static_assert(
-                        Path::depth != 1,
-                        "TagPath refers to a Node (Record), but a Leaf Field was expected. Path is too short.");
-                }
-                else
-                {
-                    using ElementType = LL_TYPEOF(child[0]);
-                    return std::span<ElementType>{child};
-                }
-            }
-            else
-            {
-                if constexpr(!IsRecord<ValueT>)
-                {
-                    static_assert(
-                        IsRecord<ValueT>,
-                        "TagPath continues, but a Leaf Field was encountered. Path is too long/invalid.");
-                }
-                else
-                {
-                    return resolveLeaf<decltype(Path::tail()), ValueT>(child);
-                }
-            }
-        }
-
-    } // namespace detail
+    } // namespace transform
 
     /**
      * Recursive Structure-of-Arrays (SoA) container for a Record
@@ -125,13 +66,17 @@ namespace llama_lite
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf()
         {
-            return detail::resolveLeaf<RA, R>(channels_);
+            auto& leaf = resolveLeaf<RA, R>(channels_);
+            using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
+            return std::span<ElementType>(leaf);
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf() const
         {
-            return detail::resolveLeaf<RA, R>(channels_);
+            auto& leaf = resolveLeaf<RA, R>(channels_);
+            using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
+            return std::span<ElementType>(leaf);
         }
 
         template<IsRecordAccess... RAs>
@@ -169,7 +114,7 @@ namespace llama_lite
         }
 
     private:
-        alignas(128) tranform::transform_record_soa_t<R, Size> channels_;
+        alignas(128) transform::transform_record_soa_t<R, Size> channels_;
     };
 
     // // Push back requires decomposing the input tuple
