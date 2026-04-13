@@ -40,6 +40,12 @@ namespace spearhed
               // This is currently a std::tuple unpacked on the host side
               // TODO switch to a device friendly compile time dictionary
               { a.numParticlesToCreateArgs() };
+              // Requires a nested PlaceParticle callable type
+              // Signature: void operator()(worker, particle, particleRegion, uint32_t globalParticleIdx,
+              // ...placeParticleArgs)
+              typename T::PlaceParticle;
+              // Requires a method returning args to pass to PlaceParticle
+              { a.placeParticleArgs() };
           };
 
 

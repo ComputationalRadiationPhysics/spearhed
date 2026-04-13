@@ -4,8 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/PointStorage.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -36,7 +36,7 @@ template<>
 struct ll::traits::AsType<ll::Field<posi_t, Posi>>
 {
     using CS = pmacc::spearhed::Cartesian<float, 2>;
-    using type = pmacc::spearhed::Point<CS, pmacc::spearhed::PointViewStorage<CS, ParticleView<posi>>>;
+    using type = pmacc::spearhed::Point<CS, pmacc::spearhed::ViewStorage<CS, ParticleView<posi>>>;
 
     constexpr type operator()(auto fieldView) const
     {

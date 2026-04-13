@@ -49,16 +49,9 @@ namespace spearhed
         pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {-1.0, -1.0, -1.0}, {0.0, 1.0, 1.0}};
         pmacc::spearhed::AABB<CS> rightVolume{{0, 0, 0}, {0.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
-        float computeAABBVolume(pmacc::spearhed::AABB<CS> const& aabb)
-        {
-            float v = 1.0f;
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { v *= aabb.max[tag] - aabb.min[tag]; });
-            return v;
-        }
-
         // Sum of rho_i * V_i across all regions which is used to distribute totalParticles
-        float totalWeightedVolume = computeAABBVolume(leftVolume) * initialConditions.densityLeft
-                                    + computeAABBVolume(rightVolume) * initialConditions.densityRight;
+        float totalWeightedVolume = pmacc::spearhed::computeVolume(leftVolume) * initialConditions.densityLeft
+                                    + pmacc::spearhed::computeVolume(rightVolume) * initialConditions.densityRight;
 
         // Total number of particles across all regions.
         // Each region receives a share proportional to rho * V, giving equal particle mass.
@@ -79,9 +72,7 @@ namespace spearhed
                 // Region 0 = left, region 1 = right (insertion order in setupRegions)
                 float const density = (worker.blockDomIdx() == 0) ? densityLeft : densityRight;
 
-                auto const& vol = particleRegion.volume;
-                float regionVolume = 1.0f;
-                pmacc::spearhed::for_each_tag<CS>([&](auto tag) { regionVolume *= vol.max[tag] - vol.min[tag]; });
+                float regionVolume = pmacc::spearhed::computeVolume(particleRegion.volume);
 
                 return static_cast<uint32_t>(
                     static_cast<float>(totalParticles) * density * regionVolume / totalWeightedVolume);
@@ -95,6 +86,25 @@ namespace spearhed
                 initialConditions.densityRight,
                 totalParticles,
                 totalWeightedVolume);
+        }
+
+        struct PlaceParticle
+        {
+            DINLINE constexpr void operator()(
+                [[maybe_unused]] auto const& worker,
+                auto& particle,
+                auto const& particleRegion,
+                [[maybe_unused]] uint32_t globalParticleIdx) const
+            {
+                auto const& aabb = particleRegion.volume;
+                pmacc::spearhed::for_each_tag<CS>(
+                    [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+            }
+        };
+
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
         }
 
         HINLINE void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)

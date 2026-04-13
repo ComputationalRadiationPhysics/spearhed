@@ -21,9 +21,9 @@
 
 #pragma once
 
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/PointStorage.hpp"
 
 #include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -39,23 +39,24 @@ namespace pmacc::spearhed
     {
         using TAxis = CS::T_Axis;
 
-        using Pnt = spearhed::Point<CS, PointValueStorage<CS>>;
+        using Pnt = spearhed::Point<CS, ValueStorage<CS>>;
+        using Vec = spearhed::Vec<CS, ValueStorage<CS>>;
 
         constexpr AABB() = default;
 
-        constexpr AABB(Pnt const& origin, Pnt const& min, Pnt const& max) : origin(origin), min(min), max(max)
+        constexpr AABB(Pnt const& origin, Vec const& min, Vec const& max) : origin(origin), min(min), max(max)
         {
         }
 
-        constexpr void extend(Pnt const& point)
+        constexpr void extend(Vec const& vec)
         {
             pmacc::spearhed::for_each_tag<CS>(
                 [&](auto tag)
                 {
-                    if(point[tag] < min[tag])
-                        min[tag] = point[tag];
-                    if(point[tag] > max[tag])
-                        max[tag] = point[tag];
+                    if(vec[tag] < min[tag])
+                        min[tag] = vec[tag];
+                    if(vec[tag] > max[tag])
+                        max[tag] = vec[tag];
                 });
         }
 
@@ -88,7 +89,7 @@ namespace pmacc::spearhed
         }
 
         template<typename T_Storage>
-        constexpr Pnt getPosition(spearhed::Point<CS, T_Storage> const& relativePos) const
+        constexpr Pnt getPosition(spearhed::Vec<CS, T_Storage> const& relativePos) const
         {
             PMACC_ASSERT(relativePos > min && relativePos < max);
             return origin + relativePos;
@@ -118,7 +119,23 @@ namespace pmacc::spearhed
         Pnt origin{TAxis{0}};
 
         // The extents of the box, relative to the box origin.
-        Pnt min{std::numeric_limits<TAxis>::max()};
-        Pnt max{std::numeric_limits<TAxis>::lowest()};
+        Vec min{std::numeric_limits<TAxis>::max()};
+        Vec max{std::numeric_limits<TAxis>::lowest()};
     };
+
+    /**
+     * Compute the volume of an axis-aligned bounding box.
+     *
+     * The volume is the product of the extent (max - min) along each axis.
+     *
+     * @param aabb The axis-aligned bounding box.
+     * @return The volume as a value of the axis scalar type.
+     */
+    template<CoordinateSystem CS>
+    constexpr auto computeVolume(AABB<CS> const& aabb)
+    {
+        typename AABB<CS>::TAxis v{1};
+        for_each_tag<CS>([&](auto tag) { v *= aabb.max[tag] - aabb.min[tag]; });
+        return v;
+    }
 } // namespace pmacc::spearhed

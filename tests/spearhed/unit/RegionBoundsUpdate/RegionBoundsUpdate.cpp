@@ -27,9 +27,9 @@
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
+#include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/PointStorage.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -43,10 +43,10 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 // Define expected bounds
 // We use a float value that can be exactly represented to avoid precision issues in comparison
 using CS = pmacc::spearhed::Cartesian<float, TEST_DIM>;
-using PosType = pmacc::spearhed::Point<CS, pmacc::spearhed::PointValueStorage<CS>>;
-constexpr PosType expectedMin{0.125f, 0.125f, 0.125f};
-constexpr PosType expectedMax{0.875f, 0.875f, 0.875f};
-constexpr PosType defaultPos{0.5f, 0.5f, 0.5f};
+using RelPosType = pmacc::spearhed::Vec<CS, pmacc::spearhed::ValueStorage<CS>>;
+constexpr RelPosType expectedMin{0.125f, 0.125f, 0.125f};
+constexpr RelPosType expectedMax{0.875f, 0.875f, 0.875f};
+constexpr RelPosType defaultPos{0.5f, 0.5f, 0.5f};
 
 // Functor to set specific particle positions:
 // - ID 0 -> Min corner

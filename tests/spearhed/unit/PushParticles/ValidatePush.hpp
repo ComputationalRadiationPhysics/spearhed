@@ -71,7 +71,9 @@ struct CheckParticlePos
                         // Only sum valid particles
                         if(*particle[spearhed::multiMask])
                         {
-                            if(!particle[spearhed::relativePos].get().isApprox(1.f))
+                            if(!particle[spearhed::relativePos].get().isApprox(
+                                   pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ValueStorage<spearhed::CS>>(
+                                       1.f)))
                             {
                                 // Increment error counter on device
                                 alpaka::atomicAdd(worker.getAcc(), d_errorCount, 1, alpaka::hierarchy::Blocks{});
