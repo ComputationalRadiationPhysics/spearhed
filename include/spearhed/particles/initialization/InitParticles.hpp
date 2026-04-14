@@ -26,6 +26,7 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/SetupInterface.hpp"
 #include "spmacc/memory/FramePointer.hpp"
+#include "spmacc/particles/algorithms/FrameDispatch.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
@@ -191,34 +192,15 @@ namespace spearhed
                 auto placeParticle,
                 auto placeParticleArgsTuple) const
             {
-                // Use the scan array to find which particle region this block is responsible for
-                // framesPerParticleRegionScan holds the inlcusive prefix sum of frames per region
-                // We need to find the region where: scan[region] <= blockIdx < scan[region+1]
                 auto const blockIdx = worker.blockDomIdx();
-                int particleRegionIdx = -1;
-                int framesOffset = 0;
-                int framesInRegion = 0;
+                auto const loc = pmacc::spearhed::detail::findFrameLocation(
+                    blockIdx,
+                    framesPerParticleRegionScan,
+                    numParticleRegions);
 
-                // Linear search for the particle region where this block falls in the inclusive scan
-                // TODO use binary search
-                for(int i = 0; i < numParticleRegions; ++i)
-                {
-                    int endFrameIdx = framesPerParticleRegionScan[i];
-                    int startFrameIdx = (i == 0) ? 0 : (framesPerParticleRegionScan[i - 1]);
+                PMACC_ASSERT(loc.localFrameIdx < loc.framesInRegion);
 
-                    if(blockIdx >= startFrameIdx && blockIdx < endFrameIdx)
-                    {
-                        particleRegionIdx = i;
-                        framesOffset = blockIdx - startFrameIdx;
-                        framesInRegion = endFrameIdx - startFrameIdx;
-                        break;
-                    }
-                }
-
-                PMACC_ASSERT(particleRegionIdx != -1);
-                PMACC_ASSERT(framesOffset < framesInRegion);
-
-                auto& particleRegion = prDeviceBox[particleRegionIdx];
+                auto& particleRegion = prDeviceBox[loc.regionIdx];
 
                 auto& frameList = particleRegion.particleFrameList;
 
@@ -233,8 +215,8 @@ namespace spearhed
                 uint32_t particlesInLastFrame = frameList.getSizeLastFrame();
                 PMACC_ASSERT(particlesInLastFrame != 0);
 
-                uint32_t particlesInThisFrame
-                    = (framesOffset == framesInRegion - 1) ? particlesInLastFrame : frameSize;
+                uint32_t const particlesInThisFrame
+                    = (loc.localFrameIdx == loc.framesInRegion - 1) ? particlesInLastFrame : frameSize;
 
                 // Create particles in this frame
                 detail::CreateParticlesInFrame{}(
@@ -242,7 +224,7 @@ namespace spearhed
                     frameList,
                     particleRegion,
                     particlesInThisFrame,
-                    framesOffset,
+                    static_cast<uint32_t>(loc.localFrameIdx),
                     idGen,
                     placeParticle,
                     placeParticleArgsTuple);
@@ -295,16 +277,7 @@ namespace spearhed
                     argsForNumParticles);
 
 
-            framesPerParticleRegion.deviceToHost();
-
-            auto hostData = framesPerParticleRegion.getHostBuffer().getDataBox();
-            for(int i = 1; i < prBuf.size; ++i)
-            {
-                hostData[i] += hostData[i - 1];
-            }
-            uint32_t const totalBlocks = hostData[prBuf.size - 1];
-
-            framesPerParticleRegion.hostToDevice();
+            uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, prBuf.size);
 
             // Launch a kernel to init particles.
             // Launched with max blocks and num threads per block that we can possible use.

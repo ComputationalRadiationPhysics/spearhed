@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "spmacc/particles/algorithms/FrameDispatch.hpp"
+
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <cstdint>
@@ -119,16 +121,7 @@ namespace pmacc::spearhed
                     nullptr,
                     smoothingLength);
 
-            // Exclusive Scan to create offsets. Using Host-side scan
-            regionOffsets.deviceToHost();
-            auto h_offsets = regionOffsets.getHostBuffer().getDataBox();
-
-            for(int i = 1; i <= numRegions; ++i)
-            {
-                h_offsets[i] += h_offsets[i - 1];
-            }
-            uint32_t totalPairs = h_offsets[numRegions];
-            regionOffsets.hostToDevice();
+            uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numRegions + 1);
 
             pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
 

@@ -25,6 +25,7 @@
 #include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/View.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/FrameDispatch.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/topology/Distance.hpp"
@@ -57,25 +58,9 @@ namespace pmacc::spearhed
                 if(blockIdx >= static_cast<int>(framesScanBox[numRegions - 1]))
                     return;
 
-                // Binary Search to find the region for this block
-                int left = 0;
-                int right = numRegions;
+                auto const loc = findFrameLocation(blockIdx, framesScanBox, numRegions);
 
-                while(left < right)
-                {
-                    int const mid = left + (right - left) / 2;
-                    if(static_cast<int>(framesScanBox[mid]) <= blockIdx)
-                    {
-                        left = mid + 1;
-                    }
-                    else
-                    {
-                        right = mid;
-                    }
-                }
-
-                int const regionIdx = left;
-                auto& region = prDeviceBox[regionIdx];
+                auto& region = prDeviceBox[loc.regionIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
                 using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
@@ -88,21 +73,18 @@ namespace pmacc::spearhed
                 using CachedType
                     = ll::SoA<ll::sub_record_t<RecordType, tags::relativePos, tags::multiMask>, frameSize>;
 
-                auto const startFrame = (regionIdx == 0) ? 0 : framesScanBox[regionIdx - 1];
-                auto const localFrameIdx = blockIdx - startFrame;
-
                 // Cache array for neighbour attributes to reduce global memory reads
                 PMACC_SMEM(worker, smemCache, CachedType);
 
                 auto itr = frameList.begin();
-                std::advance(itr, localFrameIdx);
+                std::advance(itr, loc.localFrameIdx);
                 memory::FramePointer const ownFramePtr{&*itr};
                 VolumeType const ownVolume = region.volume;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
-                int const startNeighbour = regionOffsetsBox[regionIdx];
-                int const endNeighbour = regionOffsetsBox[regionIdx + 1];
+                int const startNeighbour = regionOffsetsBox[loc.regionIdx];
+                int const endNeighbour = regionOffsetsBox[loc.regionIdx + 1];
 
                 for(int n = startNeighbour; n < endNeighbour; ++n)
                 {
@@ -181,41 +163,14 @@ namespace pmacc::spearhed
             auto fn,
             auto&&... args) const
         {
-            if(prBuf.size == 0)
-                return;
-
-            constexpr uint32_t threadsPerBlock = 128;
-
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-
-            PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(
-                    prBuf.size))(prBuf.getDeviceDataBox(), prBuf.size, framesPerRegion.getDeviceBuffer().getDataBox());
-
-            framesPerRegion.deviceToHost();
-            auto hostData = framesPerRegion.getHostBuffer().getDataBox();
-            for(int i = 1; i < prBuf.size; ++i)
-            {
-                hostData[i] += hostData[i - 1];
-            }
-            uint32_t const totalBlocks = hostData[prBuf.size - 1];
-            framesPerRegion.hostToDevice();
-
-            if(totalBlocks > 0)
-            {
-                PMACC_LOCKSTEP_KERNEL((detail::FrameInteractionKernel<detail::OccupiedSlot>{}))
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                        prBuf.getDeviceDataBox(),
-                        prBuf.size,
-                        framesPerRegion.getDeviceBuffer().getDataBox(),
-                        neighbourRegions.getDeviceBuffer().getDataBox(),
-                        regionOffsets.getDeviceBuffer().getDataBox(),
-                        interactionRadius,
-                        fn,
-                        std::forward<decltype(args)>(args)...);
-
-                pmacc::eventSystem::waitForAllTasks();
-            }
+            ForEachFrameInPRBuf<32, 128>{}(
+                prBuf,
+                detail::FrameInteractionKernel<detail::OccupiedSlot>{},
+                neighbourRegions.getDeviceBuffer().getDataBox(),
+                regionOffsets.getDeviceBuffer().getDataBox(),
+                interactionRadius,
+                fn,
+                std::forward<decltype(args)>(args)...);
         }
     };
 
