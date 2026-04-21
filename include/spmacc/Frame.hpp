@@ -69,6 +69,7 @@ namespace pmacc
             using SoAType = ll::SoA<ParticleRecord, frameSize>;
 
             SoAType particlesSoa;
+            PMACC_ALIGN(liveParticles, uint32_t) { 0 };
             // this should not have storage else we will get severe memory bloat due to padding to ensure alignment
             // [[no_unique_address]] FlagTuple flags;
 

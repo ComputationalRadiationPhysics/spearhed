@@ -27,7 +27,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <execution>
 #include <tuple>
 #include <vector>
 
@@ -106,17 +105,14 @@ namespace pmacc::spearhed
                 if(nFrames == 0)
                     continue;
 
-                uint32_t const lastCount = fl.getSizeLastFrame();
                 auto* devFramePtr = fl.begin().operator->();
 
                 for(uint32_t f = 0; f < nFrames; ++f)
                 {
                     auto* hostFrame = memory::mapToHost(devFramePtr, heapOffset);
-                    uint32_t const count = (f == nFrames - 1u) ? lastCount : frameSize;
+                    tasks.push_back({hostFrame, hostFrame->liveParticles, writeOffset});
 
-                    tasks.push_back({hostFrame, count, writeOffset});
-
-                    writeOffset += count;
+                    writeOffset += hostFrame->liveParticles;
                     devFramePtr = hostFrame->next;
                 }
             }
