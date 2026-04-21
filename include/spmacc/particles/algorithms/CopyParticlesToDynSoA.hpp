@@ -27,7 +27,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <execution>
 #include <tuple>
+#include <vector>
 
 namespace pmacc::spearhed
 {
@@ -38,7 +40,7 @@ namespace pmacc::spearhed
         {
             auto srcSpan = src.template getLeaf<TagPath>();
             auto dstSpan = dst.template getLeaf<TagPath>();
-            std::copy_n(srcSpan.data(), count, dstSpan.data() + dstOffset);
+            std::ranges::copy_n(srcSpan.data(), count, dstSpan.data() + dstOffset);
         }
 
         template<typename Record, typename SrcSoA, typename DstDynSoA>
@@ -62,6 +64,8 @@ namespace pmacc::spearhed
      * All frames are assumed to be fully packed except the last frame of each
      * region, which may be partially filled (no holes within frames).
      *
+     * Calculates the pointer and offsets and then does the copies in parallel
+     *
      * @param prBuf       Particle region buffer (already synchronized to host).
      * @param dynSoa      Output DynSoA; will be resized to totalParticles.
      * @param heapOffset  MallocMCBuffer::getOffset() on GPU, 0 on CPU serial.
@@ -80,6 +84,20 @@ namespace pmacc::spearhed
                 total += hostBox[r].particleFrameList.getNumParticles();
             dynSoa.resize(total);
 
+            using FrameListType = decltype(hostBox[0].particleFrameList);
+            using FrameType = typename std::remove_reference_t<FrameListType>::FrameType;
+            constexpr uint32_t frameSize = FrameType::frameSize;
+
+            struct CopyTask
+            {
+                FrameType* hostFrame;
+                uint32_t count;
+                uint32_t writeOffset;
+            };
+
+            std::vector<CopyTask> tasks;
+            tasks.reserve(total / frameSize + prBuf.size);
+
             uint32_t writeOffset = 0;
             for(int r = 0; r < prBuf.size; ++r)
             {
@@ -88,26 +106,33 @@ namespace pmacc::spearhed
                 if(nFrames == 0)
                     continue;
 
-                using FrameType = typename std::remove_reference_t<decltype(fl)>::FrameType;
-                constexpr uint32_t frameSize = FrameType::frameSize;
                 uint32_t const lastCount = fl.getSizeLastFrame();
-
-                // fl.begin().operator->() returns the raw FrameType* device pointer
-                // stored in the FrameList without dereferencing device memory.
                 auto* devFramePtr = fl.begin().operator->();
+
                 for(uint32_t f = 0; f < nFrames; ++f)
                 {
                     auto* hostFrame = memory::mapToHost(devFramePtr, heapOffset);
                     uint32_t const count = (f == nFrames - 1u) ? lastCount : frameSize;
 
-                    detail::copyAllFields<ParticleRecord>(hostFrame->particlesSoa, dynSoa, count, writeOffset);
+                    tasks.push_back({hostFrame, count, writeOffset});
 
                     writeOffset += count;
-                    // hostFrame->next is a device pointer stored in host-accessible
-                    // memory; translate it in the next iteration.
                     devFramePtr = hostFrame->next;
                 }
             }
+
+            // if we require TBB can be done with par_unseq
+            std::for_each(
+                tasks.begin(),
+                tasks.end(),
+                [&dynSoa](CopyTask const& task)
+                {
+                    detail::copyAllFields<ParticleRecord>(
+                        task.hostFrame->particlesSoa,
+                        dynSoa,
+                        task.count,
+                        task.writeOffset);
+                });
         }
     };
 
