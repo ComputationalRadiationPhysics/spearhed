@@ -9,9 +9,9 @@
 #include "llamaLite/Field.hpp"
 #include "llamaLite/Record.hpp"
 #include "llamaLite/ResolveLeaf.hpp"
-#include "llamaLite/SoAView.hpp"
 #include "llamaLite/Transform.hpp"
 #include "llamaLite/Tuple.hpp"
+#include "llamaLite/View.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 #include "utility.hpp"
 
@@ -58,10 +58,10 @@ namespace llama_lite
         static constexpr size_t size = Size;
 
         template<IsRecordAccess... Tags>
-        using View = SoAView<SoA, Tags...>;
+        using view_type = View<SoA, Tags...>;
 
         template<IsRecordAccess... Tags>
-        using IndexedView = SoAIndexedView<SoA, Tags...>;
+        using indexed_view_type = ViewIndexed<SoA, Tags...>;
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf()
@@ -82,13 +82,13 @@ namespace llama_lite
         template<IsRecordAccess... RAs>
         [[nodiscard]] constexpr auto view(RAs... tags)
         {
-            return SoAView<SoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<SoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
         }
 
         template<IsRecordAccess... RAs>
         [[nodiscard]] constexpr auto view(RAs... tags) const
         {
-            return SoAView<SoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<SoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
         }
 
         template<IsRecordAccess RA>
@@ -105,12 +105,12 @@ namespace llama_lite
 
         [[nodiscard]] constexpr auto operator[](size_type idx)
         {
-            return SoAIndexedView(*this, idx);
+            return ViewIndexed(*this, idx);
         }
 
         [[nodiscard]] constexpr auto operator[](size_type idx) const
         {
-            return SoAIndexedView(*this, idx);
+            return ViewIndexed(*this, idx);
         }
 
     private:
