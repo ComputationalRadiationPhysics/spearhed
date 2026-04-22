@@ -62,6 +62,26 @@ namespace llama_lite
             using Path = append_t<ViewRA, RA>;
             return View<TSoA, Path>(*(this->soa), Path{});
         }
+
+        [[nodiscard]] constexpr decltype(auto) getSpan()
+            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+        {
+            return soa->template getLeaf<RAs...>();
+        }
+
+        [[nodiscard]] constexpr decltype(auto) getSpan() const
+            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+        {
+            return soa->template getLeaf<RAs...>();
+        }
+
+        [[nodiscard]] constexpr auto getRecordAccess() const
+        {
+            if constexpr(sizeof...(RAs) == 1)
+                return typename SingleElementPack<RAs...>::type{};
+            else
+                return std::tuple<RAs...>{};
+        }
     };
 
     template<typename TSoA, IsRecordAccess... RAs>
@@ -190,6 +210,14 @@ namespace llama_lite
             {
                 return *(*this);
             }
+        }
+
+        [[nodiscard]] constexpr auto getRecordAccess() const
+        {
+            if constexpr(sizeof...(RAs) == 1)
+                return typename SingleElementPack<RAs...>::type{};
+            else
+                return std::tuple<RAs...>{};
         }
 
         // deep copy
