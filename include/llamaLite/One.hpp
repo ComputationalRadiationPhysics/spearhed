@@ -10,9 +10,12 @@
 #include "llamaLite/Record.hpp"
 #include "llamaLite/ResolveLeaf.hpp"
 #include "llamaLite/Transform.hpp"
+#include "llamaLite/View.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <span>
 
 namespace llama_lite
 {
@@ -31,11 +34,11 @@ namespace llama_lite
     } // namespace transform
 
     /**
-     * Recursive Structure-of-Arrays (SoA) container for a Record
+     * Single-element SoA-compatible container for a Record.
      *
-     * Stores hierarchical records by flattening them into a nested tuple of arrays.
-     * This allows logical grouping of components while maintaining contiguous memory
-     * storage for individual fields.
+     * Stores one instance of each leaf field as a plain scalar. getLeaf() returns
+     * std::span<T, 1> so that View/ViewIndexed work unchanged (always use
+     * index 0).
      */
     template<IsRecord R>
     struct One
@@ -44,30 +47,58 @@ namespace llama_lite
         using record_type = R;
         static constexpr size_t size = 1;
 
+        template<IsRecordAccess... Tags>
+        using view_type = View<One, Tags...>;
+
+        template<IsRecordAccess... Tags>
+        using indexed_view_type = ViewIndexed<One, Tags...>;
+
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf()
         {
-            return resolveLeaf<RA, R>(storage);
+            auto& leaf = resolveLeaf<RA, R>(storage);
+            return std::span<std::remove_reference_t<decltype(leaf)>, 1>(&leaf, 1);
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf() const
         {
-            return resolveLeaf<RA, R>(storage);
+            auto const& leaf = resolveLeaf<RA, R>(storage);
+            return std::span<std::remove_reference_t<decltype(leaf)> const, 1>(&leaf, 1);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags)
+        {
+            return View<One, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto view(RAs... tags) const
+        {
+            return View<One const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA)
+        [[nodiscard]] constexpr auto operator[](RA tag)
         {
-            using Path = to_path_t<RA>;
-            return OneView(*this, Path{});
+            return view(tag);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto operator[](RA) const
+        [[nodiscard]] constexpr auto operator[](RA tag) const
         {
-            using Path = to_path_t<RA>;
-            return OneView(*this, Path{});
+            return view(tag);
+        }
+
+        [[nodiscard]] constexpr auto operator[](uint32_t idx)
+        {
+            return ViewIndexed(*this, idx);
+        }
+
+        [[nodiscard]] constexpr auto operator[](uint32_t idx) const
+        {
+            return ViewIndexed(*this, idx);
         }
 
     private:
