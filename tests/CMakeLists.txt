@@ -101,6 +101,7 @@ foreach(
     unit_test_ParticleParticleInteraction_ParticleParticleInteraction
     unit_test_PushParticles_PushParticles
     unit_test_RegionBoundsUpdate_RegionBoundsUpdate
+    unit_test_CopyParticlesToHost_CopyParticlesToHost
 )
     target_include_directories(${t} PRIVATE ${_setup_dir})
 endforeach()

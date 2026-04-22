@@ -22,6 +22,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <new>
 
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
@@ -67,6 +68,27 @@ namespace pmacc::spearhed::memory
             return static_cast<T*>(mem);
         }
         return nullptr;
+    }
+
+    /** Translate a device heap pointer to its host mirror address.
+     *
+     * After MallocMCBuffer::synchronize() copies the device heap to a pinned
+     * host buffer, device pointers stored in frame metadata can be translated
+     * to valid host pointers using the heap offset returned by
+     * MallocMCBuffer::getOffset().
+     *
+     * On CPU serial backends heapOffset is 0 and this is an identity function.
+     *
+     * @param devPtr  Pointer value from device heap (may be nullptr).
+     * @param heapOffset  deviceHeapBase - hostHeapBase in bytes.
+     * @return Valid host pointer into the pinned heap copy, or nullptr.
+     */
+    template<typename T>
+    T* mapToHost(T* devPtr, int64_t heapOffset) noexcept
+    {
+        if(!devPtr)
+            return nullptr;
+        return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(devPtr) - heapOffset);
     }
 
 } // namespace pmacc::spearhed::memory

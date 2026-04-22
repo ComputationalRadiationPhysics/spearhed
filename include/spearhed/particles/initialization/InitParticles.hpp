@@ -131,6 +131,7 @@ namespace spearhed
                         // allocate the frame for this block and get a pointer to it
                         // This is filled with junk values
                         framePtr = particleFrameList.getEmptyFrame(worker);
+                        framePtr->liveParticles = numParticlesToCreate;
                     });
 
                 worker.sync();
