@@ -6,6 +6,7 @@
 
 #include "llamaLite/Algorithm.hpp"
 #include "llamaLite/DynSoA.hpp"
+#include "llamaLite/One.hpp"
 #include "llamaLite/Record.hpp"
 #include "llamaLite/Soa.hpp"
 #include "llamaLite/SubRecord.hpp"

@@ -30,7 +30,7 @@ using Particle = ll::Record<
 using TSoA = ll::SoA<Particle, 512>;
 
 template<auto... TagInstances>
-using ParticleView = ll::SoAIndexedView<TSoA, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
+using ParticleView = ll::ViewIndexed<TSoA, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
 
 template<>
 struct ll::traits::AsType<ll::Field<posi_t, Posi>>

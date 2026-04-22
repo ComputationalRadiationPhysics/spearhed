@@ -104,7 +104,7 @@ namespace pmacc
             /** access attribute with a tag
              *
              * @param T_Key instance of tag type
-             * @return SoAView
+             * @return View
              */
             template<ll::IsRecordAccess RA>
             [[nodiscard]] constexpr auto operator[](RA tag)
@@ -120,7 +120,7 @@ namespace pmacc
             }
 
             // Particle Access via Index
-            // @returns SoAIndexedView looking at a specific particle index
+            // @returns ViewIndexed looking at a specific particle index
             [[nodiscard]] constexpr auto operator[](uint32_t idx)
             {
                 return particlesSoa[idx];

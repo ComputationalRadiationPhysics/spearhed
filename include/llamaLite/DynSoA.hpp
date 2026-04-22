@@ -11,6 +11,7 @@
 #include "llamaLite/ResolveLeaf.hpp"
 #include "llamaLite/Transform.hpp"
 #include "llamaLite/Tuple.hpp"
+#include "llamaLite/View.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 #include "llamaLite/utility.hpp"
 
@@ -138,6 +139,12 @@ namespace llama_lite
     public:
         using record_type = R;
 
+        template<IsRecordAccess... Tags>
+        using view_type = View<DynSoA, Tags...>;
+
+        template<IsRecordAccess... Tags>
+        using indexed_view_type = ViewIndexed<DynSoA, Tags...>;
+
         DynSoA() = default;
 
         explicit DynSoA(size_t n)
@@ -180,6 +187,40 @@ namespace llama_lite
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
             return std::span<ElementType>(leaf);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] auto view(RAs... tags)
+        {
+            return View<DynSoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] auto view(RAs... tags) const
+        {
+            return View<DynSoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+        }
+
+        template<IsRecordAccess RA>
+        [[nodiscard]] auto operator[](RA tag)
+        {
+            return view(tag);
+        }
+
+        template<IsRecordAccess RA>
+        [[nodiscard]] auto operator[](RA tag) const
+        {
+            return view(tag);
+        }
+
+        [[nodiscard]] auto operator[](uint32_t idx)
+        {
+            return ViewIndexed(*this, idx);
+        }
+
+        [[nodiscard]] auto operator[](uint32_t idx) const
+        {
+            return ViewIndexed(*this, idx);
         }
 
     private:
