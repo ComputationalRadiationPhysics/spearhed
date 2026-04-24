@@ -19,30 +19,30 @@
 
 namespace llama_lite
 {
-    template<typename TSoA, IsRecordAccess... RAs>
-    requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+    template<typename TStorage, IsRecordAccess... RAs>
+    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
     struct ViewIndexed;
 
-    template<typename TSoA, IsRecordAccess... RAs>
-    requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+    template<typename TStorage, IsRecordAccess... RAs>
+    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
     struct View
     {
-        using record_type = TSoA::record_type;
+        using record_type = TStorage::record_type;
 
-        TSoA* soa;
+        TStorage* storage;
 
-        // constructor only available if RAs exist in the TSoA record
-        constexpr View(TSoA& soa_, RAs...) noexcept
-            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-            : soa{&soa_}
+        // constructor only available if RAs exist in the TStorage record
+        constexpr View(TStorage& storage_, RAs...) noexcept
+            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+            : storage{&storage_}
         {
         }
 
         template<typename... ParentRAs>
-        constexpr View(View<TSoA, ParentRAs...> view, RAs...) noexcept
-            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+        constexpr View(View<TStorage, ParentRAs...> view, RAs...) noexcept
+            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
                     && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
-            : soa{view.soa}
+            : storage{view.storage}
         {
         }
 
@@ -61,19 +61,19 @@ namespace llama_lite
         {
             using ViewRA = typename SingleElementPack<RAs...>::type;
             using Path = append_t<ViewRA, RA>;
-            return View<TSoA, Path>(*(this->soa), Path{});
+            return View<TStorage, Path>(*(this->storage), Path{});
         }
 
         [[nodiscard]] constexpr decltype(auto) getSpan()
-            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
         {
-            return soa->template getLeaf<RAs...>();
+            return storage->template getLeaf<RAs...>();
         }
 
         [[nodiscard]] constexpr decltype(auto) getSpan() const
-            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
         {
-            return soa->template getLeaf<RAs...>();
+            return storage->template getLeaf<RAs...>();
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
@@ -85,60 +85,62 @@ namespace llama_lite
         }
     };
 
-    template<typename TSoA, IsRecordAccess... RAs>
-    requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+    template<typename TStorage, IsRecordAccess... RAs>
+    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
     struct ViewIndexed
     {
-        using record_type = TSoA::record_type;
+        using record_type = TStorage::record_type;
 
-        TSoA* soa;
+        TStorage* storage;
         uint32_t idx;
 
         // consteval default constructor, to help get the type of a view more easily
         consteval ViewIndexed() = default;
 
-        // constructor only available if RAs exist in the TSoA record
-        constexpr ViewIndexed(TSoA& soa_, uint32_t index, RAs...) noexcept
-            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
-            : soa{&soa_}
+        // constructor only available if RAs exist in the TStorage record
+        constexpr ViewIndexed(TStorage& storage_, uint32_t index, RAs...) noexcept
+            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+            : storage{&storage_}
             , idx{index}
         {
         }
 
-        constexpr ViewIndexed(View<TSoA, RAs...> view, uint32_t index) noexcept : soa{view.soa}, idx{index} {};
+        constexpr ViewIndexed(View<TStorage, RAs...> view, uint32_t index) noexcept
+            : storage{view.storage}
+            , idx{index} {};
 
         template<typename... ParentRAs>
-        constexpr ViewIndexed(View<TSoA, ParentRAs...> view, uint32_t index, RAs...) noexcept
-            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+        constexpr ViewIndexed(View<TStorage, ParentRAs...> view, uint32_t index, RAs...) noexcept
+            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
                         && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
-            : soa{view.soa}
+            : storage{view.storage}
             , idx{index}
         {
         }
 
         template<typename... ParentRAs>
-        constexpr ViewIndexed(ViewIndexed<TSoA, ParentRAs...> idxView, RAs...) noexcept
-            requires(requires { typename TSoA::record_type::template field_for<RAs>; } && ...)
+        constexpr ViewIndexed(ViewIndexed<TStorage, ParentRAs...> idxView, RAs...) noexcept
+            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
                         && (IsInSet<to_path_t<RAs>, ParentRAs...> && ...)
-            : soa{idxView.soa}
+            : storage{idxView.storage}
             , idx{idxView.idx}
         {
         }
 
         // conversion constructor to defined RAs from another view.
         template<typename... OtherRAs>
-        constexpr ViewIndexed(ViewIndexed<TSoA, OtherRAs...> const& other) noexcept
+        constexpr ViewIndexed(ViewIndexed<TStorage, OtherRAs...> const& other) noexcept
             requires(
                         // Allow conversion from Root view
                         sizeof...(OtherRAs) == 0 ||
                         // OR Ensure all RAs in this view are present in the OtherRAs
                         (IsInSet<to_path_t<RAs>, to_path_t<OtherRAs>...> && ...))
-            : soa{other.soa}
+            : storage{other.storage}
             , idx{other.idx}
         {
         }
 
-        // TODO add checks on RA being valid for the soa record
+        // TODO add checks on RA being valid for the storage record
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(sizeof...(RAs) <= 1)
         {
@@ -146,12 +148,12 @@ namespace llama_lite
             {
                 using ViewRA = typename SingleElementPack<RAs...>::type;
                 using Path = append_t<ViewRA, RA>;
-                return ViewIndexed<TSoA, Path>(*(this->soa), idx, Path{});
+                return ViewIndexed<TStorage, Path>(*(this->storage), idx, Path{});
             }
             else
             {
                 using Path = to_path_t<RA>;
-                return ViewIndexed<TSoA, Path>(*(this->soa), idx, Path{});
+                return ViewIndexed<TStorage, Path>(*(this->storage), idx, Path{});
             }
         }
 
@@ -159,35 +161,37 @@ namespace llama_lite
         [[nodiscard]] constexpr auto operator[](RA) const
             requires((sizeof...(RAs) > 1) && IsInSet<to_path_t<RA>, to_path_t<RAs>...>)
         {
-            return ViewIndexed<TSoA, to_path_t<RA>>(*this);
+            return ViewIndexed<TStorage, to_path_t<RA>>(*this);
         }
 
         // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
         // for example implicitly when the user requests it
         [[nodiscard]] constexpr decltype(auto) operator*()
-            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
         {
-            return soa->template getLeaf<RAs...>()[idx];
+            return storage->template getLeaf<RAs...>()[idx];
         }
 
         [[nodiscard]] constexpr decltype(auto) operator*() const
-            requires((sizeof...(RAs) == 1) && (TSoA::record_type::template isLeaf<RAs...>()))
+            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
         {
-            return soa->template getLeaf<RAs...>()[idx];
+            return storage->template getLeaf<RAs...>()[idx];
         }
 
         // requires we are a leaf node or AsType is
         [[nodiscard]] constexpr decltype(auto) get() requires(
             (sizeof...(RAs) == 1)
-            && (TSoA::record_type::template isLeaf<RAs...>()
-                || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
-                    value))
+            && (TStorage::record_type::template isLeaf<RAs...>()
+                || traits::IsTraitSpecialized<
+                    traits::AsType,
+                    typename TStorage::record_type::template field_for<RAs...>>::value))
         {
             if constexpr(
-                traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
-                    value)
+                traits::IsTraitSpecialized<
+                    traits::AsType,
+                    typename TStorage::record_type::template field_for<RAs...>>::value)
             {
-                return traits::AsType<typename TSoA::record_type::template field_for<RAs...>>{}(*this);
+                return traits::AsType<typename TStorage::record_type::template field_for<RAs...>>{}(*this);
             }
             else // is a leaf
             {
@@ -197,15 +201,17 @@ namespace llama_lite
 
         [[nodiscard]] constexpr decltype(auto) get() const requires(
             (sizeof...(RAs) == 1)
-            && (TSoA::record_type::template isLeaf<RAs...>()
-                || traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
-                    value))
+            && (TStorage::record_type::template isLeaf<RAs...>()
+                || traits::IsTraitSpecialized<
+                    traits::AsType,
+                    typename TStorage::record_type::template field_for<RAs...>>::value))
         {
             if constexpr(
-                traits::IsTraitSpecialized<traits::AsType, typename TSoA::record_type::template field_for<RAs...>>::
-                    value)
+                traits::IsTraitSpecialized<
+                    traits::AsType,
+                    typename TStorage::record_type::template field_for<RAs...>>::value)
             {
-                return traits::AsType<typename TSoA::record_type::template field_for<RAs...>>{}(*this);
+                return traits::AsType<typename TStorage::record_type::template field_for<RAs...>>{}(*this);
             }
             else // is a leaf
             {
@@ -221,10 +227,10 @@ namespace llama_lite
                 return std::tuple<RAs...>{};
         }
 
-        template<typename OtherTSoA, typename... OtherRAs>
-        constexpr void deepCopyFrom(ViewIndexed<OtherTSoA, OtherRAs...> other) noexcept
+        template<typename OtherTStorage, typename... OtherRAs>
+        constexpr void deepCopyFrom(ViewIndexed<OtherTStorage, OtherRAs...> other) noexcept
         {
-            using SrcR = typename OtherTSoA::record_type;
+            using SrcR = typename OtherTStorage::record_type;
             using DestR = record_type;
 
             using DestLeafPaths = GetLeafPaths<DestR>::type;
@@ -232,7 +238,7 @@ namespace llama_lite
             {
                 static_assert(
                     (SrcR::hasPath(Paths{}) && ...),
-                    "Source SoA does not contain all required paths to fulfill this SubRecord.");
+                    "Source storage does not contain all required paths to fulfill this SubRecord.");
 
                 static_assert(
                     (std::is_same_v<
@@ -246,9 +252,9 @@ namespace llama_lite
         }
 
         // deep copy
-        template<typename OtherTSoA, typename... OtherRAs>
-        requires(!std::same_as<TSoA, OtherTSoA>)
-        constexpr ViewIndexed& operator=(ViewIndexed<OtherTSoA, OtherRAs...> other) noexcept
+        template<typename OtherTStorage, typename... OtherRAs>
+        requires(!std::same_as<TStorage, OtherTStorage>)
+        constexpr ViewIndexed& operator=(ViewIndexed<OtherTStorage, OtherRAs...> other) noexcept
         {
             deepCopyFrom(other);
             return *this;
@@ -267,8 +273,8 @@ namespace llama_lite
 
     //     using CurrentRecordType = std::conditional_t<
     //         sizeof...(RAs) == 0,
-    //         typename TSoA::record_type,
-    //         typename TSoA::record_type::template value_type_for<
+    //         typename TStorage::record_type,
+    //         typename TStorage::record_type::template value_type_for<
     //             to_path_t<std::tuple_element_t<0, Tuple<RAs...>>>>>;
 
     //     // We inspect the structure of the record currently pointed to by this View
