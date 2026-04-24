@@ -12,6 +12,7 @@
 #include "llamaLite/utility.hpp"
 #include "traits.hpp"
 
+#include <concepts>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
@@ -220,11 +221,9 @@ namespace llama_lite
                 return std::tuple<RAs...>{};
         }
 
-        // deep copy
         template<typename OtherTSoA, typename... OtherRAs>
-        constexpr ViewIndexed& operator=(ViewIndexed<OtherTSoA, OtherRAs...> other)
+        constexpr void deepCopyFrom(ViewIndexed<OtherTSoA, OtherRAs...> other) noexcept
         {
-            // assert(this->idx == other.idx);
             using SrcR = typename OtherTSoA::record_type;
             using DestR = record_type;
 
@@ -242,9 +241,16 @@ namespace llama_lite
                      && ...),
                     "Type mismatch between source and destination fields.");
 
-                ((*other[Paths{}] = *(*this)[Paths{}]), ...);
+                ((*(*this)[Paths{}] = *other[Paths{}]), ...);
             }(DestLeafPaths{});
+        }
 
+        // deep copy
+        template<typename OtherTSoA, typename... OtherRAs>
+        requires(!std::same_as<TSoA, OtherTSoA>)
+        constexpr ViewIndexed& operator=(ViewIndexed<OtherTSoA, OtherRAs...> other) noexcept
+        {
+            deepCopyFrom(other);
             return *this;
         }
     };

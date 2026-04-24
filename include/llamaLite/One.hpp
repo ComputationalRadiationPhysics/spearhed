@@ -47,6 +47,25 @@ namespace llama_lite
         using record_type = R;
         static constexpr size_t size = 1;
 
+        constexpr One() = default;
+        constexpr One(One const&) = default;
+        constexpr One(One&&) = default;
+        constexpr One& operator=(One const&) = default;
+        constexpr One& operator=(One&&) = default;
+
+        template<typename TSoA, typename... RAs>
+        constexpr One(ViewIndexed<TSoA, RAs...> const& view)
+        {
+            (*this)[uint32_t{0}].deepCopyFrom(view);
+        }
+
+        template<typename TSoA, typename... RAs>
+        constexpr One& operator=(ViewIndexed<TSoA, RAs...> const& view)
+        {
+            (*this)[uint32_t{0}].deepCopyFrom(view);
+            return *this;
+        }
+
         template<IsRecordAccess... Tags>
         using view_type = View<One, Tags...>;
 
