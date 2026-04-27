@@ -29,7 +29,6 @@
 #include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
-#include "spmacc/topology/Point.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>

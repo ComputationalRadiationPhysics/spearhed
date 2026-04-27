@@ -134,9 +134,10 @@ namespace spearhed
     void Simulation::runOneStep(uint32_t currentStep)
     {
         ParticlePush{}(currentStep);
+        pmacc::spearhed::UpdateVolumes<PRType>{}();
         auto& dc = pmacc::Environment<>::get().DataConnector();
         auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
-        auto [neighbourRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, 5);
+        auto [neighbourRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, h0);
     }
 
     void Simulation::init()

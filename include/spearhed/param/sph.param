@@ -1,6 +1,6 @@
 /* Copyright 2025-2026 Tapish Narwal
  *
- * This file is part of SPEARHED, derived from PIConGPU.
+ * This file is part of SPEARHED.
  *
  * SPEARHED is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,12 +19,17 @@
 
 #pragma once
 
-// clang-format off
 #include "spearhed/param/dimension.param"
-#include "spearhed/param/memory.param"
-#include "spearhed/param/sph.param"
-#include "spearhed/param/mallocMC.param"
-#include "spearhed/param/speciesDefinition.param"
-#include "spearhed/param/speciesTraits.param"
 
-// clang-format on
+namespace spearhed
+{
+    // Pairwise interaction radius used for the AABB neighbour search.
+    // Until variable smoothing length is implemented, this also serves as the per-particle h.
+    constexpr Real h0 = Real{0.05};
+
+    // Adiabatic index for the ideal-gas equation of state.
+    constexpr Real gamma_eos = Real{5} / Real{3};
+
+    // CFL safety factor used by the adaptive timestep.
+    constexpr Real cflFactor = Real{0.3};
+} // namespace spearhed
