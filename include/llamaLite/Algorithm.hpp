@@ -83,7 +83,7 @@ namespace llama_lite
 
                     if constexpr(traits::IsTraitSpecialized<VisitorTrait, Field>::value)
                     {
-                        VisitorTrait<Field>{}(LL_FORWARD(view)[FieldTag{}], args...);
+                        VisitorTrait<Field>{}(view[FieldTag{}], args...);
                     }
                     else
                     {
@@ -93,20 +93,48 @@ namespace llama_lite
                         {
                             // Recursively iterate sub-record
                             // Assumes field_instance is the sub-record or convertible to it
-                            iterate_recursive<Val, NextPath, Selector, VisitorTrait>(
-                                LL_FORWARD(view)[FieldTag{}],
-                                args...);
+                            iterate_recursive<Val, NextPath, Selector, VisitorTrait>(view[FieldTag{}], args...);
                         }
                         else
                         {
                             // Visit leaf
-                            VisitorTrait<Field>{}(LL_FORWARD(view)[FieldTag{}], args...);
+                            VisitorTrait<Field>{}(view[FieldTag{}], args...);
                         }
                     }
                 }
             };
 
             // Fold expression to unroll the loop
+            [&]<size_t... Is>(std::index_sequence<Is...>) { (process_field.template operator()<Is>(), ...); }(
+                std::make_index_sequence<std::tuple_size_v<fields_tuple_type>>{});
+        }
+
+        template<IsRecord R, typename CurrentPath, typename Selector, template<typename> typename VisitorTrait>
+        constexpr void iterate_path_recursive(auto&&... args)
+        {
+            using fields_tuple_type = typename R::fields_tuple_type;
+
+            auto process_field = [&]<size_t I>()
+            {
+                using Field = std::tuple_element_t<I, fields_tuple_type>;
+                using FieldTag = typename Field::tag_type;
+                using NextPath = append_t<CurrentPath, FieldTag>;
+
+                if constexpr(Selector::allow(NextPath{}))
+                {
+                    using Val = typename Field::value_type;
+
+                    if constexpr(IsRecord<Val>)
+                    {
+                        iterate_path_recursive<Val, NextPath, Selector, VisitorTrait>(args...);
+                    }
+                    else
+                    {
+                        VisitorTrait<NextPath>{}(args...);
+                    }
+                }
+            };
+
             [&]<size_t... Is>(std::index_sequence<Is...>) { (process_field.template operator()<Is>(), ...); }(
                 std::make_index_sequence<std::tuple_size_v<fields_tuple_type>>{});
         }
@@ -145,6 +173,38 @@ namespace llama_lite
     constexpr void iterate_except(auto&& view, Args&&... args)
     {
         iterate<R, selectors::Exclude<decltype(Paths)...>, VisitorTrait>(LL_FORWARD(view), LL_FORWARD(args)...);
+    }
+
+    /**
+     * @brief Path-based iteration: traverses the record tree and calls Functor with the full TagPath as a
+     * template parameter. The original view and args are passed unchanged. The functor navigates to the
+     * field via the path itself.
+     *
+     * Functor must provide: template<typename Path> void operator()(auto&& view, auto&&... args)
+     *
+     * @tparam R Record
+     * @tparam Selector The filtering policy (SelectAll, Include<...>, Exclude<...>)
+     * @tparam Functor Callable with template<typename Path> operator()(view, args...)
+     */
+    template<
+        IsRecord R,
+        typename Selector = llama_lite::selectors::SelectAll,
+        template<typename> typename VisitorTrait>
+    constexpr void iterate_path(auto&&... args)
+    {
+        detail::iterate_path_recursive<R, TagPath<>, Selector, VisitorTrait>(LL_FORWARD(args)...);
+    }
+
+    template<IsRecord R, template<typename> typename VisitorTrait, IsRecordAccess auto... Paths, typename... Args>
+    constexpr void iterate_path_only(Args&&... args)
+    {
+        iterate_path<R, selectors::Include<decltype(Paths)...>, VisitorTrait>(LL_FORWARD(args)...);
+    }
+
+    template<IsRecord R, template<typename> typename VisitorTrait, IsRecordAccess auto... Paths, typename... Args>
+    constexpr void iterate_path_except(Args&&... args)
+    {
+        iterate_path<R, selectors::Exclude<decltype(Paths)...>, VisitorTrait>(LL_FORWARD(args)...);
     }
 
 } // namespace llama_lite
