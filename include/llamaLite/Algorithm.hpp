@@ -124,7 +124,7 @@ namespace llama_lite
                 {
                     using Val = typename Field::value_type;
 
-                    if constexpr(IsRecord<Val>)
+                    if constexpr(IsRecord<Val> && !traits::IsTraitSpecialized<VisitorTrait, NextPath>::value)
                     {
                         iterate_path_recursive<Val, NextPath, Selector, VisitorTrait>(args...);
                     }
