@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {

@@ -21,13 +21,14 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spmacc/memory/utils.hpp"
 #include "utility.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <vector>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {

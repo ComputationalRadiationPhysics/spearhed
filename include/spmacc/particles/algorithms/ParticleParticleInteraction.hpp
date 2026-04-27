@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/View.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
@@ -34,6 +33,8 @@
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {

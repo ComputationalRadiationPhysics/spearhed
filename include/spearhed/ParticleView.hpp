@@ -19,9 +19,10 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spearhed/param.hpp"
 #include "spmacc/particles/View.hpp"
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace spearhed
 {
