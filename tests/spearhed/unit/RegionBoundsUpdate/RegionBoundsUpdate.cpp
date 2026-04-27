@@ -91,7 +91,8 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
 
     // Validation
     prBuf->buffer->deviceToHost();
-    auto const& region = prBuf->buffer->getHostBuffer().getDataBox()(0);
+    auto dataBox = prBuf->buffer->getHostBuffer().getDataBox();
+    auto const& region = dataBox(0);
 
     pmacc::spearhed::for_each_tag<spearhed::CS>(
         [&](auto tag)
