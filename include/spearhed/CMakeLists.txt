@@ -56,6 +56,11 @@ alpaka_add_executable(spearhed ${ACCSRCFILES})
 target_link_libraries(spearhed PUBLIC spearhed-hostonly)
 target_link_libraries(spearhed PRIVATE pmacc::pmacc)
 
+if(SPEARHED_ENABLE_OPENPMD)
+    target_link_libraries(spearhed-hostonly PUBLIC openPMD::openPMD)
+    target_compile_definitions(spearhed-hostonly PUBLIC SPEARHED_ENABLE_OPENPMD)
+endif()
+
 # Prepend the build include dir if either setup or any param files were overridden,
 # so the copied files shadow the source-tree defaults
 if(SPEARHED_SETUP_FILE OR SPEARHED_PARAM_DIR)
