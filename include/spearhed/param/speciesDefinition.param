@@ -21,6 +21,7 @@
 
 #include "Field.hpp"
 #include "Record.hpp"
+#include "spearhed/param/dimension.param"
 #include "spearhed/param/memory.param"
 #include "spearhed/param/speciesAttributes.param"
 #include "spearhed/particles/attributes/Id.hpp"
@@ -42,7 +43,5 @@ namespace spearhed
     constexpr auto particleDesc = pmacc::spearhed::createParticleDescription(
         PMACC_CSTRING("fluid"){},
         std::integral_constant<uint32_t, numFrameSlots>{},
-        ll::Record<idField, MultiMaskField, relativePosField, massField, velField>{});
-
-    // ll::SoA<Pos<2, float>>,
+        ll::Record<idField, MultiMaskField, relativePosField<CS>, massField<Real>, velField<CS>>{});
 } // namespace spearhed

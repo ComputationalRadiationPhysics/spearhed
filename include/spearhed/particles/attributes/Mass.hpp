@@ -19,8 +19,6 @@
 
 #pragma once
 
-#include "spmacc/particles/traits.hpp"
-
 #include <llamaLite/llamaLite.hpp>
 
 namespace spearhed
@@ -29,7 +27,8 @@ namespace spearhed
     {
         DEFINE_TAG(mass);
 
-        using massField = ll::Field<mass_t, float>;
+        template<typename T>
+        using massField = ll::Field<mass_t, T>;
     } // namespace tags
 
 

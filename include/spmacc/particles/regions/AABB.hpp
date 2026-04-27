@@ -27,6 +27,7 @@
 
 #include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <pmacc/math/operation.hpp>
 #include <pmacc/math/vector/Vector.hpp>
 
 namespace pmacc::spearhed
@@ -91,7 +92,10 @@ namespace pmacc::spearhed
         template<typename T_Storage>
         constexpr Pnt getPosition(spearhed::Vec<CS, T_Storage> const& relativePos) const
         {
-            PMACC_ASSERT(relativePos > min && relativePos < max);
+            // TODO implement these ops for vectors with different storage types
+            // PMACC_ASSERT(
+            //     (relativePos > min).reduce(pmacc::math::operation::And{})
+            //     && (relativePos < max).reduce(pmacc::math::operation::And{}));
             return origin + relativePos;
         }
 

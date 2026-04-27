@@ -28,7 +28,7 @@ namespace llama_lite::traits
 {
 
     template<>
-    struct AsType<pmacc::spearhed::tags::relativePosField>
+    struct AsType<pmacc::spearhed::tags::relativePosField<spearhed::CS>>
     {
         template<typename T_RelPosView>
         constexpr auto operator()(T_RelPosView relativePosFieldView) const

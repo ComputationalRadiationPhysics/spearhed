@@ -21,8 +21,12 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/topology/Cartesian.hpp"
+
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 
 #include <cstdint>
 #include <tuple>
@@ -59,7 +63,8 @@ namespace spearhed
             {
                 auto const& aabb = particleRegion.volume;
                 pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+                    [&](auto tag)
+                    { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * CS::T_Axis{0.5}; });
             }
         };
 
