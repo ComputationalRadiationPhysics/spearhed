@@ -23,58 +23,76 @@
 
 #include "llamaLite/llamaLite.hpp"
 #include "spmacc/memory/utils.hpp"
+#include "utility.hpp"
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <tuple>
 #include <vector>
 
 namespace pmacc::spearhed
 {
-    namespace detail
+    /**
+     * Default per-leaf copy trait for use with iterate_path.
+     *
+     * Receives the full source SoA (frame SoA), the destination DynSoA, particle count,
+     * write offset, and any extra args (e.g. the ParticleRegion for transformations).
+     * The @p Path template parameter is the full TagPath to the leaf in the output record.
+     *
+     * By default, bulk-copies the leaf at @p Path from srcSoa to dst.
+     *
+     * Specialise on a full TagPath to redirect the source leaf or apply a transformation.
+     * For example, specialising on @c TagPath<position_t, x_t> allows reading from
+     * @c relativePos.x and adding the region origin instead of copying from @c position.x.
+     *
+     * Signature: @c void(srcSoa, dst, count, offset, extraArgs...)
+     */
+    template<typename Path>
+    struct FieldCopyTrait
     {
-        template<typename TagPath, typename SrcSoA, typename DstDynSoA>
-        void copyOneField(SrcSoA const& src, DstDynSoA& dst, uint32_t count, uint32_t dstOffset)
-        {
-            auto srcSpan = src.template getLeaf<TagPath>();
-            auto dstSpan = dst.template getLeaf<TagPath>();
-            std::ranges::copy_n(srcSpan.data(), count, dstSpan.data() + dstOffset);
-        }
+        using _default_sentinel = void;
 
-        template<typename Record, typename SrcSoA, typename DstDynSoA>
-        void copyAllFields(SrcSoA const& src, DstDynSoA& dst, uint32_t count, uint32_t dstOffset)
+        void operator()(auto const& srcSoa, auto& dst, uint32_t count, uint32_t offset, auto&&...) const
         {
-            using LeafPaths = typename ll::GetLeafPaths<Record>::type;
-            [&]<std::size_t... Is>(std::index_sequence<Is...>)
-            {
-                (copyOneField<std::tuple_element_t<Is, LeafPaths>>(src, dst, count, dstOffset), ...);
-            }(std::make_index_sequence<std::tuple_size_v<LeafPaths>>{});
+            std::ranges::copy_n(
+                srcSoa.template getLeaf<Path>().data(),
+                count,
+                dst.template getLeaf<Path>().data() + offset);
         }
-    } // namespace detail
+    };
 
     /**
      * Copy all particle data from a ParticleRegionBuffer into a DynSoA.
      *
-     * Prerequisite: the caller must have already called
-     *   prBuf.synchronize()           -- copies ParticleRegion metadata to host
-     *   mallocMCBuffer->synchronize() -- bulk-copies device heap to host
+     * Calls prBuf.synchronize() internally. For GPU builds the caller must also
+     * call mallocMCBuffer->synchronize() and pass the resulting heap offset;
+     * on CPU serial backends heapOffset = 0 is correct.
      *
-     * All frames are assumed to be fully packed except the last frame of each
-     * region, which may be partially filled (no holes within frames).
+     * All frames are assumed fully packed except for one frame of each region, which may be partially filled (it isnt
+     * necessarily the last frame since adding frames is done in parallel).
+     * TODO Think if I should serialize adding frames so always the last frame is the incomplete one.
      *
-     * Calculates the pointer and offsets and then does the copies in parallel
+     * Iterates over the leaf paths of the output record (T_DynSoA::record_type)
+     * via ll::iterate_path, dispatching each leaf through FieldCopyTrait<LeafPath>.
+     * The default FieldCopyTrait bulk-copies the same-path leaf from the source SoA.
+     * Specialise FieldCopyTrait on a TagPath to redirect the source or transform the data.
      *
-     * @param prBuf       Particle region buffer (already synchronized to host).
+     * The per-region ParticleRegion is forwarded to every FieldCopyTrait invocation as
+     * an extra arg after (srcSoa, dst, count, offset).
+     *
+     * @tparam Selector   ll::selectors policy controlling which leaf paths are visited.
+     *                    Defaults to SelectAll.
+     * @param prBuf       Particle region buffer (synchronized internally).
      * @param dynSoa      Output DynSoA; will be resized to totalParticles.
      * @param heapOffset  MallocMCBuffer::getOffset() on GPU, 0 on CPU serial.
      */
     struct CopyParticlesToDynSoA
     {
-        template<typename T_PRBuf, typename T_DynSoA>
-        void operator()(T_PRBuf& prBuf, T_DynSoA& dynSoa, int64_t heapOffset) const
+        template<typename T_DynSoA, typename Selector = ll::selectors::SelectAll>
+        void operator()(auto& prBuf, T_DynSoA& dynSoa, int64_t heapOffset) const
         {
-            using ParticleRecord = typename T_DynSoA::record_type;
+            prBuf.synchronize();
+
+            using OutputRecord = typename T_DynSoA::record_type;
 
             auto hostBox = prBuf.buffer->getHostBuffer().getDataBox();
 
@@ -85,6 +103,7 @@ namespace pmacc::spearhed
 
             using FrameListType = decltype(hostBox[0].particleFrameList);
             using FrameType = typename std::remove_reference_t<FrameListType>::FrameType;
+            using RegionType = std::remove_reference_t<decltype(hostBox[0])>;
             constexpr uint32_t frameSize = FrameType::frameSize;
 
             struct CopyTask
@@ -92,6 +111,7 @@ namespace pmacc::spearhed
                 FrameType* hostFrame;
                 uint32_t count;
                 uint32_t writeOffset;
+                RegionType const* region;
             };
 
             std::vector<CopyTask> tasks;
@@ -105,12 +125,12 @@ namespace pmacc::spearhed
                 if(nFrames == 0)
                     continue;
 
-                auto* devFramePtr = fl.begin().operator->();
+                auto* devFramePtr = &(*fl.begin());
 
                 for(uint32_t f = 0; f < nFrames; ++f)
                 {
                     auto* hostFrame = memory::mapToHost(devFramePtr, heapOffset);
-                    tasks.push_back({hostFrame, hostFrame->liveParticles, writeOffset});
+                    tasks.push_back({hostFrame, hostFrame->liveParticles, writeOffset, &hostBox[r]});
 
                     writeOffset += hostFrame->liveParticles;
                     devFramePtr = hostFrame->next;
@@ -121,13 +141,14 @@ namespace pmacc::spearhed
             std::for_each(
                 tasks.begin(),
                 tasks.end(),
-                [&dynSoa](CopyTask const& task)
+                [&](CopyTask const& task)
                 {
-                    detail::copyAllFields<ParticleRecord>(
+                    ll::iterate_path<OutputRecord, Selector, FieldCopyTrait>(
                         task.hostFrame->particlesSoa,
                         dynSoa,
                         task.count,
-                        task.writeOffset);
+                        task.writeOffset,
+                        *task.region);
                 });
         }
     };
