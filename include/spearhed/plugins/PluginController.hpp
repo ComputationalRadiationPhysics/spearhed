@@ -20,6 +20,7 @@
 #pragma once
 
 #include "spearhed/plugins/IStatelessPlugin.hpp"
+#include "spearhed/plugins/openPMD/OpenPMDPlugin.hpp"
 
 #include <pmacc/pluginSystem/IPlugin.hpp>
 
@@ -41,6 +42,7 @@ namespace spearhed
          */
         virtual void init()
         {
+            plugins.emplace_back(std::make_shared<OpenPMDPlugin>());
         }
 
     public:
