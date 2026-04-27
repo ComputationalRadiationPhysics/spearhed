@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "Algorithm.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param.hpp"
@@ -156,7 +157,12 @@ namespace spearhed
                                 vel>(particle);
 
                             pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
-                            pmacc::spearhed::InitValue<velField>{}(particle[vel], 100.f);
+
+                            ll::iterate_only<
+                                typename decltype(particle)::record_type,
+                                pmacc::spearhed::InitValue,
+                                vel>(particle, 100.f);
+
                             pmacc::memory::tuple::apply(
                                 [&](auto&&... args)
                                 {

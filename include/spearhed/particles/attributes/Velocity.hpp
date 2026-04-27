@@ -41,29 +41,3 @@ namespace spearhed
 
 
 } // namespace spearhed
-
-namespace pmacc::spearhed
-{
-    template<>
-    struct InitValue<::spearhed::tags::velField>
-    {
-        HDINLINE constexpr void operator()(auto velView, float val) const
-        {
-            *velView[tags::x] = val;
-            *velView[tags::y] = val;
-            *velView[tags::z] = val;
-        }
-    };
-
-    template<>
-    struct InitZero<::spearhed::tags::velField>
-    {
-        HDINLINE constexpr void operator()(auto velView) const
-        {
-            *velView[tags::x] = {0.f};
-            *velView[tags::y] = {0.f};
-            *velView[tags::z] = {0.f};
-        }
-    };
-
-} // namespace pmacc::spearhed
