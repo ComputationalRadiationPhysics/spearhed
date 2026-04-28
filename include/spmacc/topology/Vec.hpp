@@ -25,6 +25,10 @@
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
+#include <pmacc/math/functions/Abs.hpp>
+#include <pmacc/math/functions/Pow.hpp>
+#include <pmacc/math/functions/Root.hpp>
+
 #include <concepts>
 #include <iostream>
 #include <limits>
@@ -204,5 +208,46 @@ namespace pmacc::spearhed
             }
         }
     };
+
+    /** L1 (Manhattan) norm: sum of absolute component values. */
+    template<CoordinateSystem CS, typename Storage>
+    [[nodiscard]] constexpr typename CS::T_Axis norm1(Vec<CS, Storage> const& v) noexcept
+    {
+        typename CS::T_Axis result{0};
+        for_each_tag<CS>([&](auto tag) { result += pmacc::math::abs(v[tag]); });
+        return result;
+    }
+
+    /** L2 (Euclidean) norm: sqrt of sum of squared components. */
+    template<CoordinateSystem CS, typename Storage>
+    [[nodiscard]] constexpr typename CS::T_Axis norm2(Vec<CS, Storage> const& v) noexcept
+    {
+        typename CS::T_Axis r2{0};
+        for_each_tag<CS>([&](auto tag) { r2 += v[tag] * v[tag]; });
+        return pmacc::math::sqrt(r2);
+    }
+
+    /** L-infinity (Chebyshev) norm: maximum absolute component value. */
+    template<CoordinateSystem CS, typename Storage>
+    [[nodiscard]] constexpr typename CS::T_Axis normInf(Vec<CS, Storage> const& v) noexcept
+    {
+        typename CS::T_Axis result{0};
+        for_each_tag<CS>(
+            [&](auto tag)
+            {
+                auto const a = pmacc::math::abs(v[tag]);
+                result = result < a ? a : result;
+            });
+        return result;
+    }
+
+    /** General Lp norm: pow(sum(|x_i|^p), 1/p). */
+    template<CoordinateSystem CS, typename Storage>
+    [[nodiscard]] typename CS::T_Axis normp(Vec<CS, Storage> const& v, typename CS::T_Axis p) noexcept
+    {
+        typename CS::T_Axis result{0};
+        for_each_tag<CS>([&](auto tag) { result += pmacc::math::pow(pmacc::math::abs(v[tag]), p); });
+        return pmacc::math::pow(result, typename CS::T_Axis{1} / p);
+    }
 
 } // namespace pmacc::spearhed
