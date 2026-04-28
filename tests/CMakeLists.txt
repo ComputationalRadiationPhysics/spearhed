@@ -103,6 +103,7 @@ foreach(
     unit_test_RegionBoundsUpdate_RegionBoundsUpdate
     unit_test_CopyParticlesToHost_CopyParticlesToHost
     unit_test_DensitySummation_DensitySummation
+    unit_test_MomentumAndEnergy_MomentumAndEnergy
 )
     target_include_directories(${t} PRIVATE ${_setup_dir})
 endforeach()

@@ -253,7 +253,7 @@ TEST_CASE_METHOD(
                 *prBuf,
                 neighbourRegions,
                 regionOffsets,
-                spearhed::Real{2} * TEST_H,
+                static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
                 spearhed::AccumulateDensity<K>{});
         },
         setup.kernelVariant);
@@ -311,45 +311,45 @@ TEST_CASE_METHOD(
                 *prBuf,
                 neighbourRegions,
                 regionOffsets,
-                spearhed::Real{2} * SPACED_H,
+                static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,
                 spearhed::AccumulateDensity<K>{});
+
+            prBuf->buffer->deviceToHost();
+            auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+            auto& frameList = hostRegions(0).particleFrameList;
+
+            // rho_edge: self + one neighbour at distance dx
+            spearhed::Real const rho_edge = SPACED_MASS
+                                            * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
+                                               + spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
+            // rho_mid: self + two neighbours at distance dx
+            spearhed::Real const rho_mid = SPACED_MASS
+                                           * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
+                                              + static_cast<spearhed::CS::T_Axis>(K::supportRadius)
+                                                    * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
+
+            uint32_t countEdge = 0;
+            uint32_t countMid = 0;
+            for(auto& frame : frameList)
+            {
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                {
+                    auto particle = frame[slot];
+                    if(*particle[pmacc::spearhed::tags::multiMask])
+                    {
+                        spearhed::Real const rho = *particle[spearhed::tags::density];
+                        double const rho_d = static_cast<double>(rho);
+                        if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
+                            ++countEdge;
+                        else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
+                            ++countMid;
+                        else
+                            FAIL("Unexpected density value: " << rho_d);
+                    }
+                }
+            }
+            REQUIRE(countEdge == 2u);
+            REQUIRE(countMid == 1u);
         },
         setup.kernelVariant);
-
-
-    prBuf->buffer->deviceToHost();
-    auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
-    auto& frameList = hostRegions(0).particleFrameList;
-
-    // rho_edge: self + one neighbour at distance dx
-    spearhed::Real const rho_edge = SPACED_MASS
-                                    * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                       + spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-    // rho_mid: self + two neighbours at distance dx
-    spearhed::Real const rho_mid = SPACED_MASS
-                                   * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                      + spearhed::Real{2} * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-
-    uint32_t countEdge = 0;
-    uint32_t countMid = 0;
-    for(auto& frame : frameList)
-    {
-        for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
-        {
-            auto particle = frame[slot];
-            if(*particle[pmacc::spearhed::tags::multiMask])
-            {
-                spearhed::Real const rho = *particle[spearhed::tags::density];
-                double const rho_d = static_cast<double>(rho);
-                if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
-                    ++countEdge;
-                else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
-                    ++countMid;
-                else
-                    FAIL("Unexpected density value: " << rho_d);
-            }
-        }
-    }
-    REQUIRE(countEdge == 2u);
-    REQUIRE(countMid == 1u);
 }

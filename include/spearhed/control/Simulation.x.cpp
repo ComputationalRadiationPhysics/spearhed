@@ -25,7 +25,11 @@
 #include "spearhed/particles/density/DensitySummation.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
+#include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
+#include "spearhed/sph/MomentumAndEnergy.hpp"
+#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
@@ -151,6 +155,18 @@ namespace spearhed
                 auto [neighbourRegions, regionOffsets]
                     = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, interactionRadius);
                 spearhed::UpdateDensity<K>{}(prBuf, neighbourRegions, regionOffsets, h0);
+
+                // Momentum and energy: zero accumulators, then accumulate pairwise forces
+                pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::ZeroDerivatives{});
+                pmacc::spearhed::InteractParticles{}(
+                    prBuf,
+                    neighbourRegions,
+                    regionOffsets,
+                    static_cast<CS::T_Axis>(K::supportRadius) * h0,
+                    spearhed::AccumulateMomentumAndEnergy<K>{gamma_eos});
+
+                // Euler update: v += dvdt*dt, u += dudt*dt
+                pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::EulerIntegrate{}, dt);
             },
             kernelVariant);
     }

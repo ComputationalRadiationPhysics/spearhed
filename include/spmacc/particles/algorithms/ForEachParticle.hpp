@@ -48,7 +48,7 @@ namespace pmacc::spearhed
             {
                 auto const blockIdx = worker.blockDomIdx();
                 // This kernel should only be called with exactly as many blocks as total frames
-                PMACC_ASSERT(blockIdx < framesScanBox[numRegions - 1]);
+                PMACC_ASSERT(blockIdx < static_cast<int>(framesScanBox[numRegions - 1]));
 
                 auto const loc = findFrameLocation(blockIdx, framesScanBox, numRegions);
 
