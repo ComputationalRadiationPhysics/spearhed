@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spmacc/meta/ComponentList.hpp"
 #include "spmacc/meta/TypeList.hpp"
 
@@ -31,6 +30,8 @@
 
 #include <cstdint>
 #include <type_traits>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {

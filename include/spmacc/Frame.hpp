@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spearhed/param.hpp"
 #include "spmacc/ParticleDescription.hpp"
 #include "spmacc/meta/TypeList.hpp"
@@ -30,6 +29,8 @@
 #include <pmacc/traits/IsSpecializationOf.hpp>
 
 #include <boost/mpl/apply.hpp>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc
 {

@@ -8,6 +8,8 @@
 
 #include "llamaLite/tag/TagPath.hpp"
 
+#include <string_view>
+
 /** create an identifier (identifier with arbitrary code as second parameter
  * !! second parameter is optional and can be any C++ code one can add inside a class
  *
@@ -21,6 +23,7 @@
 #define DEFINE_TAG(TagName)                                                                                           \
     struct TagName##_t : llama_lite::TagBase                                                                          \
     {                                                                                                                 \
+        static constexpr std::string_view name = #TagName;                                                            \
     };                                                                                                                \
     inline constexpr TagName##_t TagName                                                                              \
     {                                                                                                                 \

@@ -21,6 +21,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
+#include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
@@ -72,7 +73,9 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
 #endif
 
     // only serialize a subset of the tags
-    using OutputRecord = ll::sub_record_t<spearhed::FrameType::ParticleRecord, spearhed::tags::particleId>;
+    // vel isnt used but still copied to check if the iterative path traversal based copy is working
+    using OutputRecord
+        = ll::sub_record_t<spearhed::FrameType::ParticleRecord, spearhed::tags::particleId, spearhed::tags::vel>;
 
     ll::DynSoA<OutputRecord> dynSoa;
     pmacc::spearhed::CopyParticlesToDynSoA{}(*prBuf, dynSoa, heapOffset);

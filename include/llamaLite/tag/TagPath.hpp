@@ -10,6 +10,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <string>
 
 namespace llama_lite
 {
@@ -232,5 +233,36 @@ namespace llama_lite
         else
             return (detail::isStrictAncestorOfAny<to_path_t<RAs>, RAs...>() || ...);
     }
+
+    namespace detail
+    {
+        template<IsTagPath Path, size_t... I>
+        std::string tagPathToStringImpl(std::index_sequence<I...>)
+        {
+            std::string result;
+            auto append = [&]<size_t Idx>()
+            {
+                if constexpr(Idx > 0)
+                    result += '/';
+                result += Path::template tag_at<Idx>::name;
+            };
+            (append.template operator()<I>(), ...);
+            return result;
+        }
+    } // namespace detail
+
+    /// Joins all tag names in @p Path with '/', e.g. TagPath<x_t, y_t> -> "x/y".
+    template<IsTagPath Path>
+    std::string tagPathToString()
+    {
+        return detail::tagPathToStringImpl<Path>(std::make_index_sequence<Path::depth>{});
+    }
+
+    /// The sub-path of FullPath after stripping Prefix from the front.
+    /// @tparam FullPath the complete path
+    /// @tparam Prefix   a tag or TagPath that is an ancestor of FullPath
+    template<IsTagPath FullPath, IsRecordAccess Prefix>
+    requires(to_path_t<Prefix>::template isAncestorOf<FullPath>())
+    using relative_path_t = typename FullPath::template drop_first<to_path_t<Prefix>::depth>;
 
 } // namespace llama_lite

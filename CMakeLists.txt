@@ -105,6 +105,11 @@ find_package(PMacc REQUIRED CONFIG PATHS "${CMAKE_CURRENT_SOURCE_DIR}/thirdParty
 find_package(MPI REQUIRED)
 find_package(Boost 1.74.0 REQUIRED CONFIG COMPONENTS program_options)
 
+option(SPEARHED_ENABLE_OPENPMD "Enable openPMD particle output (requires openPMD-api)" OFF)
+if(SPEARHED_ENABLE_OPENPMD)
+    find_package(openPMD REQUIRED)
+endif()
+
 add_subdirectory(include/llamaLite)
 ################################################################################
 # Compile & Link SPEARHED

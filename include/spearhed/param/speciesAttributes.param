@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spearhed/param/dimension.param"
 #include "spmacc/particles/attributes/Tags.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
@@ -30,6 +29,8 @@
 #include <pmacc/particles/IdProvider.hpp>
 
 #include <cstdint>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace spearhed
 {

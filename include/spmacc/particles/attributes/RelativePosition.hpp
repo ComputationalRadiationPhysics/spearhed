@@ -21,11 +21,12 @@
 
 #pragma once
 
-#include "llamaLite/llamaLite.hpp"
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+
+#include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {

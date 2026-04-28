@@ -1,6 +1,6 @@
 /* Copyright 2025-2026 Tapish Narwal
  *
- * This file is part of SPEARHED.
+ * This file is part of SPEARHED, derived from PIConGPU.
  *
  * SPEARHED is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,26 +19,30 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Cartesian.hpp"
-#include "spmacc/particles/traits.hpp"
+#include <pmacc/pluginSystem/IPlugin.hpp>
 
-#include <pmacc/attribute/FunctionSpecifier.hpp>
-
-#include <llamaLite/llamaLite.hpp>
+#include <cstdint>
+#include <string>
 
 namespace spearhed
 {
-    namespace tags
+    /**
+     * Interface for a lightweight simulation plugin
+     * without checkpoint/restart capabilities.
+     */
+    class IStatelessPlugin : public pmacc::IPlugin
     {
-        DEFINE_TAG(vel);
+    public:
+        void restart(uint32_t, std::string const) override
+        {
+            // disable checkpoint/restart capabilities for lightweight plugins
+        }
 
-        using velField = ll::Field<
-            vel_t,
-            ll::Record<
-                ll::Field<pmacc::spearhed::tags::x_t, float>,
-                ll::Field<pmacc::spearhed::tags::y_t, float>,
-                ll::Field<pmacc::spearhed::tags::z_t, float>>>;
-    } // namespace tags
+        void checkpoint(uint32_t, std::string const) override
+        {
+            // disable checkpoint/restart capabilities for lightweight plugins
+        }
 
-
+        ~IStatelessPlugin() override = default;
+    };
 } // namespace spearhed

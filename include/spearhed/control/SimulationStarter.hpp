@@ -21,6 +21,7 @@
 
 #include "spearhed/ArgsParser.hpp"
 #include "spearhed/control/Simulation.hpp"
+#include "spearhed/plugins/PluginController.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
@@ -42,6 +43,7 @@ namespace spearhed
     private:
         using BoostOptionsList = std::list<boost::program_options::options_description>;
         Simulation simulationClass{};
+        PluginController pluginClass{};
 
     public:
         SimulationStarter() = default;
@@ -72,10 +74,21 @@ namespace spearhed
             namespace po = boost::program_options;
 
             ArgsParser& ap = ArgsParser::getInstance();
+            pmacc::PluginConnector& pluginConnector = pmacc::Environment<>::get().PluginConnector();
 
             po::options_description simDesc(simulationClass.pluginGetName());
             simulationClass.pluginRegisterHelp(simDesc);
             ap.addOptions(simDesc);
+
+            po::options_description pluginDesc(pluginClass.pluginGetName());
+            pluginClass.pluginRegisterHelp(pluginDesc);
+            ap.addOptions(pluginDesc);
+
+            BoostOptionsList options = pluginConnector.registerHelp();
+            for(auto iter = options.cbegin(); iter != options.cend(); ++iter)
+            {
+                ap.addOptions(*iter);
+            }
 
             // parse environment variables, config files and command line
             return ap.parse(argc, argv);
@@ -96,12 +109,14 @@ namespace spearhed
         void pluginLoad() override
         {
             simulationClass.load();
+            pluginClass.load();
         }
 
         void pluginUnload() override
         {
             auto& pluginConnector = pmacc::Environment<>::get().PluginConnector();
             pluginConnector.unloadPlugins();
+            pluginClass.unload();
             simulationClass.unload();
         }
 
