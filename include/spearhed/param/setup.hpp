@@ -21,6 +21,7 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/sph/KernelVariant.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -72,6 +73,8 @@ namespace spearhed
         {
             return std::make_tuple();
         }
+
+        KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
