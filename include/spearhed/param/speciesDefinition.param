@@ -22,8 +22,11 @@
 #include "spearhed/param/dimension.param"
 #include "spearhed/param/memory.param"
 #include "spearhed/param/speciesAttributes.param"
+#include "spearhed/particles/attributes/Acceleration.hpp"
 #include "spearhed/particles/attributes/Density.hpp"
+#include "spearhed/particles/attributes/DuDt.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
+#include "spearhed/particles/attributes/InternalEnergy.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
@@ -51,5 +54,8 @@ namespace spearhed
             massField<Real>,
             velField<CS>,
             densityField<Real>,
-            smoothingLengthField<Real>>{});
+            smoothingLengthField<Real>,
+            internalEnergyField<Real>,
+            dvdtField<CS>,
+            dudtField<Real>>{});
 } // namespace spearhed
