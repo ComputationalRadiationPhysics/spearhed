@@ -22,11 +22,13 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/param/setup.hpp"
+#include "spearhed/particles/density/DensitySummation.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
@@ -135,9 +137,22 @@ namespace spearhed
     {
         ParticlePush{}(currentStep);
         pmacc::spearhed::UpdateVolumes<PRType>{}();
+
         auto& dc = pmacc::Environment<>::get().DataConnector();
         auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
-        auto [neighbourRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, h0);
+
+        // Single host-side visit turns the runtime kernel choice into a
+        // compile-time template parameter for the device path
+        std::visit(
+            [&](auto kernel)
+            {
+                using K = std::decay_t<decltype(kernel)>;
+                auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
+                auto [neighbourRegions, regionOffsets]
+                    = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, interactionRadius);
+                spearhed::UpdateDensity<K>{}(prBuf, neighbourRegions, regionOffsets, h0);
+            },
+            kernelVariant);
     }
 
     void Simulation::init()
@@ -217,6 +232,7 @@ namespace spearhed
         // load density description from param file. How is this independent from the domain size?
         //
         auto setup = Setup{};
+        kernelVariant = setup.kernelVariant;
 
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 

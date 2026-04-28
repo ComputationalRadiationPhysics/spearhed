@@ -29,7 +29,7 @@
  * spatial configuration.
  */
 
-#include "spearhed/sph/DensitySummation.hpp"
+#include "spearhed/particles/density/DensitySummation.hpp"
 
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
