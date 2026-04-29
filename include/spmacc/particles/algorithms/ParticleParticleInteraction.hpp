@@ -40,6 +40,16 @@ namespace pmacc::spearhed
 {
     namespace detail
     {
+        template<typename Record, typename TagContainer>
+        struct CacheTypeBuilder;
+
+        template<typename Record, ll::IsRecordAccess auto... KernelTags>
+        struct CacheTypeBuilder<Record, ll::TagList<KernelTags...>>
+        {
+            // multiMask and relativePos are mandatory for geometry and validity checks
+            using type = ll::sub_record_t<Record, tags::relativePos, tags::multiMask, KernelTags...>;
+        };
+
         // self interaction must be dealt with by the user in interact Fn
         template<typename ValidParticlePredicate>
         struct FrameInteractionKernel
@@ -71,8 +81,11 @@ namespace pmacc::spearhed
 
                 // We currently load the selected properties into shared memory for one full frame size.
                 // We can think of changing (increasing/decreasing) the number of particles cached
-                using CachedType
-                    = ll::SoA<ll::sub_record_t<RecordType, tags::relativePos, tags::multiMask>, frameSize>;
+                // Dynamically deduce the required shared memory tags from the C++20 kernel definition
+                using FnType = std::remove_cvref_t<decltype(fn)>;
+                using SubRecord = typename CacheTypeBuilder<RecordType, typename FnType::RequiredSharedTags>::type;
+                // Create the SoA caching only the exact fields needed by the kernel + geometry
+                using CachedType = ll::SoA<SubRecord, frameSize>;
 
                 // Cache array for neighbour attributes to reduce global memory reads
                 PMACC_SMEM(worker, smemCache, CachedType);
@@ -119,21 +132,23 @@ namespace pmacc::spearhed
                                 auto ownParticle = ownFramePtr[myIdx];
                                 if(ValidParticlePredicate{}(ownParticle))
                                 {
+                                    auto const ownAbsPos = ownVolume.getPosition(ownParticle[tags::relativePos].get());
                                     for(uint32_t j = 0; j < frameSize; ++j)
                                     {
                                         auto cachedNeighbourParticle = smemCache[j];
                                         if(*cachedNeighbourParticle[tags::multiMask])
                                         {
-                                            // can add a check for self interaction, neighbourRegionIdx == regionIdx
-                                            // && ownFrameRawPtr == neighbourFrameRawPtr && myIdx == j
-                                            if(distance(
-                                                   ownVolume.getPosition(ownParticle[tags::relativePos].get()),
-                                                   neighbourVolume.getPosition(
-                                                       cachedNeighbourParticle[tags::relativePos].get()))
-                                               < interactionRadius)
+                                            auto const neighAbsPos = neighbourVolume.getPosition(
+                                                cachedNeighbourParticle[tags::relativePos].get());
+                                            // TODO think about distance squared and passing r squared into fn
+                                            auto const r = distance(ownAbsPos, neighAbsPos);
+                                            if(r < interactionRadius)
                                             {
                                                 auto neighbourParticle = neighbourFramePtr[j];
-                                                fn(worker, ownParticle, neighbourParticle, args...);
+                                                bool const is_self = (neighbourRegionIdx == loc.regionIdx)
+                                                                     && (ownFramePtr == neighbourFramePtr)
+                                                                     && (j == myIdx);
+                                                fn(worker, ownParticle, neighbourParticle, r, is_self, args...);
                                             }
                                         }
                                     }

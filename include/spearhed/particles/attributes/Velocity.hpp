@@ -21,6 +21,7 @@
 
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/traits.hpp"
+#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -32,12 +33,9 @@ namespace spearhed
     {
         DEFINE_TAG(vel);
 
-        using velField = ll::Field<
-            vel_t,
-            ll::Record<
-                ll::Field<pmacc::spearhed::tags::x_t, float>,
-                ll::Field<pmacc::spearhed::tags::y_t, float>,
-                ll::Field<pmacc::spearhed::tags::z_t, float>>>;
+        // Per-coordinate-system velocity field; component count and scalar type follow CS.
+        template<pmacc::spearhed::CoordinateSystem CS>
+        using velField = ll::Field<vel_t, pmacc::spearhed::CartesianRecord<CS>>;
     } // namespace tags
 
 

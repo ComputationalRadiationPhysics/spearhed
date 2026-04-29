@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "spearhed/param/dimension.param"
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
@@ -37,18 +38,17 @@ namespace spearhed::output
     // Distinct from relativePos (which is AABB-relative) to make the output self-contained.
     DEFINE_TAG(position);
 
-    using positionField = ll::Field<
-        position_t,
-        ll::Record<
-            ll::Field<pmacc::spearhed::tags::x_t, float>,
-            ll::Field<pmacc::spearhed::tags::y_t, float>,
-            ll::Field<pmacc::spearhed::tags::z_t, float>>>;
+    template<pmacc::spearhed::CoordinateSystem CS>
+    using positionField = ll::Field<position_t, pmacc::spearhed::CartesianRecord<CS>>;
 
     /**
      * Output record for particle serialisation.
      */
-    using OutputParticleRecord
-        = ll::Record<spearhed::tags::idField, positionField, spearhed::tags::massField, spearhed::tags::velField>;
+    using OutputParticleRecord = ll::Record<
+        spearhed::tags::idField,
+        positionField<spearhed::CS>,
+        spearhed::tags::massField<spearhed::Real>,
+        spearhed::tags::velField<spearhed::CS>>;
 
 } // namespace spearhed::output
 

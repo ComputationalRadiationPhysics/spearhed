@@ -21,6 +21,10 @@
 
 #pragma once
 
+#include "spmacc/topology/CoordinateSystem.hpp"
+
+#include <utility>
+
 #include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
@@ -36,5 +40,23 @@ namespace pmacc::spearhed
     // // Restrict access to valid cartesian tags
     template<typename T>
     concept CartesianTag = std::same_as<T, tags::x_t> || std::same_as<T, tags::y_t> || std::same_as<T, tags::z_t>;
+
+    namespace detail
+    {
+        template<CoordinateSystem CS, typename T, typename Idx>
+        struct CartesianRecordImpl;
+
+        template<CoordinateSystem CS, typename T, std::size_t... Is>
+        struct CartesianRecordImpl<CS, T, std::index_sequence<Is...>>
+        {
+            using type = ll::Record<ll::Field<tag_of<CS, Is>, T>...>;
+        };
+    } // namespace detail
+
+    template<CoordinateSystem CS>
+    using CartesianRecord = typename detail::CartesianRecordImpl<
+        CS,
+        typename CS::T_Axis,
+        std::make_index_sequence<std::tuple_size_v<typename CS::tags>>>::type;
 
 } // namespace pmacc::spearhed

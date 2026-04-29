@@ -21,8 +21,13 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/sph/KernelVariant.hpp"
+#include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/topology/Cartesian.hpp"
+
+#include <pmacc/attribute/FunctionSpecifier.hpp>
 
 #include <cstdint>
 #include <tuple>
@@ -59,7 +64,8 @@ namespace spearhed
             {
                 auto const& aabb = particleRegion.volume;
                 pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+                    [&](auto tag)
+                    { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * CS::T_Axis{0.5}; });
             }
         };
 
@@ -67,6 +73,8 @@ namespace spearhed
         {
             return std::make_tuple();
         }
+
+        KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
         void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {

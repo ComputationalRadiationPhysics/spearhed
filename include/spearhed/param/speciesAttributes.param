@@ -19,16 +19,10 @@
 
 #pragma once
 
-#include "spearhed/param/dimension.param"
 #include "spmacc/particles/attributes/Tags.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
-#include "spmacc/topology/Point.hpp"
-#include "spmacc/topology/Vec.hpp"
 
 #include <pmacc/identifier/value_identifier.hpp>
 #include <pmacc/particles/IdProvider.hpp>
-
-#include <cstdint>
 
 #include <llamaLite/llamaLite.hpp>
 
@@ -45,23 +39,6 @@ namespace spearhed
     //     /* called when particle is derived from other particle */
     //     (pmacc::particles::identifier::CallInitValue{}));
     using namespace pmacc::spearhed::tags;
-
-    // template<T_Dim I>
-    // struct Dim
-    // {
-    // };
-
-    // template<typename T, T_Dim... Is>
-    // auto buildDimLayout(std::integer_sequence<T_Dim, Is...>) -> ll::Record<ll::Field<Dim<Is>, T>...>;
-
-    // struct position;
-
-    // using Position = ll::
-    //     Field<position, decltype(buildDimLayout<CS::Scalar>(std::make_integer_sequence<T_Dim, CS::dimension>{}))>;
-
-    // struct mass;
-    // using Mass = ll::Field<mass, float>;
-
 
 } // namespace spearhed
 

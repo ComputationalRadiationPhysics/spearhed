@@ -20,23 +20,16 @@
 #pragma once
 
 #include "spearhed/param/dimension.param"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/Point.hpp"
 
-namespace llama_lite::traits
+namespace spearhed
 {
+    // Pairwise interaction radius used for the AABB neighbour search.
+    // Until variable smoothing length is implemented, this also serves as the per-particle h.
+    constexpr Real h0 = Real{0.05};
 
-    template<>
-    struct AsType<pmacc::spearhed::tags::relativePosField<spearhed::CS>>
-    {
-        template<typename T_RelPosView>
-        constexpr auto operator()(T_RelPosView relativePosFieldView) const
-        {
-            using type = pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ViewStorage<spearhed::CS, T_RelPosView>>;
+    // Adiabatic index for the ideal-gas equation of state.
+    constexpr Real gamma_eos = Real{5} / Real{3};
 
-            return type{relativePosFieldView};
-        }
-    };
-
-} // namespace llama_lite::traits
+    // CFL safety factor used by the adaptive timestep.
+    constexpr Real cflFactor = Real{0.3};
+} // namespace spearhed

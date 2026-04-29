@@ -22,6 +22,7 @@
 // clang-format off
 #include "spearhed/param/dimension.param"
 #include "spearhed/param/memory.param"
+#include "spearhed/param/sph.param"
 #include "spearhed/param/mallocMC.param"
 #include "spearhed/param/speciesDefinition.param"
 #include "spearhed/param/speciesTraits.param"

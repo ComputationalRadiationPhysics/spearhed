@@ -36,12 +36,18 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 
 struct InteractionCountFunc
 {
-    HDINLINE constexpr void operator()(auto& worker, auto& ownP, auto& neighbourP, auto count_db) const
+    using RequiredSharedTags = ll::TagList<>;
+
+    HDINLINE constexpr void operator()(
+        auto& worker,
+        auto& /*ownP*/,
+        auto& /*neighbourP*/,
+        auto /*r*/,
+        bool is_self,
+        auto count_db) const
     {
-        if(*ownP[spearhed::particleId] != *neighbourP[spearhed::particleId])
-        {
+        if(!is_self)
             alpaka::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1), ::alpaka::hierarchy::Blocks{});
-        }
     }
 };
 
@@ -106,8 +112,8 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
         totalParticles += setup.baseNumParticlesToCreate * (i + 1);
     }
 
-    // Expected valid interactions: All particles interact with all other particles exactly once.
-    // Self-interaction is excluded via our functor. P(N, 2) = N * (N - 1)
+    // Expected valid interactions: all particles interact with all other particles exactly once.
+    // Self-interactions are excluded by the is_self flag. P(N, 2) = N * (N - 1)
     uint64_t const expectedInteractions = totalParticles * (totalParticles - 1);
 
     INFO("Total Particles: " << totalParticles);

@@ -20,6 +20,7 @@
 #pragma once
 
 #include "spearhed/param.hpp"
+#include "spearhed/sph/KernelVariant.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
@@ -81,6 +82,8 @@ namespace spearhed
         bool showVersionOnce{false};
         uint32_t numRanksPerDevice = 1u;
         bool skipSimulation{false};
+
+        KernelVariant kernelVariant{makeKernel(KernelType::CubicSpline)};
     };
 
 } // namespace spearhed

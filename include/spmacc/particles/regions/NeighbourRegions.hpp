@@ -56,7 +56,7 @@ namespace pmacc::spearhed
                 int numRegions,
                 auto regionOffsetsBox,
                 auto neighbourRegionsBox,
-                float smoothingLength) const
+                auto smoothingLength) const
             {
                 auto const blockIdx = worker.blockDomIdx();
                 if(blockIdx >= numRegions)
@@ -102,7 +102,7 @@ namespace pmacc::spearhed
     // myRegionIdx
     struct CalculateNeighbourRegions
     {
-        auto operator()(auto& prBuf, float smoothingLength)
+        auto operator()(auto& prBuf, auto smoothingLength)
         {
             auto numRegions = prBuf.size;
             pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numRegions + 1}};

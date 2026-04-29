@@ -19,24 +19,16 @@
 
 #pragma once
 
-#include "spearhed/param/dimension.param"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/Point.hpp"
+#include <llamaLite/llamaLite.hpp>
 
-namespace llama_lite::traits
+namespace spearhed
 {
-
-    template<>
-    struct AsType<pmacc::spearhed::tags::relativePosField<spearhed::CS>>
+    namespace tags
     {
-        template<typename T_RelPosView>
-        constexpr auto operator()(T_RelPosView relativePosFieldView) const
-        {
-            using type = pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ViewStorage<spearhed::CS, T_RelPosView>>;
+        DEFINE_TAG(density);
 
-            return type{relativePosFieldView};
-        }
-    };
+        template<typename T>
+        using densityField = ll::Field<density_t, T>;
+    } // namespace tags
 
-} // namespace llama_lite::traits
+} // namespace spearhed
