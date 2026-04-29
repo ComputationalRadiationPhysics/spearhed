@@ -42,12 +42,13 @@ struct InteractionCountFunc
         auto& worker,
         auto& /*ownP*/,
         auto& /*neighbourP*/,
-        auto /*r*/,
-        bool is_self,
+        auto const& ctx,
         auto count_db) const
     {
-        if(!is_self)
-            alpaka::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1), ::alpaka::hierarchy::Blocks{});
+        if(ctx.is_self) [[unlikely]]
+            return;
+
+        alpaka::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1), ::alpaka::hierarchy::Blocks{});
     }
 };
 

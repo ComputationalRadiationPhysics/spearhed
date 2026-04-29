@@ -25,9 +25,9 @@
 #include "spmacc/particles/View.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
+#include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/topology/Distance.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -140,15 +140,20 @@ namespace pmacc::spearhed
                                         {
                                             auto const neighAbsPos = neighbourVolume.getPosition(
                                                 cachedNeighbourParticle[tags::relativePos].get());
-                                            // TODO think about distance squared and passing r squared into fn
-                                            auto const r = distance(ownAbsPos, neighAbsPos);
+                                            auto const r_vec = ownAbsPos - neighAbsPos;
+                                            auto const r = norm2(r_vec);
                                             if(r < interactionRadius)
                                             {
                                                 auto neighbourParticle = neighbourFramePtr[j];
                                                 bool const is_self = (neighbourRegionIdx == loc.regionIdx)
                                                                      && (ownFramePtr == neighbourFramePtr)
                                                                      && (j == myIdx);
-                                                fn(worker, ownParticle, neighbourParticle, r, is_self, args...);
+                                                using RVecType = std::decay_t<decltype(r_vec)>;
+                                                fn(worker,
+                                                   ownParticle,
+                                                   neighbourParticle,
+                                                   InteractionContext<typename RVecType::CS>{r_vec, is_self},
+                                                   args...);
                                             }
                                         }
                                     }

@@ -24,7 +24,6 @@
 #include "spearhed/particles/attributes/Acceleration.hpp"
 #include "spearhed/particles/attributes/Density.hpp"
 #include "spearhed/particles/attributes/DuDt.hpp"
-#include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/InternalEnergy.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
@@ -67,32 +66,22 @@ namespace spearhed
     struct AccumulateMomentumAndEnergy
     {
         typename CS::T_Axis gamma;
+        using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
 
         HDINLINE constexpr void operator()(
             auto& /*worker*/,
             auto& ownParticle,
-            auto const& ownVolume,
             auto& neighbourParticle,
-            auto const& neighbourVolume) const
+            pmacc::spearhed::InteractionContext<CS> const& ctx) const
         {
             using namespace spearhed::tags;
-            using namespace pmacc::spearhed::tags;
             using T = typename CS::T_Axis;
             using Vec = pmacc::spearhed::Vec<CS, pmacc::spearhed::ValueStorage<CS>>;
 
-            if(*ownParticle[particleId] == *neighbourParticle[particleId])
+            if(ctx.is_self) [[unlikely]]
                 return;
 
-            auto const ownAbsPos = ownVolume.getPosition(ownParticle[relativePos].get());
-            auto const neighAbsPos = neighbourVolume.getPosition(neighbourParticle[relativePos].get());
-
-            Vec r_vec;
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { r_vec[tag] = ownAbsPos[tag] - neighAbsPos[tag]; });
-
-            T r{0};
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { r += r_vec[tag] * r_vec[tag]; });
-            r = static_cast<T>(std::sqrt(static_cast<double>(r)));
-
+            T const r = ctx.r();
             T const h_i = *ownParticle[smoothingLength];
             T const h_j = *neighbourParticle[smoothingLength];
 

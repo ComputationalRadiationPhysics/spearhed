@@ -25,6 +25,7 @@
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -51,18 +52,17 @@ namespace spearhed
             auto& /*worker*/,
             auto& ownParticle,
             auto& neighbourParticle,
-            typename CS::T_Axis const r,
-            bool is_self) const
+            pmacc::spearhed::InteractionContext<CS> const& ctx) const
         {
             using namespace spearhed::tags;
 
-            if(is_self)
+            if(ctx.is_self) [[unlikely]]
                 return;
 
             typename CS::T_Axis const h = *ownParticle[smoothingLength];
             typename CS::T_Axis const m_j = *neighbourParticle[mass];
 
-            *ownParticle[density] += m_j * KernelT::W(r, h);
+            *ownParticle[density] += m_j * KernelT::W(ctx.r(), h);
         }
     };
 
