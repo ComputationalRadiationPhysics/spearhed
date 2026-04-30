@@ -30,7 +30,9 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/sph/EquationOfState.hpp"
 #include "spearhed/sph/SphKernel.hpp"
+#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
+#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/topology/Vec.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -54,16 +56,18 @@ namespace spearhed
     /**
      * Pairwise interaction functor: symmetric SPH pressure-gradient and P*dV energy.
      *
-     * No viscosity (that is Phase 5). Accumulates into ownParticle's dvdt and dudt:
+     * No viscosity. Accumulates into ownParticle's dvdt and dudt:
      *   dv_i/dt -= m_j * (P_i/rho_i^2 * gradW(r_ij, h_i) + P_j/rho_j^2 * gradW(r_ij, h_j))
      *   du_i/dt += P_i/rho_i^2 * m_j * dot(v_i - v_j, gradW(r_ij, h_i))
      *
-     * omega factors (Phase 6 grad-h correction) are all 1 here (constant h).
+     * TODO own particle terms are recalculated for each interaction. Move them out and pass them in as args?
+     *
+     * omega factors (grad-h correction) are all 1 here (constant h).
      *
      * The caller is responsible for zeroing dvdt/dudt before this pass (ZeroDerivatives).
      */
     template<SphKernel KernelT>
-    struct AccumulateMomentumAndEnergy
+    struct HydroInteraction
     {
         typename CS::T_Axis gamma;
         using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
@@ -101,9 +105,11 @@ namespace spearhed
             T const rho_j2 = rho_j * rho_j;
 
             // Symmetric pressure gradient: dv_i -= m_j*(P_i/rho_i^2*gW_i + P_j/rho_j^2*gW_j)
+            T const term_i = m_j * P_i / rho_i2;
+            T const term_j = m_j * P_j / rho_j2;
+
             pmacc::spearhed::for_each_tag<CS>(
-                [&](auto tag)
-                { *ownParticle[dvdt][tag] -= m_j * (P_i / rho_i2 * gW_i[tag] + P_j / rho_j2 * gW_j[tag]); });
+                [&](auto tag) { *ownParticle[dvdt][tag] -= (term_i * gW_i[tag] + term_j * gW_j[tag]); });
 
             // P*dV energy: du_i += P_i/rho_i^2 * m_j * dot(v_i - v_j, gW_i)
             T dot_v_gW{0};
@@ -113,7 +119,30 @@ namespace spearhed
                     T const dv = *ownParticle[vel][tag] - *neighbourParticle[vel][tag];
                     dot_v_gW += dv * gW_i[tag];
                 });
-            *ownParticle[dudt] += P_i / rho_i2 * m_j * dot_v_gW;
+            *ownParticle[dudt] += term_i * dot_v_gW;
+        }
+    };
+
+    /**
+     * Stage functor: full pressure-gradient and P*dV energy pass.
+     *
+     * Zeros dvdt/dudt, then accumulates pairwise pressure forces and energy exchange.
+     */
+    template<SphKernel KernelT>
+    struct UpdateHydroForces
+    {
+        typename CS::T_Axis gamma;
+
+        void operator()(auto& prBuf, auto const& neighbourRegions, auto const& regionOffsets, typename CS::T_Axis h0)
+            const
+        {
+            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, ZeroDerivatives{});
+            pmacc::spearhed::InteractParticles{}(
+                prBuf,
+                neighbourRegions,
+                regionOffsets,
+                static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                HydroInteraction<KernelT>{gamma});
         }
     };
 

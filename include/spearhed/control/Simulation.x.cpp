@@ -27,7 +27,7 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
-#include "spearhed/sph/MomentumAndEnergy.hpp"
+#include "spearhed/sph/HydroForces.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
@@ -156,14 +156,7 @@ namespace spearhed
                     = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, interactionRadius);
                 spearhed::UpdateDensity<K>{}(prBuf, neighbourRegions, regionOffsets, h0);
 
-                // Momentum and energy: zero accumulators, then accumulate pairwise forces
-                pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::ZeroDerivatives{});
-                pmacc::spearhed::InteractParticles{}(
-                    prBuf,
-                    neighbourRegions,
-                    regionOffsets,
-                    static_cast<CS::T_Axis>(K::supportRadius) * h0,
-                    spearhed::AccumulateMomentumAndEnergy<K>{gamma_eos});
+                spearhed::UpdateHydroForces<K>{gamma_eos}(prBuf, neighbourRegions, regionOffsets, h0);
 
                 // Euler update: v += dvdt*dt, u += dudt*dt
                 pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::EulerIntegrate{}, dt);

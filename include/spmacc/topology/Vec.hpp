@@ -236,6 +236,7 @@ namespace pmacc::spearhed
             [&](auto tag)
             {
                 auto const a = pmacc::math::abs(v[tag]);
+                // TODO use max instead?
                 result = result < a ? a : result;
             });
         return result;

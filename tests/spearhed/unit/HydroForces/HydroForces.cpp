@@ -18,7 +18,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spearhed/sph/MomentumAndEnergy.hpp"
+#include "spearhed/sph/HydroForces.hpp"
 
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
@@ -52,7 +52,7 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 /**
- * Unit test for AccumulateMomentumAndEnergy.
+ * Unit test for HydroInteraction.
  *
  * Strategy: place 2 particles along the x-axis at absolute positions -d/2 and +d/2,
  * both at rest, with identical mass, density, internal energy, and smoothing length.
@@ -156,7 +156,7 @@ namespace
 
 TEST_CASE_METHOD(
     ParticleFixture,
-    "MomentumAndEnergy: two particles at rest repel along x, dudt == 0",
+    "HydroForces: two particles at rest repel along x, dudt == 0",
     "[sph][momentum][energy]")
 {
     auto setup = InitMomEnergyTestSetup{};
@@ -183,7 +183,7 @@ TEST_CASE_METHOD(
                 neighbourRegions,
                 regionOffsets,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::AccumulateMomentumAndEnergy<K>{spearhed::gamma_eos});
+                spearhed::HydroInteraction<K>{spearhed::gamma_eos});
 
             prBuf->buffer->deviceToHost();
             auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();

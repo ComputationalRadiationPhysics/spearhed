@@ -32,7 +32,7 @@ namespace pmacc::spearhed
      * Geometric context passed to particle-particle interaction functors.
      *
      * Carries the displacement vector r_vec = r_i - r_j and a self-interaction flag.
-     * Additional fields (relative velocity, etc.) can be added here in later phases.
+     * Additional fields (relative velocity, etc.) can be added here.
      * Scalar distance r() is computed lazily to avoid paying for a sqrt in functors
      * that only need the direction.
      */
