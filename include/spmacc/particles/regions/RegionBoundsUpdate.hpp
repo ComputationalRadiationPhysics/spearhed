@@ -24,6 +24,7 @@
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
@@ -176,7 +177,7 @@ namespace pmacc::spearhed
             // Note: Ensure PRType is defined in this scope or passed as a template
             using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
 
-            auto& prBuf = *dc.get<BufferType>("PRBuf");
+            auto& prBuf = *dc.get<BufferType>(prBufId<roles::Interior>());
 
             // Dynamic Grid Sizing:
             // Calculate enough blocks to cover the regions, capped at maxBlocks.

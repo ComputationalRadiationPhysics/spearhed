@@ -137,7 +137,8 @@ namespace spearhed
         pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
+        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+            pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
 
         // Single host-side visit turns the runtime kernel choice into a
         // compile-time template parameter for the device path

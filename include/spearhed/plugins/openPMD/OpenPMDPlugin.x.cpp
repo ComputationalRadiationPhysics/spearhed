@@ -76,8 +76,12 @@ namespace spearhed
     {
         if constexpr(output::openPMDEnabled)
         {
-            auto& dc = pmacc::Environment<simDim>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
+            auto& dc = pmacc::Environment<>::get().DataConnector();
+            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+                pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
+            auto& mallocMCBuf
+                = *dc.get<pmacc::MallocMCBuffer<DeviceHeap>>(pmacc::MallocMCBuffer<DeviceHeap>::getName());
+            mallocMCBuf.synchronize();
             llama_lite::DynSoA<output::OutputParticleRecord> hostParticles;
             pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, syncHeapToHost());
             writer->writeStep(currentStep, hostParticles);

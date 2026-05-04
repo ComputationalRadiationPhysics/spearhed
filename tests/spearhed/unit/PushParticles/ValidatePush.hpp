@@ -99,7 +99,8 @@ struct ValidatePush
         constexpr uint32_t threadsPerBlock = 256;
 
         auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>("PRBuf");
+        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>(
+            pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
 
         pmacc::HostDeviceBuffer<int, 1> errorBuffer(1u);
         errorBuffer.getHostBuffer().setValue(0);

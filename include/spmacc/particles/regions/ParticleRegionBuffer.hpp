@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "spmacc/particles/regions/RegionRole.hpp"
+
 #include <pmacc/dataManagement/ISimulationData.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
@@ -30,10 +32,11 @@
 
 namespace pmacc::spearhed
 {
-    template<typename T_ParticleRegion>
+    template<typename T_ParticleRegion, typename T_Role = roles::Interior>
     struct ParticleRegionBuffer : ISimulationData
     {
         using ParticleRegionType = T_ParticleRegion;
+        using Role = T_Role;
 
         // replaces the old buffer with a new one with the given size
         // Does not communicate this to the GPU yet
@@ -63,7 +66,7 @@ namespace pmacc::spearhed
 
         SimulationDataId getUniqueId() override
         {
-            return "PRBuf";
+            return prBufId<Role>();
         }
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;

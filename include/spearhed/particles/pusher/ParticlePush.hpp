@@ -31,7 +31,8 @@ namespace spearhed
         void operator()(uint32_t currentStep) const
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
+            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+                pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
 
             pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, PushVelocity{}, dt);
             // forEachParticleInPR();

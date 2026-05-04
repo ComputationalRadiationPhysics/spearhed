@@ -117,7 +117,8 @@ struct ComputeParticleIdSum
         constexpr uint32_t threadsPerBlock = 256;
 
         auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>("PRBuf");
+        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>>(
+            pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
         pmacc::HostDeviceBuffer<uint64_t, DIM1> partialSums(prBuf.size);
 
         PMACC_LOCKSTEP_KERNEL(reduce::detail::SumParticleIds{})
