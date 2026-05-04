@@ -52,29 +52,31 @@ namespace pmacc::spearhed
             // bounds-checking cost.
             DINLINE void operator()(
                 auto const& worker,
-                auto prDeviceBox,
-                int numRegions,
+                auto targetPRDeviceBox,
+                int numTargetRegions,
+                auto sourcePRDeviceBox,
+                int numSourceRegions,
                 auto regionOffsetsBox,
                 auto neighbourRegionsBox,
                 auto smoothingLength) const
             {
                 auto const blockIdx = worker.blockDomIdx();
-                if(blockIdx >= numRegions)
+                if(blockIdx >= numTargetRegions)
                     return;
 
                 auto onlyMaster = pmacc::lockstep::makeMaster(worker);
                 onlyMaster(
                     [&]()
                     {
-                        auto const& region = prDeviceBox[blockIdx];
+                        auto const& region = targetPRDeviceBox[blockIdx];
                         auto const searchVolume = region.volume.expand(smoothingLength);
 
                         unsigned int count = 0;
-                        // Brute force check against all other volumes
+                        // Brute force check against all source volumes
                         // Use a BVH/Grid here instead of a linear loop
-                        for(int otherIdx = 0; otherIdx < numRegions; ++otherIdx)
+                        for(int otherIdx = 0; otherIdx < numSourceRegions; ++otherIdx)
                         {
-                            if(intersects(searchVolume, prDeviceBox[otherIdx].volume))
+                            if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
                             {
                                 if constexpr(mode == OpMode::Write)
                                 {
@@ -96,48 +98,58 @@ namespace pmacc::spearhed
         };
     } // namespace detail
 
-    // returns mapping of regions to their neighbours {neighbourRegions, regionOffsets}
-    // regionOffsets is an exclusive scan and neighbourRegions holds the list of neighbours
-    // regionOffsets[myRegionIdx] and regionOffsets[myRegionIdx+1] defines the way to index into neighbourRegions of
-    // myRegionIdx
+    // Returns one {neighbourRegions, regionOffsets} pair per source PRBuf, as a std::tuple.
+    // regionOffsets[targetIdx] .. regionOffsets[targetIdx+1] indexes into neighbourRegions for targetIdx.
+    // neighbourRegions holds source-region indices (into the source PRBuf, not the target).
     struct CalculateNeighbourRegions
     {
-        auto operator()(auto& prBuf, auto smoothingLength)
+        auto operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto smoothingLength)
         {
-            auto numRegions = prBuf.size;
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numRegions + 1}};
-            regionOffsets.getHostBuffer().setValue(0);
-            regionOffsets.hostToDevice();
-
+            int const numTargetRegions = targetPRBuf.size;
             static constexpr uint32_t threadsPerBlock = 32;
 
-            // Count neighbours per volume
-            // We reuse the regionOffsets array to store temporary counts
-            PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
-                    prBuf.getDeviceDataBox(),
-                    numRegions,
-                    regionOffsets.getDeviceBuffer().getDataBox(),
-                    nullptr,
-                    smoothingLength);
-
-            uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numRegions + 1);
-
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
-
-            // Populate the neighbour IDs
-            if(totalPairs > 0)
+            auto computeOneSource = [&](auto& sourcePRBuf)
             {
-                PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{})
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
-                        prBuf.getDeviceDataBox(),
-                        numRegions,
-                        regionOffsets.getDeviceBuffer().getDataBox(),
-                        neighbourRegions.getDeviceBuffer().getDataBox(),
-                        smoothingLength);
-            }
+                int const numSourceRegions = sourcePRBuf.size;
 
-            return std::pair{std::move(neighbourRegions), std::move(regionOffsets)};
+                pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{
+                    pmacc::DataSpace<DIM1>{numTargetRegions + 1}};
+                regionOffsets.getHostBuffer().setValue(0);
+                regionOffsets.hostToDevice();
+
+                PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
+                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                        targetPRBuf.getDeviceDataBox(),
+                        numTargetRegions,
+                        sourcePRBuf.getDeviceDataBox(),
+                        numSourceRegions,
+                        regionOffsets.getDeviceBuffer().getDataBox(),
+                        nullptr,
+                        smoothingLength);
+
+                uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numTargetRegions + 1);
+
+                pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
+
+                if(totalPairs > 0)
+                {
+                    PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{})
+                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                            targetPRBuf.getDeviceDataBox(),
+                            numTargetRegions,
+                            sourcePRBuf.getDeviceDataBox(),
+                            numSourceRegions,
+                            regionOffsets.getDeviceBuffer().getDataBox(),
+                            neighbourRegions.getDeviceBuffer().getDataBox(),
+                            smoothingLength);
+                }
+
+                return std::pair{std::move(neighbourRegions), std::move(regionOffsets)};
+            };
+
+            return std::apply(
+                [&](auto&... sourcePRBufs) { return std::make_tuple(computeOneSource(sourcePRBufs)...); },
+                std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple));
         }
     };
 

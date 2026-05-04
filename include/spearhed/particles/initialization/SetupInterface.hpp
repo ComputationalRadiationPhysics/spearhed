@@ -26,27 +26,24 @@
 namespace spearhed
 {
     // "Temporary" definition of the interface for simulation setups
+    // Per-role block interface: satisfied by any single-role setup or block sub-object.
     // @TODO investigate a way to define setups and their parameters in a text file, which can be read at runtime
     template<typename T>
     concept SetupInterface
         = requires(T a, pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) {
-              // Requires a method named setupRegions with matching arguments that returns void
               { a.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
-              // Requires a domain member describing the full simulation domain
               { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
-              // Requires a nested NumParticlesToCreate callable type
               typename T::NumParticlesToCreate;
-              // Requires a method returning args to pass to NumParticlesToCreate
               // This is currently a std::tuple unpacked on the host side
               // TODO switch to a device friendly compile time dictionary
               { a.numParticlesToCreateArgs() };
-              // Requires a nested PlaceParticle callable type
-              // Signature: void operator()(worker, particle, particleRegion, uint32_t globalParticleIdx,
-              // ...placeParticleArgs)
               typename T::PlaceParticle;
-              // Requires a method returning args to pass to PlaceParticle
               { a.placeParticleArgs() };
           };
 
+    // Multi-role setup: exposes Roles as a std::tuple of role tags and a block<Role>() accessor
+    // returning an object satisfying SetupInterface for each role.
+    template<typename T>
+    concept MultiRoleSetup = requires { typename T::Roles; } && !SetupInterface<T>;
 
 } // namespace spearhed

@@ -247,12 +247,13 @@ TEST_CASE_METHOD(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
+            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
             // Self-contribution first, then pairwise accumulation
             pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
                 *prBuf,
-                neighbourRegions,
-                regionOffsets,
+                std::tie(*prBuf),
+                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
                 spearhed::AccumulateDensity<K>{});
         },
@@ -307,11 +308,12 @@ TEST_CASE_METHOD(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
+            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
             pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
                 *prBuf,
-                neighbourRegions,
-                regionOffsets,
+                std::tie(*prBuf),
+                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,
                 spearhed::AccumulateDensity<K>{});
 

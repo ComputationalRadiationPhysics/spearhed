@@ -96,10 +96,11 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
     // Use an excessively large interaction radius so the distance check always passes
     constexpr double interactionRadius = 1e9;
 
+    using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
     pmacc::spearhed::InteractParticles{}(
         *prBuf,
-        neighbourRegions,
-        regionOffsets,
+        std::tie(*prBuf),
+        std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
         interactionRadius,
         InteractionCountFunc{},
         d_count);

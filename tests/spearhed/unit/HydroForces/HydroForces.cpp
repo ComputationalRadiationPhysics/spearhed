@@ -177,11 +177,12 @@ TEST_CASE_METHOD(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
+            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
 
             pmacc::spearhed::InteractParticles{}(
                 *prBuf,
-                neighbourRegions,
-                regionOffsets,
+                std::tie(*prBuf),
+                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
                 spearhed::HydroInteraction<K>{spearhed::gamma_eos});
 

@@ -96,14 +96,14 @@ namespace spearhed
     template<SphKernel KernelT>
     struct UpdateDensity
     {
-        void operator()(auto& prBuf, auto const& neighbourRegions, auto const& regionOffsets, typename CS::T_Axis h0)
+        void operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto&& neighbourListsTuple, typename CS::T_Axis h0)
             const
         {
-            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, DensityInitSelf<KernelT>{});
+            pmacc::spearhed::ForEachParticleInPRBuf{}(targetPRBuf, DensityInitSelf<KernelT>{});
             pmacc::spearhed::InteractParticles{}(
-                prBuf,
-                neighbourRegions,
-                regionOffsets,
+                targetPRBuf,
+                std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple),
+                std::forward<decltype(neighbourListsTuple)>(neighbourListsTuple),
                 static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
                 AccumulateDensity<KernelT>{});
         }

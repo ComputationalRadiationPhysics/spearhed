@@ -66,9 +66,10 @@ namespace pmacc::spearhed
         {
             DINLINE constexpr auto operator()(
                 auto const& worker,
-                auto prDeviceBox,
-                int numRegions,
+                auto targetPRDeviceBox,
+                int numTargetRegions,
                 auto framesScanBox,
+                auto sourcePRDeviceBox,
                 auto neighbourRegionsBox,
                 auto regionOffsetsBox,
                 auto interactionRadius,
@@ -76,12 +77,12 @@ namespace pmacc::spearhed
                 auto... args) const
             {
                 auto const blockIdx = worker.blockDomIdx();
-                if(blockIdx >= static_cast<int>(framesScanBox[numRegions - 1]))
+                if(blockIdx >= static_cast<int>(framesScanBox[numTargetRegions - 1]))
                     return;
 
-                auto const loc = findFrameLocation(blockIdx, framesScanBox, numRegions);
+                auto const loc = findFrameLocation(blockIdx, framesScanBox, numTargetRegions);
 
-                auto& region = prDeviceBox[loc.regionIdx];
+                auto& region = targetPRDeviceBox[loc.regionIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
                 using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
@@ -114,7 +115,7 @@ namespace pmacc::spearhed
                 for(int n = startNeighbour; n < endNeighbour; ++n)
                 {
                     int const neighbourRegionIdx = neighbourRegionsBox[n];
-                    auto& neighbourRegion = prDeviceBox[neighbourRegionIdx];
+                    auto& neighbourRegion = sourcePRDeviceBox[neighbourRegionIdx];
                     auto& neighbourFrameList = neighbourRegion.particleFrameList;
 
                     for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
@@ -154,6 +155,7 @@ namespace pmacc::spearhed
                                         auto const neighAbsPos = neighbourVolume.getPosition(
                                             cachedNeighbourParticle[tags::relativePos].get());
                                         auto const r_vec = ownAbsPos - neighAbsPos;
+                                        // TODO think about using r squared to avoiud the square root
                                         auto const r = norm2(r_vec);
                                         if(r < interactionRadius)
                                         {
@@ -181,32 +183,48 @@ namespace pmacc::spearhed
     } // namespace detail
 
     /**
-     * Host helper to launch pair-wise interactions using the precalculated neighbour list.
+     * Host Helper to launch pair-wise interactions using the precalculated neighbour lists.
+     * Launches one kernel pass per source PRBuf - each pass is warp-coherent and type-uniform.
+     *
+     * @param targetPRBuf       Buffer whose particles are the interaction targets (own particles).
+     * @param sourcePRBufTuple  std::tuple of source PRBuf references (e.g. std::tie(interior, boundary)).
+     * @param neighbourListsTuple std::tuple of {neighbourRegions, regionOffsets} pairs, one per source.
+     *                            Must be in the same order as sourcePRBufTuple.
+     * @param fn Functor with the particle interaction logic between `ownParticle` and
+     *           `neighbourParticle`. Must expose:
+     *             using RequiredSharedTags = ll::TagList<...>;  // cached in neighbour smem
+     *             using RequiredOwnTags    = ll::TagList<...>;  // cached in own registers
+     *           Must accumulate contributions additively
+     *           on the target particle: each source buffer is processed in a separate kernel pass that
+     *           writes independently to the same target attributes.
      */
     struct InteractParticles
     {
-        /**
-         * @param fn Functor with the particle interaction logic between `ownParticle` and
-         *           `neighbourParticle`. Must expose:
-         *             using RequiredSharedTags = ll::TagList<...>;  // cached in neighbour smem
-         *             using RequiredOwnTags    = ll::TagList<...>;  // cached in own registers
-         */
         void operator()(
-            auto& prBuf,
-            auto const& neighbourRegions,
-            auto const& regionOffsets,
+            auto& targetPRBuf,
+            auto&& sourcePRBufTuple,
+            auto&& neighbourListsTuple,
             auto interactionRadius,
             auto fn,
             auto&&... args) const
         {
-            ForEachFrameInPRBuf<32, 128>{}(
-                prBuf,
-                detail::FrameInteractionKernel<detail::OccupiedSlot>{},
-                neighbourRegions.getDeviceBuffer().getDataBox(),
-                regionOffsets.getDeviceBuffer().getDataBox(),
-                interactionRadius,
-                fn,
-                std::forward<decltype(args)>(args)...);
+            constexpr auto N = std::tuple_size_v<std::remove_cvref_t<decltype(sourcePRBufTuple)>>;
+            static_assert(
+                N == std::tuple_size_v<std::remove_cvref_t<decltype(neighbourListsTuple)>>,
+                "sourcePRBufTuple and neighbourListsTuple must have the same number of elements");
+            [&]<std::size_t... I>(std::index_sequence<I...>)
+            {
+                (ForEachFrameInPRBuf<32, 128>{}(
+                     targetPRBuf,
+                     detail::FrameInteractionKernel<detail::OccupiedSlot>{},
+                     std::get<I>(sourcePRBufTuple).getDeviceDataBox(),
+                     std::get<I>(neighbourListsTuple).first.getDeviceBuffer().getDataBox(),
+                     std::get<I>(neighbourListsTuple).second.getDeviceBuffer().getDataBox(),
+                     interactionRadius,
+                     fn,
+                     std::forward<decltype(args)>(args)...),
+                 ...);
+            }(std::make_index_sequence<N>{});
         }
     };
 

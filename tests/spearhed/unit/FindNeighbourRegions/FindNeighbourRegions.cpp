@@ -84,7 +84,8 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     // Region 2 expands to [3.4, 5.6] -> Intersects Region 2 only
     constexpr float smoothingLength = 0.6f;
 
-    auto [neighbourRegions, regionOffsets] = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, smoothingLength);
+    auto neighbourLists = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, std::tie(*prBuf), smoothingLength);
+    auto& [neighbourRegions, regionOffsets] = std::get<0>(neighbourLists);
 
     // Validation
     neighbourRegions.deviceToHost();

@@ -137,8 +137,14 @@ namespace spearhed
         pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+        auto& interior = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
             pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
+
+        using BoundaryPRBuf = pmacc::spearhed::ParticleRegionBuffer<PRType, pmacc::spearhed::roles::Boundary>;
+        BoundaryPRBuf* boundaryPtr
+            = dc.hasId(pmacc::spearhed::prBufId<pmacc::spearhed::roles::Boundary>())
+                  ? dc.get<BoundaryPRBuf>(pmacc::spearhed::prBufId<pmacc::spearhed::roles::Boundary>()).get()
+                  : nullptr;
 
         // Single host-side visit turns the runtime kernel choice into a
         // compile-time template parameter for the device path
@@ -147,14 +153,25 @@ namespace spearhed
             {
                 using K = std::decay_t<decltype(kernel)>;
                 auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
-                auto [neighbourRegions, regionOffsets]
-                    = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, interactionRadius);
-                spearhed::UpdateDensity<K>{}(prBuf, neighbourRegions, regionOffsets, h0);
 
-                spearhed::UpdateHydroForces<K>{gamma_eos}(prBuf, neighbourRegions, regionOffsets, h0);
+                // Template lambda: runs a full step with a given source PRBuf tuple.
+                // Called once with std::tie(interior) or std::tie(interior, boundary).
+                auto doStep = [&](auto&& sourceTuple)
+                {
+                    auto neighbourLists
+                        = pmacc::spearhed::CalculateNeighbourRegions{}(interior, sourceTuple, interactionRadius);
+                    spearhed::UpdateDensity<K>{}(interior, sourceTuple, neighbourLists, h0);
 
-                // Euler update: v += dvdt*dt, u += dudt*dt
-                pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::EulerIntegrate{}, dt);
+                    spearhed::UpdateHydroForces<K>{gamma_eos}(interior, sourceTuple, neighbourLists, h0);
+
+                    // Euler update: v += dvdt*dt, u += dudt*dt
+                    pmacc::spearhed::ForEachParticleInPRBuf{}(interior, spearhed::EulerIntegrate{}, dt);
+                };
+
+                if(boundaryPtr)
+                    doStep(std::tie(interior, *boundaryPtr));
+                else
+                    doStep(std::tie(interior));
             },
             kernelVariant);
     }

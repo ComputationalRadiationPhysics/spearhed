@@ -135,14 +135,14 @@ namespace spearhed
     {
         typename CS::T_Axis gamma;
 
-        void operator()(auto& prBuf, auto const& neighbourRegions, auto const& regionOffsets, typename CS::T_Axis h0)
+        void operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto&& neighbourListsTuple, typename CS::T_Axis h0)
             const
         {
-            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, ZeroDerivatives{});
+            pmacc::spearhed::ForEachParticleInPRBuf{}(targetPRBuf, ZeroDerivatives{});
             pmacc::spearhed::InteractParticles{}(
-                prBuf,
-                neighbourRegions,
-                regionOffsets,
+                targetPRBuf,
+                std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple),
+                std::forward<decltype(neighbourListsTuple)>(neighbourListsTuple),
                 static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
                 HydroInteraction<KernelT>{gamma});
         }
