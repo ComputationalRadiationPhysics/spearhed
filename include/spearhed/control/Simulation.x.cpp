@@ -25,7 +25,11 @@
 #include "spearhed/particles/density/DensitySummation.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
+#include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
+#include "spearhed/sph/HydroForces.hpp"
+#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
@@ -151,6 +155,11 @@ namespace spearhed
                 auto [neighbourRegions, regionOffsets]
                     = pmacc::spearhed::CalculateNeighbourRegions{}(prBuf, interactionRadius);
                 spearhed::UpdateDensity<K>{}(prBuf, neighbourRegions, regionOffsets, h0);
+
+                spearhed::UpdateHydroForces<K>{gamma_eos}(prBuf, neighbourRegions, regionOffsets, h0);
+
+                // Euler update: v += dvdt*dt, u += dudt*dt
+                pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, spearhed::EulerIntegrate{}, dt);
             },
             kernelVariant);
     }
