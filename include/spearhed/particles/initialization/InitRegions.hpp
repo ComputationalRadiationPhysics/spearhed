@@ -49,7 +49,7 @@ namespace spearhed
         void operator()(DeviceHeap const& deviceHeap, MultiRoleSetup auto& setup)
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
-            using Roles = typename TSetup::Roles;
+            using Roles = typename std::remove_cvref_t<decltype(setup)>::Roles;
 
             auto createOne = [&]<typename Role>()
             {

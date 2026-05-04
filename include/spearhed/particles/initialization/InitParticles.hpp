@@ -153,15 +153,9 @@ namespace spearhed
                                 typename decltype(particle)::record_type,
                                 pmacc::spearhed::InitZero,
                                 multiMask,
-                                particleId,
-                                vel>(particle);
+                                particleId>(particle);
 
                             pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
-
-                            ll::iterate_only<
-                                typename decltype(particle)::record_type,
-                                pmacc::spearhed::InitValue,
-                                vel>(particle, 100.f);
 
                             pmacc::memory::tuple::apply(
                                 [&](auto&&... args)

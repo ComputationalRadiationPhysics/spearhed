@@ -17,7 +17,6 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "TestSetup.hpp"
 #include "ValidatePush.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
@@ -45,9 +44,70 @@ using PosType = pmacc::spearhed::Point<CS, pmacc::spearhed::ValueStorage<CS>>;
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
+struct SpeedyRegion
+{
+    // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
+    pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+
+    uint32_t baseNumParticlesToCreate = 400u;
+
+    auto numParticlesToCreateArgs() const
+    {
+        return std::make_tuple(baseNumParticlesToCreate);
+    }
+
+    auto placeParticleArgs() const
+    {
+        return std::make_tuple();
+    }
+
+    // calculate how many particles we need to make in this system
+    struct NumParticlesToCreate
+    {
+        constexpr auto operator()(
+            [[maybe_unused]] auto& worker,
+            [[maybe_unused]] auto& particleRegion,
+            uint32_t baseNumParticlesToCreate) const
+        {
+            // Intentionally scale by (block index + 1) so each block creates a distinct
+            // particle count, which makes per-block test validation deterministic.
+            return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
+        };
+    };
+
+    // place each particle at the center of its particle region's AABB
+    struct PlaceParticle
+    {
+        DINLINE constexpr void operator()(
+            [[maybe_unused]] auto const& worker,
+            auto& particle,
+            auto const& particleRegion,
+            [[maybe_unused]] uint32_t globalParticleIdx) const
+        {
+            auto const& aabb = particleRegion.volume;
+            pmacc::spearhed::for_each_tag<CS>(
+                [&](auto tag)
+                {
+                    *particle[spearhed::relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
+                    *particle[spearhed::vel][tag] = 100.0f;
+                });
+        }
+    };
+
+    void setupRegions(
+        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
+        spearhed::DeviceHeap const& deviceHeap)
+    {
+        prBuf.create(1);
+        spearhed::PRType boundedParticles{deviceHeap.getAllocatorHandle(), domain};
+        prBuf.pushBack(boundedParticles);
+        prBuf.buffer->hostToDevice();
+    }
+};
+
 TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][particles][pusher]")
 {
-    auto setup = spearhed::EmptyNRegions<1>{};
+    auto setup = SpeedyRegion{};
     setup.setupRegions(*prBuf, *deviceHeap);
     spearhed::InitParticles{}(setup);
 

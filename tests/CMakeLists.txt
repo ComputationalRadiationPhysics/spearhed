@@ -104,6 +104,7 @@ foreach(
     unit_test_CopyParticlesToHost_CopyParticlesToHost
     unit_test_DensitySummation_DensitySummation
     unit_test_HydroForces_HydroForces
+    unit_test_BoundaryConditions_BoundaryConditions
 )
     target_include_directories(${t} PRIVATE ${_setup_dir})
 endforeach()
