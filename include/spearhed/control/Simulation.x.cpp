@@ -158,11 +158,10 @@ namespace spearhed
                 // Called once with std::tie(interior) or std::tie(interior, boundary).
                 auto doStep = [&](auto&& sourceTuple)
                 {
-                    auto neighbourLists
+                    auto bundle
                         = pmacc::spearhed::CalculateNeighbourRegions{}(interior, sourceTuple, interactionRadius);
-                    spearhed::UpdateDensity<K>{}(interior, sourceTuple, neighbourLists, h0);
-
-                    spearhed::UpdateHydroForces<K>{gamma_eos}(interior, sourceTuple, neighbourLists, h0);
+                    spearhed::UpdateDensity<K>{}(bundle, h0);
+                    spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
 
                     // Euler update: v += dvdt*dt, u += dudt*dt
                     pmacc::spearhed::ForEachParticleInPRBuf{}(interior, spearhed::EulerIntegrate{}, dt);

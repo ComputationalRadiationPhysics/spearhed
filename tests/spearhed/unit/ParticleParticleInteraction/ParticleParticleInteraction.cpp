@@ -23,6 +23,7 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -65,23 +66,23 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
 
     // Setup Neighbour Graph (All-to-All mapping for analytic validation)
     int const totalNeighbours = numRegions * numRegions;
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(totalNeighbours);
+    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
     auto h_neighbours = neighbourRegions.getHostBuffer().data();
 
     // Offsets point to the start of each region's neighbour list in h_neighbours.
-    pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
+    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
     auto h_offsets = regionOffsets.getHostBuffer().data();
 
     for(int i = 0; i < numRegions; ++i)
     {
-        h_offsets[i] = i * numRegions;
+        h_offsets[i] = static_cast<unsigned int>(i * numRegions);
         for(int j = 0; j < numRegions; ++j)
         {
-            h_neighbours[i * numRegions + j] = j;
+            h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
         }
     }
     // Set the final boundary offset
-    h_offsets[numRegions] = totalNeighbours;
+    h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
 
     neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
@@ -96,14 +97,16 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration]
     // Use an excessively large interaction radius so the distance check always passes
     constexpr double interactionRadius = 1e9;
 
-    using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
-    pmacc::spearhed::InteractParticles{}(
-        *prBuf,
-        std::tie(*prBuf),
-        std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
-        interactionRadius,
-        InteractionCountFunc{},
-        d_count);
+    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+    auto bundle = pmacc::spearhed::NeighbourBundle<PRBufType, pmacc::spearhed::NeighbourEntry<PRBufType>>{
+        prBuf.get(),
+        std::make_tuple(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)})};
+
+    pmacc::spearhed::InteractParticles{}(bundle, interactionRadius, InteractionCountFunc{}, d_count);
 
     countBuffer.deviceToHost();
     T_Count const h_count = countBuffer.getHostBuffer().data()[0];

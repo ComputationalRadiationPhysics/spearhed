@@ -27,6 +27,7 @@
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -96,14 +97,11 @@ namespace spearhed
     template<SphKernel KernelT>
     struct UpdateDensity
     {
-        void operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto&& neighbourListsTuple, typename CS::T_Axis h0)
-            const
+        void operator()(pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle, typename CS::T_Axis h0) const
         {
-            pmacc::spearhed::ForEachParticleInPRBuf{}(targetPRBuf, DensityInitSelf<KernelT>{});
+            pmacc::spearhed::ForEachParticleInPRBuf{}(neighbourBundle.target(), DensityInitSelf<KernelT>{});
             pmacc::spearhed::InteractParticles{}(
-                targetPRBuf,
-                std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple),
-                std::forward<decltype(neighbourListsTuple)>(neighbourListsTuple),
+                std::forward<decltype(neighbourBundle)>(neighbourBundle),
                 static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
                 AccumulateDensity<KernelT>{});
         }

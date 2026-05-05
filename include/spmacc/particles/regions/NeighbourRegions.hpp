@@ -22,10 +22,12 @@
 #pragma once
 
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <cstdint>
+#include <utility>
 
 namespace pmacc::spearhed
 {
@@ -98,9 +100,14 @@ namespace pmacc::spearhed
         };
     } // namespace detail
 
-    // Returns one {neighbourRegions, regionOffsets} pair per source PRBuf, as a std::tuple.
-    // regionOffsets[targetIdx] .. regionOffsets[targetIdx+1] indexes into neighbourRegions for targetIdx.
-    // neighbourRegions holds source-region indices (into the source PRBuf, not the target).
+    /**
+     * @brief Computes neighbour-region lists for all sources and returns them as a NeighbourBundle.
+     *
+     * regionOffsets[targetIdx] .. regionOffsets[targetIdx+1] indexes into neighbourRegions for targetIdx.
+     * neighbourRegions holds source-region indices (into the source PRBuf, not the target).
+     *
+     * Call bundle.subset<Roles...>() to get a narrower view for kernels that only need certain sources.
+     */
     struct CalculateNeighbourRegions
     {
         auto operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto smoothingLength)
@@ -108,8 +115,9 @@ namespace pmacc::spearhed
             int const numTargetRegions = targetPRBuf.size;
             static constexpr uint32_t threadsPerBlock = 32;
 
-            auto computeOneSource = [&](auto& sourcePRBuf)
+            auto computeOneEntry = [&](auto& sourcePRBuf)
             {
+                using SrcType = std::remove_reference_t<decltype(sourcePRBuf)>;
                 int const numSourceRegions = sourcePRBuf.size;
 
                 pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{
@@ -144,11 +152,22 @@ namespace pmacc::spearhed
                             smoothingLength);
                 }
 
-                return std::pair{std::move(neighbourRegions), std::move(regionOffsets)};
+                return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
             };
 
             return std::apply(
-                [&](auto&... sourcePRBufs) { return std::make_tuple(computeOneSource(sourcePRBufs)...); },
+                [&](auto&... sourcePRBufs)
+                {
+                    using TargetType = std::remove_reference_t<decltype(targetPRBuf)>;
+                    auto entryTuple = std::make_tuple(computeOneEntry(sourcePRBufs)...);
+                    using TupleType = decltype(entryTuple);
+                    return [&]<std::size_t... I>(std::index_sequence<I...>)
+                    {
+                        return NeighbourBundle<TargetType, std::tuple_element_t<I, TupleType>...>{
+                            &targetPRBuf,
+                            std::move(entryTuple)};
+                    }(std::make_index_sequence<sizeof...(sourcePRBufs)>{});
+                },
                 std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple));
         }
     };

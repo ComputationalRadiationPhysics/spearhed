@@ -44,6 +44,7 @@
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -234,26 +235,31 @@ TEST_CASE_METHOD(
 
     // All-to-all neighbour graph (single region)
     constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
+    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(numRegions * numRegions);
+    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
     neighbourRegions.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[1] = 1;
     neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
 
+    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+    auto bundle = pmacc::spearhed::NeighbourBundle<PRBufType, pmacc::spearhed::NeighbourEntry<PRBufType>>{
+        prBuf.get(),
+        std::make_tuple(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)})};
 
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
-            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
             // Self-contribution first, then pairwise accumulation
             pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
-                *prBuf,
-                std::tie(*prBuf),
-                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
+                bundle,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
                 spearhed::AccumulateDensity<K>{});
         },
@@ -296,24 +302,30 @@ TEST_CASE_METHOD(
     spearhed::InitParticles{}(setup);
 
     constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
-    neighbourRegions.getHostBuffer().data()[0] = 0;
-    regionOffsets.getHostBuffer().data()[0] = 0;
-    regionOffsets.getHostBuffer().data()[1] = 1;
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
+    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions2(numRegions * numRegions);
+    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets2(numRegions + 1);
+    neighbourRegions2.getHostBuffer().data()[0] = 0;
+    regionOffsets2.getHostBuffer().data()[0] = 0;
+    regionOffsets2.getHostBuffer().data()[1] = 1;
+    neighbourRegions2.hostToDevice();
+    regionOffsets2.hostToDevice();
+
+    using PRBufType2 = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+    auto bundle2 = pmacc::spearhed::NeighbourBundle<PRBufType2, pmacc::spearhed::NeighbourEntry<PRBufType2>>{
+        prBuf.get(),
+        std::make_tuple(
+            pmacc::spearhed::NeighbourEntry<PRBufType2>{
+                prBuf.get(),
+                std::move(neighbourRegions2),
+                std::move(regionOffsets2)})};
 
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
-            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
             pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
-                *prBuf,
-                std::tie(*prBuf),
-                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
+                bundle2,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,
                 spearhed::AccumulateDensity<K>{});
 

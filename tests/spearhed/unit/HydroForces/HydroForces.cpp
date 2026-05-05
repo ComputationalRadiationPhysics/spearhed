@@ -36,6 +36,7 @@
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -165,24 +166,30 @@ TEST_CASE_METHOD(
 
     // All-to-all neighbour graph (single region)
     constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
+    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(numRegions * numRegions);
+    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
     neighbourRegions.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[1] = 1;
     neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
 
+    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+    auto bundle = pmacc::spearhed::NeighbourBundle<PRBufType, pmacc::spearhed::NeighbourEntry<PRBufType>>{
+        prBuf.get(),
+        std::make_tuple(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)})};
+
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
-            using NRBuf = pmacc::HostDeviceBuffer<int, 1>;
 
             pmacc::spearhed::InteractParticles{}(
-                *prBuf,
-                std::tie(*prBuf),
-                std::make_tuple(std::pair<NRBuf&, NRBuf&>(neighbourRegions, regionOffsets)),
+                bundle,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
                 spearhed::HydroInteraction<K>{spearhed::gamma_eos});
 

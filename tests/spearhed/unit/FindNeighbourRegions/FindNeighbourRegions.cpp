@@ -84,15 +84,15 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     // Region 2 expands to [3.4, 5.6] -> Intersects Region 2 only
     constexpr float smoothingLength = 0.6f;
 
-    auto neighbourLists = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, std::tie(*prBuf), smoothingLength);
-    auto& [neighbourRegions, regionOffsets] = std::get<0>(neighbourLists);
+    auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, std::tie(*prBuf), smoothingLength);
+    auto& entry = bundle.get<pmacc::spearhed::roles::Interior>();
 
     // Validation
-    neighbourRegions.deviceToHost();
-    regionOffsets.deviceToHost();
+    entry.neighbourRegions.deviceToHost();
+    entry.regionOffsets.deviceToHost();
 
-    auto const& h_neighbours = neighbourRegions.getHostBuffer().getDataBox();
-    auto const& h_offsets = regionOffsets.getHostBuffer().getDataBox();
+    auto const& h_neighbours = entry.neighbourRegions.getHostBuffer().getDataBox();
+    auto const& h_offsets = entry.regionOffsets.getHostBuffer().getDataBox();
 
     // Validate inclusive prefix sum offsets
     REQUIRE(h_offsets(0) == 0);

@@ -28,6 +28,7 @@
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -69,9 +70,7 @@ namespace pmacc::spearhed
                 auto targetPRDeviceBox,
                 int numTargetRegions,
                 auto framesScanBox,
-                auto sourcePRDeviceBox,
-                auto neighbourRegionsBox,
-                auto regionOffsetsBox,
+                auto sourceView,
                 auto interactionRadius,
                 auto fn,
                 auto... args) const
@@ -109,13 +108,13 @@ namespace pmacc::spearhed
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
-                int const startNeighbour = regionOffsetsBox[loc.regionIdx];
-                int const endNeighbour = regionOffsetsBox[loc.regionIdx + 1];
+                int const startNeighbour = sourceView.regionOffsetsBox[loc.regionIdx];
+                int const endNeighbour = sourceView.regionOffsetsBox[loc.regionIdx + 1];
 
                 for(int n = startNeighbour; n < endNeighbour; ++n)
                 {
-                    int const neighbourRegionIdx = neighbourRegionsBox[n];
-                    auto& neighbourRegion = sourcePRDeviceBox[neighbourRegionIdx];
+                    int const neighbourRegionIdx = sourceView.neighbourRegionsBox[n];
+                    auto& neighbourRegion = sourceView.sourcePRDeviceBox[neighbourRegionIdx];
                     auto& neighbourFrameList = neighbourRegion.particleFrameList;
 
                     for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
@@ -184,12 +183,11 @@ namespace pmacc::spearhed
 
     /**
      * Host Helper to launch pair-wise interactions using the precalculated neighbour lists.
-     * Launches one kernel pass per source PRBuf - each pass is warp-coherent and type-uniform.
+     * Launches one kernel pass per source entry in the bundle.
      *
-     * @param targetPRBuf       Buffer whose particles are the interaction targets (own particles).
-     * @param sourcePRBufTuple  std::tuple of source PRBuf references (e.g. std::tie(interior, boundary)).
-     * @param neighbourListsTuple std::tuple of {neighbourRegions, regionOffsets} pairs, one per source.
-     *                            Must be in the same order as sourcePRBufTuple.
+     * @param neighbourBundle  NeighbourBundle (or NeighbourBundleView) holding the target buffer
+     *                         and the neighbour lists for each source. Call bundle.subset<Roles...>()
+     *                         to restrict which sources are iterated.
      * @param fn Functor with the particle interaction logic between `ownParticle` and
      *           `neighbourParticle`. Must expose:
      *             using RequiredSharedTags = ll::TagList<...>;  // cached in neighbour smem
@@ -200,31 +198,20 @@ namespace pmacc::spearhed
      */
     struct InteractParticles
     {
-        void operator()(
-            auto& targetPRBuf,
-            auto&& sourcePRBufTuple,
-            auto&& neighbourListsTuple,
-            auto interactionRadius,
-            auto fn,
-            auto&&... args) const
+        void operator()(IsNeighbourBundle auto&& neighbourBundle, auto interactionRadius, auto fn, auto&&... args)
+            const
         {
-            constexpr auto N = std::tuple_size_v<std::remove_cvref_t<decltype(sourcePRBufTuple)>>;
-            static_assert(
-                N == std::tuple_size_v<std::remove_cvref_t<decltype(neighbourListsTuple)>>,
-                "sourcePRBufTuple and neighbourListsTuple must have the same number of elements");
-            [&]<std::size_t... I>(std::index_sequence<I...>)
-            {
-                (ForEachFrameInPRBuf<32, 128>{}(
-                     targetPRBuf,
-                     detail::FrameInteractionKernel<detail::OccupiedSlot>{},
-                     std::get<I>(sourcePRBufTuple).getDeviceDataBox(),
-                     std::get<I>(neighbourListsTuple).first.getDeviceBuffer().getDataBox(),
-                     std::get<I>(neighbourListsTuple).second.getDeviceBuffer().getDataBox(),
-                     interactionRadius,
-                     fn,
-                     std::forward<decltype(args)>(args)...),
-                 ...);
-            }(std::make_index_sequence<N>{});
+            neighbourBundle.forEachDeviceView(
+                [&](auto sourceView)
+                {
+                    ForEachFrameInPRBuf<32, 128>{}(
+                        neighbourBundle.target(),
+                        detail::FrameInteractionKernel<detail::OccupiedSlot>{},
+                        sourceView,
+                        interactionRadius,
+                        fn,
+                        std::forward<decltype(args)>(args)...);
+                });
         }
     };
 
