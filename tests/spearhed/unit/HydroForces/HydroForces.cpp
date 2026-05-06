@@ -22,6 +22,7 @@
 
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Acceleration.hpp"
 #include "spearhed/particles/attributes/Density.hpp"
@@ -38,7 +39,6 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/test/PMaccFixture.hpp>
 
 #include <cmath>
@@ -186,6 +186,7 @@ TEST_CASE_METHOD(
                 spearhed::HydroInteraction<K>{spearhed::gamma_eos});
 
             prBuf->buffer->deviceToHost();
+            int64_t const heapOffset = spearhed::syncHeapToHost();
             auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
             auto& frameList = hostRegions(0).particleFrameList;
 
@@ -197,7 +198,7 @@ TEST_CASE_METHOD(
             spearhed::Real const expected_left
                 = TEST_MASS * static_cast<spearhed::CS::T_Axis>(K::supportRadius) * P / (TEST_RHO * TEST_RHO) * dw;
             uint32_t checkedCount = 0;
-            for(auto& frame : frameList)
+            for(auto& frame : frameList.hostIterable(heapOffset))
             {
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {

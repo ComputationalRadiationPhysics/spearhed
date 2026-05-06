@@ -33,6 +33,7 @@
 
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Density.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
@@ -46,7 +47,6 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/test/PMaccFixture.hpp>
 
 #include <cmath>
@@ -261,6 +261,7 @@ TEST_CASE_METHOD(
 
     // Read densities back to host
     prBuf->buffer->deviceToHost();
+    int64_t const heapOffset = spearhed::syncHeapToHost();
     auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
     auto& frameList = hostRegions(0).particleFrameList;
 
@@ -268,7 +269,7 @@ TEST_CASE_METHOD(
         = spearhed::Real(InitDensityTestSetup::N) * TEST_MASS * spearhed::CubicSplineKernel::W(0.0f, TEST_H);
 
     uint32_t checkedCount = 0;
-    for(auto& frame : frameList)
+    for(auto& frame : frameList.hostIterable(heapOffset))
     {
         for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
         {
@@ -315,6 +316,7 @@ TEST_CASE_METHOD(
                 spearhed::AccumulateDensity<K>{});
 
             prBuf->buffer->deviceToHost();
+            int64_t const heapOffset = spearhed::syncHeapToHost();
             auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
             auto& frameList = hostRegions(0).particleFrameList;
 
@@ -330,7 +332,7 @@ TEST_CASE_METHOD(
 
             uint32_t countEdge = 0;
             uint32_t countMid = 0;
-            for(auto& frame : frameList)
+            for(auto& frame : frameList.hostIterable(heapOffset))
             {
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
