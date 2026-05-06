@@ -203,12 +203,11 @@ namespace spearhed
         size_t small_heap{2ull * 1024 * 1024 * 1024};
         deviceHeap.emplace(alpakaDevice, alpakaQueue, small_heap);
         alpaka::wait(alpakaQueue);
-
-        auto mallocMCBuffer = std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap);
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        dc.consume(std::move(mallocMCBuffer));
-
+#else
+        deviceHeap.emplace(DeviceHeap{});
 #endif
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+        dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap));
 
         // meta::ForEach<VectorAllSpecies, particles::LogMemoryStatisticsForSpecies<boost::mpl::_1>>
         //     logMemoryStatisticsForSpecies;

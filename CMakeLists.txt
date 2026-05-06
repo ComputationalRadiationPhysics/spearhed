@@ -84,11 +84,11 @@ target_compile_options(
         -Wextra
         -Wpedantic
         -Wconversion
-        -Wno-c2y-extensions
         -Wno-sign-conversion
         -Wno-unknown-pragmas
         -Wno-unused-parameter
         -Wno-unused-local-typedefs>
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-Wno-c2y-extensions>
         $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,IntelLLVM>>:-march=native
         -mtune=native>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4
