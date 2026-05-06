@@ -20,12 +20,12 @@
 #include "spearhed/plugins/openPMD/OpenPMDPlugin.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/plugins/openPMD/OutputParticleRecord.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/Environment.hpp>
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 
 #include <string>
 
@@ -76,13 +76,10 @@ namespace spearhed
     {
         if constexpr(output::openPMDEnabled)
         {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
+            auto& dc = pmacc::Environment<simDim>::get().DataConnector();
             auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
-            auto& mallocMCBuf
-                = *dc.get<pmacc::MallocMCBuffer<DeviceHeap>>(pmacc::MallocMCBuffer<DeviceHeap>::getName());
-            mallocMCBuf.synchronize();
             llama_lite::DynSoA<output::OutputParticleRecord> hostParticles;
-            pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, mallocMCBuf.getOffset());
+            pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, syncHeapToHost());
             writer->writeStep(currentStep, hostParticles);
         }
     }
