@@ -40,18 +40,24 @@ namespace spearhed::test
     template<unsigned DIM>
     struct SpearhedParticleFixture
     {
-        pmacc::test::PMaccFixture<DIM> pmaccBase{};
+        static auto& initPMacc()
+        {
+            static pmacc::test::PMaccFixture<DIM> pmaccFixture;
+            return pmaccFixture;
+        }
+
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
         std::shared_ptr<pmacc::spearhed::ParticleRegionBuffer<PRType>> prBuf;
-        pmacc::DataConnector& dc;
 
-        SpearhedParticleFixture() : dc(pmacc::Environment<DIM>::get().DataConnector())
+        SpearhedParticleFixture()
         {
+            initPMacc();
             auto& env = pmacc::Environment<DIM>::get();
 
             // ID Provider Setup
             uint64_t maxRanks = env.GridController().getGpuNodes().productOfComponents();
             uint64_t rank = env.GridController().getScalarPosition();
+            auto& dc = pmacc::Environment<DIM>::get().DataConnector();
             dc.share(std::make_shared<pmacc::IdProvider>("globalId", rank, maxRanks));
 
             // Device Heap Setup
@@ -63,9 +69,11 @@ namespace spearhed::test
 
             deviceHeap.emplace(alpakaDevice, alpakaQueue, testHeapSize);
             alpaka::wait(alpakaQueue);
-
-            dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap));
+#else
+            deviceHeap.emplace(DeviceHeap{});
 #endif
+            dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap));
+
             dc.template get<pmacc::IdProvider>("globalId")->reset();
 
             // Particle Region Buffer Setup
@@ -75,6 +83,7 @@ namespace spearhed::test
 
         ~SpearhedParticleFixture()
         {
+            auto& dc = pmacc::Environment<DIM>::get().DataConnector();
             dc.clean();
         }
     };

@@ -64,13 +64,11 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     }
 
     // Sync device heap to host and obtain the pointer offset for frame translation.
-    int64_t heapOffset = 0;
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+    auto& dc = pmacc::Environment<>::get().DataConnector();
     auto mallocMCBuf
         = dc.get<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(pmacc::MallocMCBuffer<spearhed::DeviceHeap>::getName());
     mallocMCBuf->synchronize();
-    heapOffset = mallocMCBuf->getOffset();
-#endif
+    auto heapOffset = mallocMCBuf->getOffset();
 
     // only serialize a subset of the tags
     // vel isnt used but still copied to check if the iterative path traversal based copy is working
