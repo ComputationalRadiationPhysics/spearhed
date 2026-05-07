@@ -50,6 +50,16 @@ namespace pmacc::spearhed
             using type = ll::sub_record_t<Record, tags::relativePos, tags::multiMask, KernelTags...>;
         };
 
+        template<typename Record, typename TagContainer>
+        struct OwnCacheTypeBuilder;
+
+        template<typename Record, ll::IsRecordAccess auto... KernelTags>
+        struct OwnCacheTypeBuilder<Record, ll::TagList<KernelTags...>>
+        {
+            // relativePos is mandatory for the own-particle position calculation
+            using type = ll::sub_record_t<Record, tags::relativePos, KernelTags...>;
+        };
+
         // self interaction must be dealt with by the user in interact Fn
         template<typename ValidParticlePredicate>
         struct FrameInteractionKernel
@@ -84,10 +94,11 @@ namespace pmacc::spearhed
                 // Dynamically deduce the required shared memory tags from the C++20 kernel definition
                 using FnType = std::remove_cvref_t<decltype(fn)>;
                 using SubRecord = typename CacheTypeBuilder<RecordType, typename FnType::RequiredSharedTags>::type;
-                // Create the SoA caching only the exact fields needed by the kernel + geometry
+                // Cache array for neighbour particles for attributes needed by the kernel + geometry
                 using CachedType = ll::SoA<SubRecord, frameSize>;
 
-                // Cache array for neighbour attributes to reduce global memory reads
+                using OwnSubRecord = typename OwnCacheTypeBuilder<RecordType, typename FnType::RequiredOwnTags>::type;
+
                 PMACC_SMEM(worker, smemCache, CachedType);
 
                 auto itr = frameList.begin();
@@ -118,46 +129,48 @@ namespace pmacc::spearhed
                                 bool const isValid = ValidParticlePredicate{}(nParticle);
                                 *smemCache[idx][tags::multiMask] = isValid;
                                 if(isValid)
-                                {
                                     smemCache[idx] = nParticle;
-                                }
                             });
                         worker.sync();
 
-
-                        // Interact own particles against the populated SMEM buffer
+                        // Interact own particles against the populated SMEM buffer.
+                        // Own particle attributes are cached in per-thread registers via ll::One.
                         forEachSlot(
                             [&, ownFramePtr, ownVolume, neighbourFramePtr, neighbourVolume](uint32_t const myIdx)
                             {
                                 auto ownParticle = ownFramePtr[myIdx];
-                                if(ValidParticlePredicate{}(ownParticle))
+                                if(!ValidParticlePredicate{}(ownParticle))
+                                    return;
+
+                                ll::One<OwnSubRecord> ownCache{ownParticle};
+                                auto ownView = ownCache[uint32_t{0}];
+                                auto const ownAbsPos = ownVolume.getPosition(ownView[tags::relativePos].get());
+
+                                for(uint32_t j = 0; j < frameSize; ++j)
                                 {
-                                    auto const ownAbsPos = ownVolume.getPosition(ownParticle[tags::relativePos].get());
-                                    for(uint32_t j = 0; j < frameSize; ++j)
+                                    auto cachedNeighbourParticle = smemCache[j];
+                                    if(*cachedNeighbourParticle[tags::multiMask])
                                     {
-                                        auto cachedNeighbourParticle = smemCache[j];
-                                        if(*cachedNeighbourParticle[tags::multiMask])
+                                        auto const neighAbsPos = neighbourVolume.getPosition(
+                                            cachedNeighbourParticle[tags::relativePos].get());
+                                        auto const r_vec = ownAbsPos - neighAbsPos;
+                                        auto const r = norm2(r_vec);
+                                        if(r < interactionRadius)
                                         {
-                                            auto const neighAbsPos = neighbourVolume.getPosition(
-                                                cachedNeighbourParticle[tags::relativePos].get());
-                                            auto const r_vec = ownAbsPos - neighAbsPos;
-                                            auto const r = norm2(r_vec);
-                                            if(r < interactionRadius)
-                                            {
-                                                auto neighbourParticle = neighbourFramePtr[j];
-                                                bool const is_self = (neighbourRegionIdx == loc.regionIdx)
-                                                                     && (ownFramePtr == neighbourFramePtr)
-                                                                     && (j == myIdx);
-                                                using RVecType = std::decay_t<decltype(r_vec)>;
-                                                fn(worker,
-                                                   ownParticle,
-                                                   neighbourParticle,
-                                                   InteractionContext<typename RVecType::CS>{r_vec, is_self},
-                                                   args...);
-                                            }
+                                            auto neighbourParticle = neighbourFramePtr[j];
+                                            bool const is_self = (neighbourRegionIdx == loc.regionIdx)
+                                                                 && (ownFramePtr == neighbourFramePtr) && (j == myIdx);
+                                            using RVecType = std::decay_t<decltype(r_vec)>;
+                                            fn(worker,
+                                               ownView,
+                                               neighbourParticle,
+                                               InteractionContext<typename RVecType::CS>{r_vec, is_self},
+                                               args...);
                                         }
                                     }
                                 }
+
+                                ownView.deepCopyTo(ownParticle);
                             });
                         // Guard against overwriting SMEM before all threads finish
                         worker.sync();
@@ -168,13 +181,15 @@ namespace pmacc::spearhed
     } // namespace detail
 
     /**
-     * Host Helper to launch pair-wise interactions using the precalculated neighbour list.
+     * Host helper to launch pair-wise interactions using the precalculated neighbour list.
      */
     struct InteractParticles
     {
         /**
-         * @param fn Functor with the particle interaction logic between `ownParticle` and the cached
-         * payload.
+         * @param fn Functor with the particle interaction logic between `ownParticle` and
+         *           `neighbourParticle`. Must expose:
+         *             using RequiredSharedTags = ll::TagList<...>;  // cached in neighbour smem
+         *             using RequiredOwnTags    = ll::TagList<...>;  // cached in own registers
          */
         void operator()(
             auto& prBuf,

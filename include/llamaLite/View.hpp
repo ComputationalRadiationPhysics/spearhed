@@ -251,6 +251,32 @@ namespace llama_lite
             }(DestLeafPaths{});
         }
 
+        // Flush this sub-record's fields into a (potentially larger) destination record.
+        // Walks this record's leaf paths and asserts the destination contains all of them.
+        template<typename OtherTStorage, typename... OtherRAs>
+        constexpr void deepCopyTo(ViewIndexed<OtherTStorage, OtherRAs...> other) const noexcept
+        {
+            using SrcR = record_type;
+            using DestR = typename OtherTStorage::record_type;
+
+            using SrcLeafPaths = typename GetLeafPaths<SrcR>::type;
+            [&]<typename... Paths>(Tuple<Paths...>)
+            {
+                static_assert(
+                    (DestR::hasPath(Paths{}) && ...),
+                    "Destination storage does not contain all paths from this record.");
+
+                static_assert(
+                    (std::is_same_v<
+                         typename SrcR::template value_type_for<Paths>,
+                         typename DestR::template value_type_for<Paths>>
+                     && ...),
+                    "Type mismatch between source and destination fields.");
+
+                ((*other[Paths{}] = *(*this)[Paths{}]), ...);
+            }(SrcLeafPaths{});
+        }
+
         // deep copy
         template<typename OtherTStorage, typename... OtherRAs>
         requires(!std::same_as<TStorage, OtherTStorage>)

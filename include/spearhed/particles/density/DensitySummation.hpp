@@ -47,6 +47,7 @@ namespace spearhed
     struct AccumulateDensity
     {
         using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
+        using RequiredOwnTags = ll::TagList<tags::smoothingLength, tags::density>;
 
         HDINLINE constexpr void operator()(
             auto& /*worker*/,

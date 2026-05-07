@@ -37,6 +37,7 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
 struct InteractionCountFunc
 {
     using RequiredSharedTags = ll::TagList<>;
+    using RequiredOwnTags = ll::TagList<>;
 
     HDINLINE constexpr void operator()(
         auto& worker,

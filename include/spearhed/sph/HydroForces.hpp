@@ -71,6 +71,8 @@ namespace spearhed
     {
         typename CS::T_Axis gamma;
         using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
+        using RequiredOwnTags = ll::
+            TagList<tags::smoothingLength, tags::density, tags::internalEnergy, tags::vel, tags::dvdt, tags::dudt>;
 
         HDINLINE constexpr void operator()(
             auto& /*worker*/,
