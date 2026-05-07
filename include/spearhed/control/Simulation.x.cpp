@@ -72,23 +72,17 @@ namespace spearhed
     void Simulation::pluginLoad()
     {
         // fill periodic with 0
-        while(periodic.size() < 3)
+        while(periodic.size() < simDim)
             periodic.push_back(0);
 
 
         PMACC_VERIFY_MSG(
-            devices.size() >= 2 && devices.size() <= 3,
+            devices.size() >= 1 && devices.size() <= simDim,
             "Invalid number of devices.\nuse [-d dx=1 dy=1 dz=1]");
 
         // check on correct number of devices. fill with default value 1 for missing dimensions
-        while(devices.size() < 3)
+        while(devices.size() < simDim)
             devices.push_back(1);
-
-        // check for request of > 1 device in z for a 2d simulation, this is probably a user's mistake
-        if((simDim == 2) && (devices[2] > 1))
-            std::cerr << "Warning: " << devices[2] << " devices requested for z in a 2d simulation, this parameter "
-                      << "will be reset to 1. Number of MPI ranks must be equal to the number of devices in x * y\n";
-
 
         pmacc::DataSpace<simDim> gpus;
         pmacc::DataSpace<simDim> isPeriodic;
