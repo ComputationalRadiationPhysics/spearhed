@@ -19,14 +19,13 @@
 
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
-
-#include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -64,11 +63,7 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     }
 
     // Sync device heap to host and obtain the pointer offset for frame translation.
-    auto& dc = pmacc::Environment<>::get().DataConnector();
-    auto mallocMCBuf
-        = dc.get<pmacc::MallocMCBuffer<spearhed::DeviceHeap>>(pmacc::MallocMCBuffer<spearhed::DeviceHeap>::getName());
-    mallocMCBuf->synchronize();
-    auto heapOffset = mallocMCBuf->getOffset();
+    auto heapOffset = spearhed::syncHeapToHost();
 
     // only serialize a subset of the tags
     // vel isnt used but still copied to check if the iterative path traversal based copy is working

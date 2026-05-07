@@ -24,6 +24,7 @@
 #include "spmacc/Frame.hpp"
 #include "spmacc/SinglyLinkedListDevice.hpp"
 #include "spmacc/memory/FramePointer.hpp"
+#include "spmacc/memory/utils.hpp"
 
 #include <pmacc/traits/IsSpecializationOf.hpp>
 
@@ -40,7 +41,41 @@ namespace pmacc::spearhed
         using FrameType = T_Frame;
 
     private:
-        struct Iterator
+        struct DeviceAdvance
+        {
+            constexpr FrameType* init(FrameType* ptr) const
+            {
+                return ptr;
+            }
+
+            constexpr FrameType* advance(FrameType* ptr) const
+            {
+                return ptr->next;
+            }
+
+            constexpr bool operator==(DeviceAdvance const&) const = default;
+        };
+
+        //! Advance policy that translates device heap pointers to host addresses via heapOffset.
+        struct HostAdvance
+        {
+            int64_t heapOffset;
+
+            constexpr FrameType* init(FrameType* ptr) const
+            {
+                return memory::mapToHost(ptr, heapOffset);
+            }
+
+            constexpr FrameType* advance(FrameType* ptr) const
+            {
+                return memory::mapToHost(ptr->next, heapOffset);
+            }
+
+            constexpr bool operator==(HostAdvance const&) const = default;
+        };
+
+        template<typename AdvancePolicy>
+        struct IteratorImpl
         {
             using value_type = FrameType;
             using pointer = FrameType*;
@@ -48,7 +83,9 @@ namespace pmacc::spearhed
             using difference_type = std::ptrdiff_t;
             using iterator_category = std::forward_iterator_tag;
 
-            constexpr Iterator(pointer node = nullptr) : m_current(node)
+            constexpr IteratorImpl(pointer node, AdvancePolicy policy = {})
+                : m_current(policy.init(node))
+                , m_policy(policy)
             {
             }
 
@@ -62,24 +99,44 @@ namespace pmacc::spearhed
                 return m_current;
             }
 
-            constexpr Iterator& operator++()
+            constexpr IteratorImpl& operator++()
             {
                 // caller needs to ensure validity of this call
-                m_current = m_current->next;
+                m_current = m_policy.advance(m_current);
                 return *this;
             }
 
-            constexpr Iterator operator++(int)
+            constexpr IteratorImpl operator++(int)
             {
-                Iterator tmp = *this;
+                IteratorImpl tmp = *this;
                 ++(*this);
                 return tmp;
             }
 
-            constexpr bool operator==(Iterator const& other) const = default;
+            constexpr bool operator==(IteratorImpl const& other) const = default;
 
         private:
             pointer m_current;
+            [[no_unique_address]] AdvancePolicy m_policy;
+        };
+
+        using Iterator = IteratorImpl<DeviceAdvance>;
+        using HostIterator = IteratorImpl<HostAdvance>;
+
+        struct HostRange
+        {
+            HostIterator m_begin;
+            HostIterator m_end;
+
+            constexpr HostIterator begin() const
+            {
+                return m_begin;
+            }
+
+            constexpr HostIterator end() const
+            {
+                return m_end;
+            }
         };
 
     public:
@@ -123,6 +180,14 @@ namespace pmacc::spearhed
             return Iterator{list.end()};
         }
 
+        //! Returns a host-side iterable range.
+        //! @param heapOffset MallocMCBuffer::getOffset() on GPU, 0 on CPU serial backends.
+        constexpr HostRange hostIterable(int64_t heapOffset) const
+        {
+            HostAdvance policy{heapOffset};
+            return {HostIterator{list.begin(), policy}, HostIterator{nullptr, policy}};
+        }
+
         HDINLINE constexpr uint32_t getNumParticles() const
         {
             return numParticles;
@@ -153,6 +218,15 @@ namespace pmacc::spearhed
     HDINLINE constexpr void forEachFrame(T_FrameList list, F&& func)
     {
         for(auto& frame : list)
+        {
+            func(&frame);
+        }
+    }
+
+    template<concepts::SpecializationOf<FrameList> T_FrameList, typename F>
+    void forEachHostFrame(T_FrameList const& frameList, int64_t heapOffset, F&& func)
+    {
+        for(auto& frame : frameList.hostIterable(heapOffset))
         {
             func(&frame);
         }
