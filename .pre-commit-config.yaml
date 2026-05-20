@@ -3,7 +3,7 @@ default_install_hook_types: [pre-commit, pre-push]
 exclude: "thirdParty"
 repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v22.1.4
+    rev: v22.1.5
     hooks:
       - id: clang-format
         types_or: [file]
@@ -55,7 +55,7 @@ repos:
         stages: [manual, pre-push]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.15.12
+    rev: v0.15.13
     hooks:
       # Run the linter.
       - id: ruff
@@ -87,6 +87,6 @@ repos:
       - id: gersemi
         args: [-i, --no-warn-about-unknown-commands]
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.21.1"
+    rev: "v2.21.2"
     hooks:
       - id: pyproject-fmt
