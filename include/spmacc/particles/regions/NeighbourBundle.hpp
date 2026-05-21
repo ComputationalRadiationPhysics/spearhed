@@ -33,6 +33,29 @@
 
 namespace pmacc::spearhed
 {
+    namespace detail
+    {
+        // Named callable used in the IsNeighbourBundle concept instead of a generic lambda.
+        // NVCC has a bug where anonymous generic lambdas in requires-expressions fail concept
+        // checking for multi-entry bundles due to void fold expression expansion.
+        struct AnyDevViewConsumer
+        {
+            template<typename T>
+            void operator()(T&&) const
+            {
+            }
+        };
+
+        template<typename T_Role, typename... T_Entries>
+        constexpr std::size_t roleIndexIn()
+        {
+            std::size_t i = 0;
+            bool found = false;
+            ((found || (std::is_same_v<typename T_Entries::Role, T_Role> ? (found = true) : (++i, false))), ...);
+            return i;
+        }
+    } // namespace detail
+
     /**
      * @brief Compact device-side view of one source's neighbour data.
      *
@@ -50,6 +73,10 @@ namespace pmacc::spearhed
 
     /**
      * @brief Host-side record for one source buffer and its pre-computed neighbour lists.
+     *
+     * A *source* buffer contributes particle data to a *target* region. For a given target
+     * region index i, regionOffsets[i]..regionOffsets[i+1] indexes into neighbourRegions,
+     * which holds the source-region indices that neighbour target region i.
      *
      * Owns the two neighbour-index buffers; holds a non-owning pointer to the source
      * ParticleRegionBuffer. Role is inherited from the source buffer's Role typedef.
@@ -101,10 +128,22 @@ namespace pmacc::spearhed
         {
             std::apply([&](auto*... ptrs) { (fn(ptrs->deviceView()), ...); }, entryPtrs);
         }
+
+        template<typename T_Role>
+        auto& get()
+        {
+            constexpr std::size_t idx = detail::roleIndexIn<T_Role, T_Entries...>();
+            static_assert(idx < sizeof...(T_Entries), "Role not present in NeighbourBundleView");
+            return *std::get<idx>(entryPtrs);
+        }
     };
 
     /**
      * @brief Owning bundle: target buffer reference + one NeighbourEntry per source buffer.
+     *
+     * Represents the neighbourhood of a single target region: for each source buffer,
+     * the pre-computed set of source regions that neighbour that target region is stored
+     * in its NeighbourEntry (keyed by target-region index via regionOffsets).
      *
      * Produced by CalculateNeighbourRegions. Algorithms call forEachDeviceView to iterate
      * over all source contributions, or subset<Roles...>() to select a narrower set.
@@ -123,18 +162,6 @@ namespace pmacc::spearhed
             return *targetPtr;
         }
 
-        // Recursive compile-time role-index lookup.
-        template<typename T_Role, std::size_t I = 0>
-        static constexpr std::size_t roleIndex()
-        {
-            if constexpr(I >= sizeof...(T_Entries))
-                return sizeof...(T_Entries); // not found
-            else if constexpr(std::is_same_v<typename std::tuple_element_t<I, std::tuple<T_Entries...>>::Role, T_Role>)
-                return I;
-            else
-                return roleIndex<T_Role, I + 1>();
-        }
-
         /**
          * @brief Returns the NeighbourEntry for the given Role tag.
          * Compile error if the role is not present in this bundle.
@@ -142,7 +169,7 @@ namespace pmacc::spearhed
         template<typename T_Role>
         auto& get()
         {
-            constexpr std::size_t idx = roleIndex<T_Role>();
+            constexpr std::size_t idx = detail::roleIndexIn<T_Role, T_Entries...>();
             static_assert(idx < sizeof...(T_Entries), "Role not present in NeighbourBundle");
             return std::get<idx>(entries);
         }
@@ -171,20 +198,6 @@ namespace pmacc::spearhed
             std::apply([&](auto&... entry) { (fn(entry.deviceView()), ...); }, entries);
         }
     };
-
-    namespace detail
-    {
-        // Named callable used in the IsNeighbourBundle concept instead of a generic lambda.
-        // NVCC has a bug where anonymous generic lambdas in requires-expressions fail concept
-        // checking for multi-entry bundles due to void fold expression expansion.
-        struct AnyDevViewConsumer
-        {
-            template<typename T>
-            void operator()(T&&) const
-            {
-            }
-        };
-    } // namespace detail
 
     /**
      * @brief Concept satisfied by both NeighbourBundle and NeighbourBundleView.

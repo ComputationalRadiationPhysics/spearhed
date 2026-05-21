@@ -110,7 +110,7 @@ namespace pmacc::spearhed
      */
     struct CalculateNeighbourRegions
     {
-        auto operator()(auto& targetPRBuf, auto&& sourcePRBufTuple, auto smoothingLength)
+        auto operator()(auto& targetPRBuf, auto smoothingLength, auto&... sourcePRBufs)
         {
             int const numTargetRegions = targetPRBuf.size;
             static constexpr uint32_t threadsPerBlock = 32;
@@ -155,20 +155,15 @@ namespace pmacc::spearhed
                 return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
             };
 
-            return std::apply(
-                [&](auto&... sourcePRBufs)
-                {
-                    using TargetType = std::remove_reference_t<decltype(targetPRBuf)>;
-                    auto entryTuple = std::make_tuple(computeOneEntry(sourcePRBufs)...);
-                    using TupleType = decltype(entryTuple);
-                    return [&]<std::size_t... I>(std::index_sequence<I...>)
-                    {
-                        return NeighbourBundle<TargetType, std::tuple_element_t<I, TupleType>...>{
-                            &targetPRBuf,
-                            std::move(entryTuple)};
-                    }(std::make_index_sequence<sizeof...(sourcePRBufs)>{});
-                },
-                std::forward<decltype(sourcePRBufTuple)>(sourcePRBufTuple));
+            using TargetType = std::remove_reference_t<decltype(targetPRBuf)>;
+            auto entryTuple = std::make_tuple(computeOneEntry(sourcePRBufs)...);
+            using TupleType = decltype(entryTuple);
+            return [&]<std::size_t... I>(std::index_sequence<I...>)
+            {
+                return NeighbourBundle<TargetType, std::tuple_element_t<I, TupleType>...>{
+                    &targetPRBuf,
+                    std::move(entryTuple)};
+            }(std::make_index_sequence<sizeof...(sourcePRBufs)>{});
         }
     };
 

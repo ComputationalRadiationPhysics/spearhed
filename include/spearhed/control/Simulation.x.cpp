@@ -154,12 +154,10 @@ namespace spearhed
                 using K = std::decay_t<decltype(kernel)>;
                 auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
 
-                // Template lambda: runs a full step with a given source PRBuf tuple.
-                // Called once with std::tie(interior) or std::tie(interior, boundary).
-                auto doStep = [&](auto&& sourceTuple)
+                auto doStep = [&](auto&... sources)
                 {
                     auto bundle
-                        = pmacc::spearhed::CalculateNeighbourRegions{}(interior, sourceTuple, interactionRadius);
+                        = pmacc::spearhed::CalculateNeighbourRegions{}(interior, interactionRadius, sources...);
                     spearhed::UpdateDensity<K>{}(bundle, h0);
                     spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
 
@@ -168,9 +166,9 @@ namespace spearhed
                 };
 
                 if(boundaryPtr)
-                    doStep(std::tie(interior, *boundaryPtr));
+                    doStep(interior, *boundaryPtr);
                 else
-                    doStep(std::tie(interior));
+                    doStep(interior);
             },
             kernelVariant);
     }
