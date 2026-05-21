@@ -46,10 +46,13 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
  */
 struct SCLatticeSetup
 {
+    using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
     uint32_t numParticles = 8u;
 
     pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
 
+    template<typename Role>
     struct NumParticlesToCreate
     {
         DINLINE constexpr auto operator()(
@@ -61,20 +64,24 @@ struct SCLatticeSetup
         }
     };
 
+    template<typename Role>
     auto numParticlesToCreateArgs() const
     {
         return std::make_tuple(pmacc::spearhed::computeSCTotalParticles(numParticles, domain));
     }
 
+    template<typename Role>
     using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
 
+    template<typename Role>
     auto placeParticleArgs() const
     {
         return std::make_tuple(pmacc::spearhed::computeSCCellCounts(numParticles, domain));
     }
 
+    template<typename Role>
     void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
+        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
         spearhed::DeviceHeap const& deviceHeap)
     {
         prBuf.create(1);
@@ -103,7 +110,7 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid", "[integration][particles][sc]")
 {
     auto setup = SCLatticeSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    setup.template setupRegions<pmacc::spearhed::roles::Interior>(*prBuf, *deviceHeap);
 
     spearhed::InitParticles{}(setup);
 
@@ -130,10 +137,13 @@ TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid",
  */
 struct RandomSetup
 {
+    using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
     uint32_t numParticles = 64u;
 
     pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
 
+    template<typename Role>
     struct NumParticlesToCreate
     {
         DINLINE constexpr auto operator()(
@@ -145,20 +155,24 @@ struct RandomSetup
         }
     };
 
+    template<typename Role>
     auto numParticlesToCreateArgs() const
     {
         return std::make_tuple(numParticles);
     }
 
+    template<typename Role>
     using PlaceParticle = pmacc::spearhed::Random<spearhed::CS>;
 
+    template<typename Role>
     auto placeParticleArgs() const
     {
         return std::make_tuple(42u, pmacc::spearhed::UniformDistribution{});
     }
 
+    template<typename Role>
     void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
+        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
         spearhed::DeviceHeap const& deviceHeap)
     {
         prBuf.create(1);
@@ -190,7 +204,7 @@ TEST_CASE_METHOD(
     "[integration][particles][random]")
 {
     auto setup = RandomSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    setup.template setupRegions<pmacc::spearhed::roles::Interior>(*prBuf, *deviceHeap);
 
     spearhed::InitParticles{}(setup);
 

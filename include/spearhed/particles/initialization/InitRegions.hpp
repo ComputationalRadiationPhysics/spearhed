@@ -35,18 +35,8 @@ namespace spearhed
 
     struct InitRegions
     {
-        // Single-role setup: creates and shares one Interior PRBuf.
-        void operator()(DeviceHeap const& deviceHeap, SetupInterface auto const& setup)
-        {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
-            dc.share(prBuf);
-
-            setup.setupRegions(*prBuf, deviceHeap);
-        }
-
-        // Multi-role setup: creates and shares one PRBuf per role.
-        void operator()(DeviceHeap const& deviceHeap, MultiRoleSetup auto& setup)
+        // creates and shares one PRBuf per role.
+        void operator()(DeviceHeap const& deviceHeap, SetupInterface auto& setup)
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
             using Roles = typename std::remove_cvref_t<decltype(setup)>::Roles;
@@ -55,7 +45,7 @@ namespace spearhed
             {
                 auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType, Role>>();
                 dc.share(prBuf);
-                setup.template block<Role>().setupRegions(*prBuf, deviceHeap);
+                setup.template setupRegions<Role>(*prBuf, deviceHeap);
             };
 
             [&]<std::size_t... I>(std::index_sequence<I...>)

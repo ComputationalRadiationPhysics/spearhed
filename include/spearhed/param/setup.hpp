@@ -37,10 +37,13 @@ namespace spearhed
     // Default setup. Override at CMake configure time with -DSPEARHED_SETUP_FILE=/path/to/MySetup.hpp
     struct DefaultSetup
     {
+        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t totalParticles = 1000u;
 
+        template<typename Role>
         struct NumParticlesToCreate
         {
             constexpr auto operator()(auto& /*worker*/, auto& /*particleRegion*/, uint32_t totalParticles) const
@@ -49,11 +52,13 @@ namespace spearhed
             }
         };
 
+        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(totalParticles);
         }
 
+        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -69,6 +74,7 @@ namespace spearhed
             }
         };
 
+        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
@@ -76,7 +82,9 @@ namespace spearhed
 
         KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
+        template<typename Role>
+        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf, DeviceHeap const& deviceHeap)
+            const
         {
             prBuf.create(1);
 

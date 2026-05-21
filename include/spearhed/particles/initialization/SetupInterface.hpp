@@ -25,25 +25,22 @@
 
 namespace spearhed
 {
-    // "Temporary" definition of the interface for simulation setups
-    // Per-role block interface: satisfied by any single-role setup or block sub-object.
     // @TODO investigate a way to define setups and their parameters in a text file, which can be read at runtime
+    // Interior is used as proxy role to check per-role template requirements.
     template<typename T>
-    concept SetupInterface
-        = requires(T a, pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) {
-              { a.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
-              { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
-              typename T::NumParticlesToCreate;
-              // This is currently a std::tuple unpacked on the host side
-              // TODO switch to a device friendly compile time dictionary
-              { a.numParticlesToCreateArgs() };
-              typename T::PlaceParticle;
-              { a.placeParticleArgs() };
-          };
-
-    // Multi-role setup: exposes Roles as a std::tuple of role tags and a block<Role>() accessor
-    // returning an object satisfying SetupInterface for each role.
-    template<typename T>
-    concept MultiRoleSetup = requires { typename T::Roles; } && !SetupInterface<T>;
+    concept SetupInterface = requires(
+        T a,
+        pmacc::spearhed::ParticleRegionBuffer<PRType, pmacc::spearhed::roles::Interior>& prBuf,
+        DeviceHeap const& deviceHeap) {
+        typename T::Roles;
+        { a.template setupRegions<pmacc::spearhed::roles::Interior>(prBuf, deviceHeap) } -> std::same_as<void>;
+        { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
+        typename T::template NumParticlesToCreate<pmacc::spearhed::roles::Interior>;
+        // This is currently a std::tuple unpacked on the host side
+        // TODO switch to a device friendly compile time dictionary
+        { a.template numParticlesToCreateArgs<pmacc::spearhed::roles::Interior>() };
+        typename T::template PlaceParticle<pmacc::spearhed::roles::Interior>;
+        { a.template placeParticleArgs<pmacc::spearhed::roles::Interior>() };
+    };
 
 } // namespace spearhed

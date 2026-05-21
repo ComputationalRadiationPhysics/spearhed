@@ -31,6 +31,8 @@ namespace spearhed
 {
     struct SodShockTube
     {
+        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         // Standard Sod shock tube initial conditions:
@@ -57,6 +59,7 @@ namespace spearhed
         // Each region receives a share proportional to rho * V, giving equal particle mass.
         uint32_t totalParticles = 32000u;
 
+        template<typename Role>
         struct NumParticlesToCreate
         {
             // Number of particles to create per particle region.
@@ -79,6 +82,7 @@ namespace spearhed
             }
         };
 
+        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(
@@ -88,6 +92,7 @@ namespace spearhed
                 totalWeightedVolume);
         }
 
+        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -102,13 +107,16 @@ namespace spearhed
             }
         };
 
+        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
-        HINLINE void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)
-            const
+        template<typename Role>
+        HINLINE void setupRegions(
+            pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf,
+            DeviceHeap const& deviceHeap) const
         {
             prBuf.create(2);
 

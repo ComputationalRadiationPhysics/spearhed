@@ -32,22 +32,27 @@ namespace spearhed
     template<uint32_t N>
     struct EmptyNRegions
     {
+        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
         // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t baseNumParticlesToCreate = 400u;
 
+        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(baseNumParticlesToCreate);
         }
 
+        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
         // calculate how many particles we need to make in this system
+        template<typename Role>
         struct NumParticlesToCreate
         {
             constexpr auto operator()(
@@ -62,6 +67,7 @@ namespace spearhed
         };
 
         // place each particle at the center of its particle region's AABB
+        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -76,7 +82,8 @@ namespace spearhed
             }
         };
 
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)
+        template<typename Role>
+        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf, DeviceHeap const& deviceHeap)
         {
             prBuf.create(N);
             PRType boundedParticles{deviceHeap.getAllocatorHandle()};

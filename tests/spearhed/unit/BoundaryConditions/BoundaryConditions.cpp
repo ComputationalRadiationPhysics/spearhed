@@ -56,135 +56,165 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 namespace
 {
-    // Interior AABB: [-1,-1,-1] to [1,1,1], center (0,0,0).
-    // PlaceParticle sets vel to 100.f.
-    // After one push: relativePos = (0,0,0) + (100,100,100)*dt = (1,1,1).
-    struct InteriorBlock
-    {
-        pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
-
-        struct NumParticlesToCreate
-        {
-            constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
-            {
-                return n;
-            }
-        };
-
-        auto numParticlesToCreateArgs() const
-        {
-            return std::make_tuple(4u);
-        }
-
-        struct PlaceParticle
-        {
-            DINLINE constexpr void operator()(
-                auto const& /*worker*/,
-                auto& particle,
-                auto const& particleRegion,
-                uint32_t /*globalParticleIdx*/) const
-            {
-                using namespace pmacc::spearhed::tags;
-                using namespace spearhed::tags;
-                auto const& aabb = particleRegion.volume;
-                pmacc::spearhed::for_each_tag<spearhed::CS>(
-                    [&](auto tag)
-                    {
-                        *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
-                        *particle[vel][tag] = 100.0f;
-                    });
-            }
-        };
-
-        auto placeParticleArgs() const
-        {
-            return std::make_tuple();
-        }
-
-        template<typename PRBuf, typename DeviceHeapT>
-        void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
-        {
-            using PRType = typename PRBuf::ParticleRegionType;
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
-        }
-    };
-
-    // Boundary AABB: [8,8,8] to [10,10,10], center (9,9,9).
-    // PlaceParticle sets vel to 999.f
-    // ParticlePush never touches the Boundary PRBuf, so positions must remain (9,9,9).
-    struct BoundaryBlock
-    {
-        pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}};
-
-        struct NumParticlesToCreate
-        {
-            constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
-            {
-                return n;
-            }
-        };
-
-        auto numParticlesToCreateArgs() const
-        {
-            return std::make_tuple(4u);
-        }
-
-        struct PlaceParticle
-        {
-            DINLINE constexpr void operator()(
-                auto const& /*worker*/,
-                auto& particle,
-                auto const& particleRegion,
-                uint32_t /*globalParticleIdx*/) const
-            {
-                using namespace pmacc::spearhed::tags;
-                using namespace spearhed::tags;
-                auto const& aabb = particleRegion.volume;
-                pmacc::spearhed::for_each_tag<spearhed::CS>(
-                    [&](auto tag)
-                    {
-                        *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
-                        *particle[vel][tag] = 999.0f;
-                    });
-            }
-        };
-
-        auto placeParticleArgs() const
-        {
-            return std::make_tuple();
-        }
-
-        template<typename PRBuf, typename DeviceHeapT>
-        void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
-        {
-            using PRType = typename PRBuf::ParticleRegionType;
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
-        }
-    };
-
-    // Multi-role setup: exposes an Interior block and a Boundary block.
+    // exposes an Interior block and a Boundary block.
     struct BoundaryWallSetup
     {
         using Roles = std::tuple<pmacc::spearhed::roles::Interior, pmacc::spearhed::roles::Boundary>;
+
+        // Interior AABB: [-1,-1,-1] to [1,1,1], center (0,0,0).
+        // PlaceParticle sets vel to 100.f.
+        // After one push: relativePos = (0,0,0) + (100,100,100)*dt = (1,1,1).
+        struct InteriorBlock
+        {
+            pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
+
+            struct NumParticlesToCreate
+            {
+                constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
+                {
+                    return n;
+                }
+            };
+
+            auto numParticlesToCreateArgs() const
+            {
+                return std::make_tuple(4u);
+            }
+
+            struct PlaceParticle
+            {
+                DINLINE constexpr void operator()(
+                    auto const& /*worker*/,
+                    auto& particle,
+                    auto const& particleRegion,
+                    uint32_t /*globalParticleIdx*/) const
+                {
+                    using namespace pmacc::spearhed::tags;
+                    using namespace spearhed::tags;
+                    auto const& aabb = particleRegion.volume;
+                    pmacc::spearhed::for_each_tag<spearhed::CS>(
+                        [&](auto tag)
+                        {
+                            *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
+                            *particle[vel][tag] = 100.0f;
+                        });
+                }
+            };
+
+            auto placeParticleArgs() const
+            {
+                return std::make_tuple();
+            }
+
+            template<typename PRBuf, typename DeviceHeapT>
+            void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+            {
+                using PRType = typename PRBuf::ParticleRegionType;
+                prBuf.create(1);
+                auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
+                auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}}};
+                prBuf.pushBack(region);
+                prBuf.buffer->hostToDevice();
+            }
+        };
+
+        // Boundary AABB: [8,8,8] to [10,10,10], center (9,9,9).
+        // PlaceParticle sets vel to 999.f
+        // ParticlePush never touches the Boundary PRBuf, so positions must remain (9,9,9).
+        struct BoundaryBlock
+        {
+            pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}};
+
+            struct NumParticlesToCreate
+            {
+                constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
+                {
+                    return n;
+                }
+            };
+
+            auto numParticlesToCreateArgs() const
+            {
+                return std::make_tuple(4u);
+            }
+
+            struct PlaceParticle
+            {
+                DINLINE constexpr void operator()(
+                    auto const& /*worker*/,
+                    auto& particle,
+                    auto const& particleRegion,
+                    uint32_t /*globalParticleIdx*/) const
+                {
+                    using namespace pmacc::spearhed::tags;
+                    using namespace spearhed::tags;
+                    auto const& aabb = particleRegion.volume;
+                    pmacc::spearhed::for_each_tag<spearhed::CS>(
+                        [&](auto tag)
+                        {
+                            *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
+                            *particle[vel][tag] = 999.0f;
+                        });
+                }
+            };
+
+            auto placeParticleArgs() const
+            {
+                return std::make_tuple();
+            }
+
+            template<typename PRBuf, typename DeviceHeapT>
+            void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+            {
+                using PRType = typename PRBuf::ParticleRegionType;
+                prBuf.create(1);
+                auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
+                auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}}};
+                prBuf.pushBack(region);
+                prBuf.buffer->hostToDevice();
+            }
+        };
 
         InteriorBlock interior;
         BoundaryBlock boundary;
 
         template<typename Role>
-        auto& block()
+        void setupRegions(auto& prBuf, auto const& dh) const
         {
             if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
-                return interior;
+                interior.setupRegions(prBuf, dh);
             else
-                return boundary;
+                boundary.setupRegions(prBuf, dh);
+        }
+
+        template<typename Role>
+        using NumParticlesToCreate = std::conditional_t<
+            std::same_as<Role, pmacc::spearhed::roles::Interior>,
+            InteriorBlock::NumParticlesToCreate,
+            BoundaryBlock::NumParticlesToCreate>;
+
+        template<typename Role>
+        auto numParticlesToCreateArgs() const
+        {
+            if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
+                return interior.numParticlesToCreateArgs();
+            else
+                return boundary.numParticlesToCreateArgs();
+        }
+
+        template<typename Role>
+        using PlaceParticle = std::conditional_t<
+            std::same_as<Role, pmacc::spearhed::roles::Interior>,
+            InteriorBlock::PlaceParticle,
+            BoundaryBlock::PlaceParticle>;
+
+        template<typename Role>
+        auto placeParticleArgs() const
+        {
+            if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
+                return interior.placeParticleArgs();
+            else
+                return boundary.placeParticleArgs();
         }
     };
 
@@ -200,13 +230,13 @@ TEST_CASE_METHOD(
     BoundaryWallSetup setup;
 
     // Set up region geometry for each role (creates frames on the device heap)
-    setup.interior.setupRegions(*prBuf, *deviceHeap);
-    setup.boundary.setupRegions(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    setup.template setupRegions<roles::Interior>(*prBuf, *deviceHeap);
+    setup.template setupRegions<roles::Boundary>(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
 
     // Multi-role InitParticles: fills Interior and Boundary PRBufs
     spearhed::InitParticles{}(setup);
 
-    // Run the pusher - touches only the Interior PRBuf (enforced by InteriorPRBuf concept)
+    // Run the pusher - touches only the Interior PRBuf
     spearhed::ParticlePush{}(0);
 
     // Verify interior particles moved by vel * dt = 100 * 0.01 = 1.0

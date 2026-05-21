@@ -239,19 +239,9 @@ namespace spearhed
      */
     struct InitParticles
     {
-        // Single-role setup : initialises the Interior PRBuf.
+        // iterates over TSetup::Roles and initialises each role's PRBuf.
         template<SetupInterface TSetup>
         auto operator()(TSetup const& setup)
-        {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-                pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
-            initSingleBlock(prBuf, setup);
-        }
-
-        // Multi-role setup: iterates over TSetup::Roles and initialises each role's PRBuf.
-        template<MultiRoleSetup TSetup>
-        auto operator()(TSetup& setup)
         {
             auto& dc = pmacc::Environment<>::get().DataConnector();
             using Roles = typename TSetup::Roles;
@@ -260,7 +250,7 @@ namespace spearhed
             {
                 auto& prBuf
                     = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType, Role>>(pmacc::spearhed::prBufId<Role>());
-                initSingleBlock(prBuf, setup.template block<Role>());
+                initSingleBlock<Role>(prBuf, setup);
             };
 
             [&]<std::size_t... I>(std::index_sequence<I...>)
@@ -270,9 +260,8 @@ namespace spearhed
         }
 
     private:
-        // Fills prBuf using the per-role block interface (NumParticlesToCreate + PlaceParticle).
-        template<SetupInterface TBlock>
-        static void initSingleBlock(auto& prBuf, TBlock const& block)
+        template<typename Role, SetupInterface TSetup>
+        static void initSingleBlock(auto& prBuf, TSetup const& setup)
         {
             constexpr uint32_t threadsPerBlock = 32;
 
@@ -285,9 +274,10 @@ namespace spearhed
              * - we need some natural order of particle initialization, which can be split by number of frame slots
              * so that particle init can be independent across blocks and threads
              */
-            auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(block.numParticlesToCreateArgs());
-            auto placeParticle = typename TBlock::PlaceParticle{};
-            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(block.placeParticleArgs());
+            auto argsForNumParticles
+                = pmacc::memory::tuple::fromStlTuple(setup.template numParticlesToCreateArgs<Role>());
+            auto placeParticle = typename TSetup::template PlaceParticle<Role>{};
+            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(setup.template placeParticleArgs<Role>());
 
             // Launch a kernel to calculate num particles & num frames to create for each PR
             // Uses one block for each PR to calculate these 2 numbers.
@@ -295,7 +285,8 @@ namespace spearhed
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename TBlock::NumParticlesToCreate>{})
+            PMACC_LOCKSTEP_KERNEL(
+                init::detail::CalculateFramesPerRegion<typename TSetup::template NumParticlesToCreate<Role>>{})
                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
                     prBuf.getDeviceDataBox(),
                     prBuf.size,

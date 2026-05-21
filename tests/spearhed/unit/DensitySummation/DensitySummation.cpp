@@ -62,6 +62,7 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 namespace
 {
+
     constexpr spearhed::Real TEST_H = spearhed::Real{0.5};
     constexpr spearhed::Real TEST_MASS = spearhed::Real{1.0};
 
@@ -93,10 +94,13 @@ namespace
 
     struct InitDensityTestSetup
     {
+        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         static constexpr uint32_t N = 4u;
 
+        template<typename Role>
         struct NumParticlesToCreate
         {
             constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
@@ -105,11 +109,13 @@ namespace
             }
         };
 
+        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(N);
         }
 
+        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -124,18 +130,20 @@ namespace
 
         spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
 
+        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
-        template<typename PRBuf, typename DeviceHeapT>
-        void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+        template<typename Role>
+        void setupRegions(
+            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
+            spearhed::DeviceHeap const& deviceHeap) const
         {
-            using PRType = typename PRBuf::ParticleRegionType;
             prBuf.create(1);
             auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
+            auto region = spearhed::PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
             prBuf.pushBack(region);
             prBuf.buffer->hostToDevice();
         }
@@ -174,10 +182,13 @@ namespace
 
     struct InitSpacedTestSetup
     {
+        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}};
 
         static constexpr uint32_t N = 3u;
 
+        template<typename Role>
         struct NumParticlesToCreate
         {
             constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
@@ -186,11 +197,13 @@ namespace
             }
         };
 
+        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(N);
         }
 
+        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -205,18 +218,20 @@ namespace
 
         spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
 
+        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
-        template<typename PRBuf, typename DeviceHeapT>
-        void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+        template<typename Role>
+        void setupRegions(
+            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
+            spearhed::DeviceHeap const& deviceHeap) const
         {
-            using PRType = typename PRBuf::ParticleRegionType;
             prBuf.create(1);
             auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}}};
+            auto region = spearhed::PRType{deviceHeapHandle, {{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}}};
             prBuf.pushBack(region);
             prBuf.buffer->hostToDevice();
         }
