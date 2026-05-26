@@ -61,6 +61,76 @@ namespace pmacc::spearhed
             using type = ll::sub_record_t<Record, tags::relativePos, KernelTags...>;
         };
 
+        /**
+         * @brief Cooperatively load one neighbour frame into the shared-memory cache.
+         *
+         * Each slot's multiMask records validity; valid slots are deep-copied into the
+         * cache. Caller must worker.sync() before reading the cache. Shared by the
+         * single-launch and per-source interaction kernels.
+         */
+        template<typename ValidParticlePredicate>
+        DINLINE void loadNeighbourCacheToSmem(auto& forEachSlot, auto& smemCache, auto neighbourFramePtr)
+        {
+            forEachSlot(
+                [&, neighbourFramePtr](uint32_t const idx)
+                {
+                    auto nParticle = neighbourFramePtr[idx];
+                    bool const isValid = ValidParticlePredicate{}(nParticle);
+                    *smemCache[idx][tags::multiMask] = isValid;
+                    if(isValid)
+                        smemCache[idx].deepCopyFrom(nParticle);
+                });
+        }
+
+        /**
+         * @brief Interact one own particle against every valid neighbour in the SMEM cache.
+         *
+         * Calls fn(worker, ownView, neighbourParticle, InteractionContext) for each pair
+         * within interactionRadius. @p isSelfFrame must be true only when the cached frame
+         * is the own particle's own frame, so the j == myIdx pair is flagged as the self
+         * interaction. Shared by the single-launch and per-source interaction kernels.
+         *
+         * @tparam frameSize Number of slots per frame (compile-time loop bound).
+         */
+        template<uint32_t frameSize>
+        DINLINE void interactOwnWithCache(
+            auto const& worker,
+            auto& smemCache,
+            uint32_t myIdx,
+            auto& ownView,
+            auto const& ownAbsPos,
+            bool isSelfFrame,
+            auto neighbourFramePtr,
+            auto const& neighbourVolume,
+            auto interactionRadius,
+            auto& fn,
+            auto&... args)
+        {
+            for(uint32_t j = 0; j < frameSize; ++j)
+            {
+                auto cachedNeighbourParticle = smemCache[j];
+                if(*cachedNeighbourParticle[tags::multiMask])
+                {
+                    auto const neighAbsPos
+                        = neighbourVolume.getPosition(cachedNeighbourParticle[tags::relativePos].get());
+                    auto const r_vec = ownAbsPos - neighAbsPos;
+                    // TODO think about using r squared to avoiud the square root
+                    auto const r = norm2(r_vec);
+                    if(r < interactionRadius)
+                    {
+                        auto neighbourParticle = neighbourFramePtr[j];
+                        bool const is_self = isSelfFrame && (j == myIdx);
+                        using RVecType = std::decay_t<decltype(r_vec)>;
+                        fn(worker,
+                           ownView,
+                           neighbourParticle,
+                           InteractionContext<typename RVecType::CS>{r_vec, is_self},
+                           args...);
+                    }
+                }
+            }
+        }
+
         // self interaction must be dealt with by the user in interact Fn
         template<typename ValidParticlePredicate>
         struct FrameInteractionKernel
@@ -121,22 +191,20 @@ namespace pmacc::spearhed
                     {
                         memory::FramePointer const neighbourFramePtr{&*it};
                         VolumeType const neighbourVolume = neighbourRegion.volume;
+                        // Each live frame is a unique heap allocation belonging to exactly one
+                        // region of one buffer, so equal frame pointers already identify the same
+                        // frame (same region, same buffer).
+                        bool const isSelfFrame = (ownFramePtr == neighbourFramePtr);
+
                         // Cooperatively load neighbour attributes into shared memory
-                        forEachSlot(
-                            [&, neighbourFramePtr](uint32_t const idx)
-                            {
-                                auto nParticle = neighbourFramePtr[idx];
-                                bool const isValid = ValidParticlePredicate{}(nParticle);
-                                *smemCache[idx][tags::multiMask] = isValid;
-                                if(isValid)
-                                    smemCache[idx] = nParticle;
-                            });
+                        loadNeighbourCacheToSmem<ValidParticlePredicate>(forEachSlot, smemCache, neighbourFramePtr);
                         worker.sync();
 
                         // Interact own particles against the populated SMEM buffer.
                         // Own particle attributes are cached in per-thread registers via ll::One.
                         forEachSlot(
-                            [&, ownFramePtr, ownVolume, neighbourFramePtr, neighbourVolume](uint32_t const myIdx)
+                            [&, ownFramePtr, ownVolume, neighbourFramePtr, neighbourVolume, isSelfFrame](
+                                uint32_t const myIdx)
                             {
                                 auto ownParticle = ownFramePtr[myIdx];
                                 if(!ValidParticlePredicate{}(ownParticle))
@@ -146,30 +214,18 @@ namespace pmacc::spearhed
                                 auto ownView = ownCache[uint32_t{0}];
                                 auto const ownAbsPos = ownVolume.getPosition(ownView[tags::relativePos].get());
 
-                                for(uint32_t j = 0; j < frameSize; ++j)
-                                {
-                                    auto cachedNeighbourParticle = smemCache[j];
-                                    if(*cachedNeighbourParticle[tags::multiMask])
-                                    {
-                                        auto const neighAbsPos = neighbourVolume.getPosition(
-                                            cachedNeighbourParticle[tags::relativePos].get());
-                                        auto const r_vec = ownAbsPos - neighAbsPos;
-                                        // TODO think about using r squared to avoiud the square root
-                                        auto const r = norm2(r_vec);
-                                        if(r < interactionRadius)
-                                        {
-                                            auto neighbourParticle = neighbourFramePtr[j];
-                                            bool const is_self = (neighbourRegionIdx == loc.regionIdx)
-                                                                 && (ownFramePtr == neighbourFramePtr) && (j == myIdx);
-                                            using RVecType = std::decay_t<decltype(r_vec)>;
-                                            fn(worker,
-                                               ownView,
-                                               neighbourParticle,
-                                               InteractionContext<typename RVecType::CS>{r_vec, is_self},
-                                               args...);
-                                        }
-                                    }
-                                }
+                                interactOwnWithCache<frameSize>(
+                                    worker,
+                                    smemCache,
+                                    myIdx,
+                                    ownView,
+                                    ownAbsPos,
+                                    isSelfFrame,
+                                    neighbourFramePtr,
+                                    neighbourVolume,
+                                    interactionRadius,
+                                    fn,
+                                    args...);
 
                                 ownView.deepCopyTo(ownParticle);
                             });

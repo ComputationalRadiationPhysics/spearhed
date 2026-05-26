@@ -21,13 +21,10 @@
 
 #pragma once
 
-#include "spmacc/particles/regions/RegionRole.hpp"
-
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <pmacc/memory/tuple/STLTuple.hpp>
 
-#include <concepts>
-#include <cstdint>
 #include <tuple>
 #include <type_traits>
 
@@ -129,6 +126,19 @@ namespace pmacc::spearhed
             std::apply([&](auto*... ptrs) { (fn(ptrs->deviceView()), ...); }, entryPtrs);
         }
 
+        /**
+         * @brief Return a std::tuple of device views, one per entry.
+         *
+         * Used by InteractParticlesUnified to pass compile-time-iterable
+         * source views into the single-launch kernel.
+         */
+        auto makeDeviceViewTuple()
+        {
+            return std::apply(
+                [](auto*... ptrs) { return pmacc::memory::tuple::make_tuple(ptrs->deviceView()...); },
+                entryPtrs);
+        }
+
         template<typename T_Role>
         auto& get()
         {
@@ -196,6 +206,19 @@ namespace pmacc::spearhed
         void forEachDeviceView(Fn&& fn)
         {
             std::apply([&](auto&... entry) { (fn(entry.deviceView()), ...); }, entries);
+        }
+
+        /**
+         * @brief Return a std::tuple of device views, one per entry.
+         *
+         * Used by InteractParticlesUnified to pass compile-time-iterable
+         * source views into the single-launch kernel.
+         */
+        auto makeDeviceViewTuple()
+        {
+            return std::apply(
+                [](auto&... entry) { return pmacc::memory::tuple::make_tuple(entry.deviceView()...); },
+                entries);
         }
     };
 

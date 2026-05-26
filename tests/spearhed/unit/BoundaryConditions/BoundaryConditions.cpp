@@ -62,6 +62,7 @@
 #include <pmacc/test/PMaccFixture.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -412,5 +413,81 @@ TEST_CASE_METHOD(
             }
         }
         REQUIRE(checkedCount > 0u);
+    }
+}
+
+/**
+ * Verifies InteractParticlesUnified (single launch, own-state persisted in SMEM)
+ * produces the same interior densities as the reference InteractParticles
+ * (one launch per source) in a multi-source scene (interior + boundary).
+ */
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "Boundary: InteractParticlesUnified produces same density as InteractParticles",
+    "[boundary][roles][unified]")
+{
+    namespace roles = pmacc::spearhed::roles;
+    using namespace pmacc::spearhed::tags;
+    using namespace spearhed::tags;
+
+    Box2DSetup setup;
+    setup.template setupRegions<roles::Interior>(*prBuf, *deviceHeap);
+    setup.template setupRegions<roles::Boundary>(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    spearhed::InitParticles{}(setup);
+
+    using K = spearhed::CubicSplineKernel;
+    constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
+
+    // Build a neighbour bundle for the multi-source scene (interior + boundary).
+    // The same bundle drives both interaction strategies below.
+    auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(
+        *prBuf,
+        interactionRadius,
+        *prBuf,
+        *this->template prBufFor<roles::Boundary>());
+
+    // Reads every live interior particle's density in deterministic (region, frame, slot)
+    // order. No particles move between the two passes, so the frame layout - and thus this
+    // ordering - is identical, which makes the index-by-index comparison below valid.
+    auto readInteriorDensities = [&]()
+    {
+        prBuf->buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto box = prBuf->buffer->getHostBuffer().getDataBox();
+
+        std::vector<double> out;
+        for(int r = 0; r < prBuf->size; ++r)
+        {
+            auto& frameList = box[r].particleFrameList;
+            for(auto& frame : frameList.hostIterable(heapOffset))
+            {
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                {
+                    auto particle = frame[slot];
+                    if(*particle[multiMask])
+                        out.push_back(static_cast<double>(*particle[density]));
+                }
+            }
+        }
+        return out;
+    };
+
+    // Reference: classic per-source InteractParticles (one kernel launch per source).
+    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+    pmacc::spearhed::InteractParticles{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
+    auto const referenceDensities = readInteriorDensities();
+
+    // Unified: single-launch kernel over the same bundle (re-seed the self term first).
+    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+    pmacc::spearhed::InteractParticlesUnified{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
+    auto const unifiedDensities = readInteriorDensities();
+
+    REQUIRE(!referenceDensities.empty());
+    REQUIRE(referenceDensities.size() == unifiedDensities.size());
+    for(std::size_t i = 0; i < referenceDensities.size(); ++i)
+    {
+        REQUIRE(referenceDensities[i] > 0.0);
+        REQUIRE(std::isfinite(unifiedDensities[i]));
+        REQUIRE(unifiedDensities[i] == Catch::Approx(referenceDensities[i]).epsilon(1e-5));
     }
 }

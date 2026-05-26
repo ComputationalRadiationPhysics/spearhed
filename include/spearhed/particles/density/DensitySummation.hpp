@@ -25,6 +25,7 @@
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
 #include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/InteractParticlesUnified.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
@@ -93,18 +94,27 @@ namespace spearhed
      *
      * Seeds each particle with its self-contribution, then accumulates
      * neighbour contributions via the pairwise pass.
+     *
+     * @tparam KernelT    SPH smoothing kernel.
+     * @tparam Interactor Pairwise-interaction launcher. Defaults to InteractParticles
+     *                    (one kernel pass per source); pass InteractParticlesUnified to
+     *                    accumulate all sources in a single launch.
      */
-    template<SphKernel KernelT>
+    template<SphKernel KernelT, typename Interactor = pmacc::spearhed::InteractParticles>
     struct UpdateDensity
     {
         void operator()(pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle, typename CS::T_Axis h0) const
         {
             pmacc::spearhed::ForEachParticleInPRBuf{}(neighbourBundle.target(), DensityInitSelf<KernelT>{});
-            pmacc::spearhed::InteractParticles{}(
+            Interactor{}(
                 std::forward<decltype(neighbourBundle)>(neighbourBundle),
                 static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
                 AccumulateDensity<KernelT>{});
         }
     };
+
+    /// Convenience alias for the single-launch unified interactor.
+    template<SphKernel KernelT>
+    using UpdateDensityUnified = UpdateDensity<KernelT, pmacc::spearhed::InteractParticlesUnified>;
 
 } // namespace spearhed
