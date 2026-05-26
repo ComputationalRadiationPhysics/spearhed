@@ -91,6 +91,14 @@ endfunction()
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
 add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
 
+# Per-test DIM2 override: shadow the global dimension.param with a 2D version
+# for the BoundaryConditions test only. BEFORE ensures the local file wins.
+target_include_directories(
+    unit_test_BoundaryConditions_BoundaryConditions
+    BEFORE
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/BoundaryConditions/param
+)
+
 ## Share a setup among selected tests
 set(_setup_dir ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/setups)
 foreach(

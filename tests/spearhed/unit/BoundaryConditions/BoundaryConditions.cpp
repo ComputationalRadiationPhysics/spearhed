@@ -18,26 +18,41 @@
  */
 
 /**
- * Unit test for compile-time region roles / boundary conditions.
+ * 2D physics test for the boundary-condition role system.
  *
- * Verifies that:
- *   1. Interior particles advance by vel * dt after ParticlePush.
- *   2. Boundary particles are completely untouched - their positions are
- *      identical before and after the push, even though their stored
- *      velocity (999 m/s) would produce a large displacement if they
- *      were incorrectly pushed.
+ * Box2DSetup places a 20x20 fluid lattice inside [-1,-1] to [1,1] surrounded
+ * by four wall strips of thickness 2*h0.  Interior particles start with an
+ * outward radial velocity; wall particles are at rest.
  *
- * This tests the central invariant of the role system: kernels constrained
- * to InteriorPRBuf cannot physically touch boundary particles.
+ * Five SPH steps (ParticlePush -> UpdateVolumes -> NeighbourSearch ->
+ * UpdateDensity -> UpdateHydroForces -> EulerIntegrate) are executed.
+ *
+ * Assertions:
+ *   1. Every boundary particle position equals its initial position within 1e-5.
+ *   2. Every interior particle position lies inside [-1-h0, 1+h0]^2.
  */
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/particles/attributes/Acceleration.hpp"
+#include "spearhed/particles/attributes/Density.hpp"
+#include "spearhed/particles/attributes/DuDt.hpp"
+#include "spearhed/particles/attributes/InternalEnergy.hpp"
+#include "spearhed/particles/attributes/Mass.hpp"
+#include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
+#include "spearhed/particles/density/DensitySummation.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
+#include "spearhed/sph/CubicSplineKernel.hpp"
+#include "spearhed/sph/HydroForces.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
+#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
+#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
@@ -46,7 +61,9 @@
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/test/PMaccFixture.hpp>
 
+#include <array>
 #include <cstdint>
+#include <vector>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -56,21 +73,36 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 namespace
 {
-    // exposes an Interior block and a Boundary block.
-    struct BoundaryWallSetup
+    // Wall thickness = 2*h0 = one full kernel support radius
+    constexpr spearhed::Real wt = spearhed::Real{2} * spearhed::h0;
+    // SC lattice spacing: 20 particles across the 2-unit interior
+    constexpr spearhed::Real sc_spacing = spearhed::Real{2} / spearhed::Real{20};
+    constexpr uint32_t gridN = 20u;
+    constexpr uint32_t totalInteriorParticles = gridN * gridN;
+
+    // Shared physical properties
+    constexpr spearhed::Real rho0 = spearhed::Real{1};
+    constexpr spearhed::Real P0 = spearhed::Real{1};
+    constexpr spearhed::Real u0 = P0 / ((spearhed::gamma_eos - spearhed::Real{1}) * rho0);
+    constexpr spearhed::Real interiorArea = spearhed::Real{4}; // 2x2 square
+    constexpr spearhed::Real particleMass = rho0 * interiorArea / static_cast<spearhed::Real>(totalInteriorParticles);
+    // Outward velocity scale: gives ~0.5*h0 displacement per step
+    constexpr spearhed::Real outwardScale = spearhed::Real{0.1f} * spearhed::h0 / spearhed::dt;
+
+    struct Box2DSetup
     {
         using Roles = std::tuple<pmacc::spearhed::roles::Interior, pmacc::spearhed::roles::Boundary>;
 
-        // Interior AABB: [-1,-1,-1] to [1,1,1], center (0,0,0).
-        // PlaceParticle sets vel to 100.f.
-        // After one push: relativePos = (0,0,0) + (100,100,100)*dt = (1,1,1).
+        // Required by SetupInterface concept - represents the interior region's domain
+        pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
+
+        // InteriorBlock
+
         struct InteriorBlock
         {
-            pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
-
             struct NumParticlesToCreate
             {
-                constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
+                DINLINE constexpr uint32_t operator()(auto&, auto&, uint32_t n) const
                 {
                     return n;
                 }
@@ -78,26 +110,39 @@ namespace
 
             auto numParticlesToCreateArgs() const
             {
-                return std::make_tuple(4u);
+                return std::make_tuple(totalInteriorParticles);
             }
 
             struct PlaceParticle
             {
-                DINLINE constexpr void operator()(
-                    auto const& /*worker*/,
-                    auto& particle,
-                    auto const& particleRegion,
-                    uint32_t /*globalParticleIdx*/) const
+                DINLINE constexpr void operator()(auto const&, auto& particle, auto const&, uint32_t globalParticleIdx)
+                    const
                 {
                     using namespace pmacc::spearhed::tags;
                     using namespace spearhed::tags;
-                    auto const& aabb = particleRegion.volume;
-                    pmacc::spearhed::for_each_tag<spearhed::CS>(
-                        [&](auto tag)
-                        {
-                            *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
-                            *particle[vel][tag] = 100.0f;
-                        });
+
+                    uint32_t const ix = globalParticleIdx % gridN;
+                    uint32_t const iy = globalParticleIdx / gridN;
+                    spearhed::Real const px
+                        = spearhed::Real{-1} + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
+                    spearhed::Real const py
+                        = spearhed::Real{-1} + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
+
+                    *particle[relativePos][x] = px;
+                    *particle[relativePos][y] = py;
+
+                    *particle[mass] = particleMass;
+                    *particle[density] = rho0;
+                    *particle[smoothingLength] = spearhed::h0;
+                    *particle[internalEnergy] = u0;
+
+                    // Outward radial velocity from origin
+                    *particle[vel][x] = outwardScale * px;
+                    *particle[vel][y] = outwardScale * py;
+
+                    pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
+                                                                { *particle[dvdt][tag] = spearhed::Real{0}; });
+                    *particle[dudt] = spearhed::Real{0};
                 }
             };
 
@@ -111,50 +156,68 @@ namespace
             {
                 using PRType = typename PRBuf::ParticleRegionType;
                 prBuf.create(1);
-                auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-                auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}}};
-                prBuf.pushBack(region);
+                auto dh = deviceHeap.getAllocatorHandle();
+                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}}});
                 prBuf.buffer->hostToDevice();
             }
         };
 
-        // Boundary AABB: [8,8,8] to [10,10,10], center (9,9,9).
-        // PlaceParticle sets vel to 999.f
-        // ParticlePush never touches the Boundary PRBuf, so positions must remain (9,9,9).
+        // BoundaryBlock
+
         struct BoundaryBlock
         {
-            pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}};
-
+            // Compute particle count from AABB dimensions and the SC lattice spacing
             struct NumParticlesToCreate
             {
-                constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
+                DINLINE constexpr uint32_t operator()(auto&, auto& particleRegion, uint32_t) const
                 {
-                    return n;
+                    using namespace pmacc::spearhed::tags;
+                    auto const& aabb = particleRegion.volume;
+                    auto const nx
+                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                    auto const ny
+                        = static_cast<uint32_t>((aabb.max[y] - aabb.min[y]) / sc_spacing + spearhed::Real{0.5});
+                    return nx * ny;
                 }
             };
 
             auto numParticlesToCreateArgs() const
             {
-                return std::make_tuple(4u);
+                return std::make_tuple(0u);
             }
 
             struct PlaceParticle
             {
                 DINLINE constexpr void operator()(
-                    auto const& /*worker*/,
+                    auto const&,
                     auto& particle,
                     auto const& particleRegion,
-                    uint32_t /*globalParticleIdx*/) const
+                    uint32_t globalParticleIdx) const
                 {
                     using namespace pmacc::spearhed::tags;
                     using namespace spearhed::tags;
+
                     auto const& aabb = particleRegion.volume;
-                    pmacc::spearhed::for_each_tag<spearhed::CS>(
-                        [&](auto tag)
-                        {
-                            *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
-                            *particle[vel][tag] = 999.0f;
-                        });
+                    uint32_t const nx
+                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                    uint32_t const ix = globalParticleIdx % nx;
+                    uint32_t const iy = globalParticleIdx / nx;
+
+                    *particle[relativePos][x]
+                        = aabb.min[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
+                    *particle[relativePos][y]
+                        = aabb.min[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
+
+                    *particle[mass] = particleMass;
+                    *particle[density] = rho0;
+                    *particle[smoothingLength] = spearhed::h0;
+                    *particle[internalEnergy] = u0;
+
+                    pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
+                                                                { *particle[vel][tag] = spearhed::Real{0}; });
+                    pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
+                                                                { *particle[dvdt][tag] = spearhed::Real{0}; });
+                    *particle[dudt] = spearhed::Real{0};
                 }
             };
 
@@ -167,10 +230,16 @@ namespace
             void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
             {
                 using PRType = typename PRBuf::ParticleRegionType;
-                prBuf.create(1);
-                auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-                auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {8.0f, 8.0f, 8.0f}, {10.0f, 10.0f, 10.0f}}};
-                prBuf.pushBack(region);
+                prBuf.create(4);
+                auto dh = deviceHeap.getAllocatorHandle();
+                // Left:   [-1-wt, -1-wt] to [-1,    1+wt]  (full height, covers corners)
+                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f - wt, -1.0f - wt}, {-1.0f, 1.0f + wt}}});
+                // Right:  [  1,   -1-wt] to [ 1+wt, 1+wt]  (full height, covers corners)
+                prBuf.pushBack(PRType{dh, {{0, 0}, {1.0f, -1.0f - wt}, {1.0f + wt, 1.0f + wt}}});
+                // Bottom: [-1,   -1-wt] to [  1,   -1   ]
+                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, -1.0f - wt}, {1.0f, -1.0f}}});
+                // Top:    [-1,    1   ] to [  1,    1+wt ]
+                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, 1.0f}, {1.0f, 1.0f + wt}}});
                 prBuf.buffer->hostToDevice();
             }
         };
@@ -222,76 +291,126 @@ namespace
 
 TEST_CASE_METHOD(
     ParticleFixture,
-    "Boundary: wall particles are frozen while interior particles advance",
-    "[boundary][roles]")
+    "Boundary: 2D box -- wall particles frozen, interior confined after 5 SPH steps",
+    "[boundary][roles][sph][2d]")
 {
     namespace roles = pmacc::spearhed::roles;
+    using namespace pmacc::spearhed::tags;
+    using namespace spearhed::tags;
 
-    BoundaryWallSetup setup;
+    Box2DSetup setup;
 
-    // Set up region geometry for each role (creates frames on the device heap)
     setup.template setupRegions<roles::Interior>(*prBuf, *deviceHeap);
     setup.template setupRegions<roles::Boundary>(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
-
-    // Multi-role InitParticles: fills Interior and Boundary PRBufs
     spearhed::InitParticles{}(setup);
 
-    // Run the pusher - touches only the Interior PRBuf
-    spearhed::ParticlePush{}(0);
+    // capture boundary initial positions
 
-    // Verify interior particles moved by vel * dt = 100 * 0.01 = 1.0
-    prBuf->buffer->deviceToHost();
-    auto interiorRegions = prBuf->buffer->getHostBuffer().getDataBox();
-    auto& interiorFrameList = interiorRegions(0).particleFrameList;
+    auto& boundaryBuf = *this->template prBufFor<roles::Boundary>();
+    boundaryBuf.buffer->deviceToHost();
+    int64_t const initHeapOffset = spearhed::syncHeapToHost();
+    auto initBox = boundaryBuf.buffer->getHostBuffer().getDataBox();
 
-    uint32_t interiorChecked = 0;
-    for(auto& frame : interiorFrameList)
+    std::vector<std::array<spearhed::Real, 2>> initBoundaryPos;
+    for(int r = 0; r < boundaryBuf.size; ++r)
     {
-        for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+        auto& frameList = initBox[r].particleFrameList;
+        for(auto& frame : frameList.hostIterable(initHeapOffset))
         {
-            auto particle = frame[slot];
-            if(*particle[pmacc::spearhed::tags::multiMask])
+            for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
             {
-                pmacc::spearhed::for_each_tag<spearhed::CS>(
-                    [&](auto tag)
-                    {
-                        float const pos = *particle[spearhed::relativePos][tag];
-                        INFO("Interior relativePos component: " << pos << " (expected 1.0)");
-                        REQUIRE(pos == Catch::Approx(1.0f).margin(1e-4f));
-                    });
-                ++interiorChecked;
+                auto particle = frame[slot];
+                if(*particle[multiMask])
+                    initBoundaryPos.push_back({*particle[relativePos][x], *particle[relativePos][y]});
             }
         }
     }
-    INFO("Interior particles checked: " << interiorChecked);
-    REQUIRE(interiorChecked > 0);
 
-    // Verify boundary particles are frozen at their initial center (9, 9, 9)
-    this->template prBufFor<roles::Boundary>()->buffer->deviceToHost();
-    auto boundaryRegions = this->template prBufFor<roles::Boundary>()->buffer->getHostBuffer().getDataBox();
-    auto& boundaryFrameList = boundaryRegions(0).particleFrameList;
+    // 5-steps of SPH physics loop
 
-    constexpr float expectedBoundaryPos = 9.0f; // center of [8,10]
+    using K = spearhed::CubicSplineKernel;
+    constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
 
-    uint32_t boundaryChecked = 0;
-    for(auto& frame : boundaryFrameList)
+    for(uint32_t step = 0; step < 5u; ++step)
     {
-        for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+        spearhed::ParticlePush{}(step);
+        pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+        auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(
+            *prBuf,
+            interactionRadius,
+            *prBuf,
+            *this->template prBufFor<roles::Boundary>());
+        spearhed::UpdateDensity<K>{}(bundle, spearhed::h0);
+        spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, spearhed::h0);
+        pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::EulerIntegrate{}, spearhed::dt);
+    }
+
+    // CHECK 1: boundary positions frozen
+
+    {
+        boundaryBuf.buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto finalBox = boundaryBuf.buffer->getHostBuffer().getDataBox();
+
+        uint32_t checkedCount = 0u;
+        std::size_t posIdx = 0u;
+        for(int r = 0; r < boundaryBuf.size; ++r)
         {
-            auto particle = frame[slot];
-            if(*particle[pmacc::spearhed::tags::multiMask])
+            auto& frameList = finalBox[r].particleFrameList;
+            for(auto& frame : frameList.hostIterable(heapOffset))
             {
-                pmacc::spearhed::for_each_tag<spearhed::CS>(
-                    [&](auto tag)
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                {
+                    auto particle = frame[slot];
+                    if(*particle[multiMask])
                     {
-                        float const pos = *particle[spearhed::relativePos][tag];
-                        INFO("Boundary relativePos component: " << pos << " (expected " << expectedBoundaryPos << ")");
-                        REQUIRE(pos == Catch::Approx(expectedBoundaryPos).margin(1e-4f));
-                    });
-                ++boundaryChecked;
+                        REQUIRE(
+                            static_cast<double>(*particle[relativePos][x])
+                            == Catch::Approx(static_cast<double>(initBoundaryPos[posIdx][0])).margin(1e-5));
+                        REQUIRE(
+                            static_cast<double>(*particle[relativePos][y])
+                            == Catch::Approx(static_cast<double>(initBoundaryPos[posIdx][1])).margin(1e-5));
+                        ++posIdx;
+                        ++checkedCount;
+                    }
+                }
             }
         }
+        REQUIRE(checkedCount > 0u);
     }
-    INFO("Boundary particles checked: " << boundaryChecked);
-    REQUIRE(boundaryChecked > 0);
+
+    // CHECK 2: interior confined in [-1-h0, 1+h0]^2
+
+    {
+        prBuf->buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto interiorBox = prBuf->buffer->getHostBuffer().getDataBox();
+
+        constexpr spearhed::Real lo = -1.0f - spearhed::h0;
+        constexpr spearhed::Real hi = 1.0f + spearhed::h0;
+
+        uint32_t checkedCount = 0u;
+        for(int r = 0; r < prBuf->size; ++r)
+        {
+            auto& frameList = interiorBox[r].particleFrameList;
+            for(auto& frame : frameList.hostIterable(heapOffset))
+            {
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                {
+                    auto particle = frame[slot];
+                    if(*particle[multiMask])
+                    {
+                        spearhed::Real const px = *particle[relativePos][x];
+                        spearhed::Real const py = *particle[relativePos][y];
+                        REQUIRE(px >= lo);
+                        REQUIRE(px <= hi);
+                        REQUIRE(py >= lo);
+                        REQUIRE(py <= hi);
+                        ++checkedCount;
+                    }
+                }
+            }
+        }
+        REQUIRE(checkedCount > 0u);
+    }
 }
