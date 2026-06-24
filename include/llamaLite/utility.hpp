@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
@@ -70,6 +71,19 @@ namespace llama_lite
     static consteval uint32_t countTypeOccurrences()
     {
         return ((std::is_same_v<QueryT, SearchTs> ? 1 : 0) + ... + 0);
+    }
+
+    /** Index of the first occurrence of QueryT in the pack SearchTs...
+     *  Evaluates to sizeof...(SearchTs) if QueryT is absent, so callers can
+     *  static_assert(indexOfType < sizeof...(SearchTs)) for a tailored message.
+     */
+    template<typename QueryT, typename... SearchTs>
+    static consteval std::size_t indexOfType()
+    {
+        std::size_t idx = 0;
+        bool found = false;
+        ((found || (std::is_same_v<QueryT, SearchTs> ? (found = true) : (++idx, false))), ...);
+        return idx;
     }
 
 

@@ -28,6 +28,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include <llamaLite/utility.hpp>
+
 namespace pmacc::spearhed
 {
     namespace detail
@@ -42,15 +44,6 @@ namespace pmacc::spearhed
             {
             }
         };
-
-        template<typename T_Role, typename... T_Entries>
-        constexpr std::size_t roleIndexIn()
-        {
-            std::size_t i = 0;
-            bool found = false;
-            ((found || (std::is_same_v<typename T_Entries::Role, T_Role> ? (found = true) : (++i, false))), ...);
-            return i;
-        }
     } // namespace detail
 
     /**
@@ -142,7 +135,7 @@ namespace pmacc::spearhed
         template<typename T_Role>
         auto& get()
         {
-            constexpr std::size_t idx = detail::roleIndexIn<T_Role, T_Entries...>();
+            constexpr std::size_t idx = llama_lite::indexOfType<T_Role, typename T_Entries::Role...>();
             static_assert(idx < sizeof...(T_Entries), "Role not present in NeighbourBundleView");
             return *std::get<idx>(entryPtrs);
         }
@@ -179,7 +172,7 @@ namespace pmacc::spearhed
         template<typename T_Role>
         auto& get()
         {
-            constexpr std::size_t idx = detail::roleIndexIn<T_Role, T_Entries...>();
+            constexpr std::size_t idx = llama_lite::indexOfType<T_Role, typename T_Entries::Role...>();
             static_assert(idx < sizeof...(T_Entries), "Role not present in NeighbourBundle");
             return std::get<idx>(entries);
         }

@@ -39,10 +39,7 @@ namespace pmacc::spearhed
         template<ll::IsTagPath Query, ll::IsTagPath... Paths>
         constexpr size_t leafPathIndex(ll::Tuple<Paths...>)
         {
-            size_t i = 0;
-            bool found = false;
-            ((found || (std::is_same_v<Query, Paths> ? (found = true) : (++i, false))), ...);
-            return i;
+            return ll::indexOfType<Query, Paths...>();
         }
     } // namespace detail
 
