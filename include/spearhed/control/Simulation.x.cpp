@@ -131,11 +131,9 @@ namespace spearhed
             BaseType::startSimulation();
     }
 
-    void Simulation::runOneStep(uint32_t currentStep)
+    template<typename K>
+    void Simulation::stepWithKernel(uint32_t /*currentStep*/)
     {
-        ParticlePush{}(currentStep);
-        pmacc::spearhed::UpdateVolumes<PRType>{}();
-
         auto& dc = pmacc::Environment<>::get().DataConnector();
         auto& interior = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
             pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
@@ -146,31 +144,32 @@ namespace spearhed
                   ? dc.get<BoundaryPRBuf>(pmacc::spearhed::prBufId<pmacc::spearhed::roles::Boundary>()).get()
                   : nullptr;
 
+        auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
+
+        auto doStep = [&](auto&... sources)
+        {
+            auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(interior, interactionRadius, sources...);
+            spearhed::UpdateDensity<K>{}(bundle, h0);
+            spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
+
+            // Euler update: v += dvdt*dt, u += dudt*dt
+            pmacc::spearhed::ForEachParticleInPRBuf{}(interior, spearhed::EulerIntegrate{}, dt);
+        };
+
+        if(boundaryPtr)
+            doStep(interior, *boundaryPtr);
+        else
+            doStep(interior);
+    }
+
+    void Simulation::runOneStep(uint32_t currentStep)
+    {
+        ParticlePush{}(currentStep);
+        pmacc::spearhed::UpdateVolumes<PRType>{}();
+
         // Single host-side visit turns the runtime kernel choice into a
         // compile-time template parameter for the device path
-        std::visit(
-            [&](auto kernel)
-            {
-                using K = std::decay_t<decltype(kernel)>;
-                auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
-
-                auto doStep = [&](auto&... sources)
-                {
-                    auto bundle
-                        = pmacc::spearhed::CalculateNeighbourRegions{}(interior, interactionRadius, sources...);
-                    spearhed::UpdateDensity<K>{}(bundle, h0);
-                    spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
-
-                    // Euler update: v += dvdt*dt, u += dudt*dt
-                    pmacc::spearhed::ForEachParticleInPRBuf{}(interior, spearhed::EulerIntegrate{}, dt);
-                };
-
-                if(boundaryPtr)
-                    doStep(interior, *boundaryPtr);
-                else
-                    doStep(interior);
-            },
-            kernelVariant);
+        std::visit([&](auto kernel) { stepWithKernel<decltype(kernel)>(currentStep); }, kernelVariant);
     }
 
     void Simulation::init()
