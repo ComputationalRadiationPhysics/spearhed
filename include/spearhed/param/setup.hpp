@@ -43,7 +43,13 @@ namespace spearhed
 
         uint32_t totalParticles = 1000u;
 
+        // Single-role setup: it acts as its own block for every role it defines.
         template<typename Role>
+        auto const& block() const
+        {
+            return *this;
+        }
+
         struct NumParticlesToCreate
         {
             constexpr auto operator()(auto& /*worker*/, auto& /*particleRegion*/, uint32_t totalParticles) const
@@ -52,13 +58,11 @@ namespace spearhed
             }
         };
 
-        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(totalParticles);
         }
 
-        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -74,7 +78,6 @@ namespace spearhed
             }
         };
 
-        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
@@ -82,9 +85,7 @@ namespace spearhed
 
         KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-        template<typename Role>
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf, DeviceHeap const& deviceHeap)
-            const
+        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
             prBuf.create(1);
 

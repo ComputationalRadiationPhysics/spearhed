@@ -22,25 +22,45 @@
 #include "spearhed/param.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <type_traits>
+#include <utility>
 
 namespace spearhed
 {
+    // A setup is composed of one "block" per role. A block describes how a single role's
+    // particles are counted, placed, and how its regions are created. Single-role setups can
+    // act as their own block; multi-role setups return a distinct block object per role.
+    //
     // @TODO investigate a way to define setups and their parameters in a text file, which can be read at runtime
-    // Interior is used as proxy role to check per-role template requirements.
-    template<typename T>
-    concept SetupInterface = requires(
-        T a,
+    template<typename B>
+    concept SetupBlock = requires(
+        B b,
         pmacc::spearhed::ParticleRegionBuffer<PRType, pmacc::spearhed::roles::Interior>& prBuf,
         DeviceHeap const& deviceHeap) {
-        typename T::Roles;
-        { a.template setupRegions<pmacc::spearhed::roles::Interior>(prBuf, deviceHeap) } -> std::same_as<void>;
-        { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
-        typename T::template NumParticlesToCreate<pmacc::spearhed::roles::Interior>;
+        { b.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
+        // Functor type deciding how many particles a region creates.
+        typename B::NumParticlesToCreate;
+        // Host-side args forwarded into NumParticlesToCreate.
         // This is currently a std::tuple unpacked on the host side
         // TODO switch to a device friendly compile time dictionary
-        { a.template numParticlesToCreateArgs<pmacc::spearhed::roles::Interior>() };
-        typename T::template PlaceParticle<pmacc::spearhed::roles::Interior>;
-        { a.template placeParticleArgs<pmacc::spearhed::roles::Interior>() };
+        { b.numParticlesToCreateArgs() };
+        // Functor type placing each particle's attributes.
+        typename B::PlaceParticle;
+        // Host-side args forwarded into PlaceParticle.
+        { b.placeParticleArgs() };
     };
+
+    // The block type a setup exposes for a given role.
+    template<typename T, typename Role>
+    using SetupBlockOf = std::remove_cvref_t<decltype(std::declval<T const&>().template block<Role>())>;
+
+    template<typename T>
+    concept SetupInterface = requires(T a) {
+        // Compile-time list (std::tuple) of the roles this setup defines.
+        typename T::Roles;
+        { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
+    } && SetupBlock<SetupBlockOf<T, pmacc::spearhed::roles::Interior>>;
 
 } // namespace spearhed

@@ -87,7 +87,13 @@ namespace
 
         static constexpr uint32_t N = 2u;
 
+        // Single-role setup: it acts as its own block for every role it defines.
         template<typename Role>
+        auto const& block() const
+        {
+            return *this;
+        }
+
         struct NumParticlesToCreate
         {
             constexpr auto operator()(auto& /*worker*/, auto& /*region*/, uint32_t n) const
@@ -96,13 +102,11 @@ namespace
             }
         };
 
-        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(N);
         }
 
-        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -141,15 +145,13 @@ namespace
 
         spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
 
-        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
-        template<typename Role>
         void setupRegions(
-            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
+            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
             spearhed::DeviceHeap const& deviceHeap) const
         {
             prBuf.create(1);

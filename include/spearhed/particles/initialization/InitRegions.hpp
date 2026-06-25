@@ -45,7 +45,7 @@ namespace spearhed
             {
                 auto prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType, Role>>();
                 dc.share(prBuf);
-                setup.template setupRegions<Role>(*prBuf, deviceHeap);
+                setup.template block<Role>().setupRegions(*prBuf, deviceHeap);
             };
 
             [&]<std::size_t... I>(std::index_sequence<I...>)

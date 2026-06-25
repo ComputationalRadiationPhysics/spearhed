@@ -274,10 +274,12 @@ namespace spearhed
              * - we need some natural order of particle initialization, which can be split by number of frame slots
              * so that particle init can be independent across blocks and threads
              */
-            auto argsForNumParticles
-                = pmacc::memory::tuple::fromStlTuple(setup.template numParticlesToCreateArgs<Role>());
-            auto placeParticle = typename TSetup::template PlaceParticle<Role>{};
-            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(setup.template placeParticleArgs<Role>());
+            auto const& block = setup.template block<Role>();
+            using Block = std::remove_cvref_t<decltype(block)>;
+
+            auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(block.numParticlesToCreateArgs());
+            auto placeParticle = typename Block::PlaceParticle{};
+            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(block.placeParticleArgs());
 
             // Launch a kernel to calculate num particles & num frames to create for each PR
             // Uses one block for each PR to calculate these 2 numbers.
@@ -285,8 +287,7 @@ namespace spearhed
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-            PMACC_LOCKSTEP_KERNEL(
-                init::detail::CalculateFramesPerRegion<typename TSetup::template NumParticlesToCreate<Role>>{})
+            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
                     prBuf.getDeviceDataBox(),
                     prBuf.size,

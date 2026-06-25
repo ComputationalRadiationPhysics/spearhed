@@ -248,43 +248,15 @@ namespace
         InteriorBlock interior;
         BoundaryBlock boundary;
 
+        // Multi-role setup: hand out the per-role block. InitParticles/InitRegions pull the
+        // NumParticlesToCreate/PlaceParticle/setupRegions interface straight off the block.
         template<typename Role>
-        void setupRegions(auto& prBuf, auto const& dh) const
+        auto const& block() const
         {
             if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
-                interior.setupRegions(prBuf, dh);
+                return interior;
             else
-                boundary.setupRegions(prBuf, dh);
-        }
-
-        template<typename Role>
-        using NumParticlesToCreate = std::conditional_t<
-            std::same_as<Role, pmacc::spearhed::roles::Interior>,
-            InteriorBlock::NumParticlesToCreate,
-            BoundaryBlock::NumParticlesToCreate>;
-
-        template<typename Role>
-        auto numParticlesToCreateArgs() const
-        {
-            if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
-                return interior.numParticlesToCreateArgs();
-            else
-                return boundary.numParticlesToCreateArgs();
-        }
-
-        template<typename Role>
-        using PlaceParticle = std::conditional_t<
-            std::same_as<Role, pmacc::spearhed::roles::Interior>,
-            InteriorBlock::PlaceParticle,
-            BoundaryBlock::PlaceParticle>;
-
-        template<typename Role>
-        auto placeParticleArgs() const
-        {
-            if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
-                return interior.placeParticleArgs();
-            else
-                return boundary.placeParticleArgs();
+                return boundary;
         }
     };
 
@@ -301,8 +273,8 @@ TEST_CASE_METHOD(
 
     Box2DSetup setup;
 
-    setup.template setupRegions<roles::Interior>(*prBuf, *deviceHeap);
-    setup.template setupRegions<roles::Boundary>(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    setup.template block<roles::Interior>().setupRegions(*prBuf, *deviceHeap);
+    setup.template block<roles::Boundary>().setupRegions(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
     spearhed::InitParticles{}(setup);
 
     // capture boundary initial positions
@@ -431,8 +403,8 @@ TEST_CASE_METHOD(
     using namespace spearhed::tags;
 
     Box2DSetup setup;
-    setup.template setupRegions<roles::Interior>(*prBuf, *deviceHeap);
-    setup.template setupRegions<roles::Boundary>(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    setup.template block<roles::Interior>().setupRegions(*prBuf, *deviceHeap);
+    setup.template block<roles::Boundary>().setupRegions(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
     spearhed::InitParticles{}(setup);
 
     using K = spearhed::CubicSplineKernel;

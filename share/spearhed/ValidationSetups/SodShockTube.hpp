@@ -59,7 +59,13 @@ namespace spearhed
         // Each region receives a share proportional to rho * V, giving equal particle mass.
         uint32_t totalParticles = 32000u;
 
+        // Single-role setup: it acts as its own block for every role it defines.
         template<typename Role>
+        auto const& block() const
+        {
+            return *this;
+        }
+
         struct NumParticlesToCreate
         {
             // Number of particles to create per particle region.
@@ -82,7 +88,6 @@ namespace spearhed
             }
         };
 
-        template<typename Role>
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(
@@ -92,7 +97,6 @@ namespace spearhed
                 totalWeightedVolume);
         }
 
-        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -107,16 +111,13 @@ namespace spearhed
             }
         };
 
-        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
-        template<typename Role>
-        HINLINE void setupRegions(
-            pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf,
-            DeviceHeap const& deviceHeap) const
+        HINLINE void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)
+            const
         {
             prBuf.create(2);
 

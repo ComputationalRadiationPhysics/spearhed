@@ -39,20 +39,24 @@ namespace spearhed
 
         uint32_t baseNumParticlesToCreate = 400u;
 
+        // Single-role setup: it acts as its own block for every role it defines.
         template<typename Role>
+        auto const& block() const
+        {
+            return *this;
+        }
+
         auto numParticlesToCreateArgs() const
         {
             return std::make_tuple(baseNumParticlesToCreate);
         }
 
-        template<typename Role>
         auto placeParticleArgs() const
         {
             return std::make_tuple();
         }
 
         // calculate how many particles we need to make in this system
-        template<typename Role>
         struct NumParticlesToCreate
         {
             constexpr auto operator()(
@@ -67,7 +71,6 @@ namespace spearhed
         };
 
         // place each particle at the center of its particle region's AABB
-        template<typename Role>
         struct PlaceParticle
         {
             DINLINE constexpr void operator()(
@@ -82,8 +85,7 @@ namespace spearhed
             }
         };
 
-        template<typename Role>
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType, Role>& prBuf, DeviceHeap const& deviceHeap)
+        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
         {
             prBuf.create(N);
             PRType boundedParticles{deviceHeap.getAllocatorHandle()};

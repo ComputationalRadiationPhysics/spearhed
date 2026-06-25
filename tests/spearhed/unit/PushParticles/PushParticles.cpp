@@ -53,20 +53,24 @@ struct SpeedyRegion
 
     uint32_t baseNumParticlesToCreate = 400u;
 
+    // Single-role setup: it acts as its own block for every role it defines.
     template<typename Role>
+    auto const& block() const
+    {
+        return *this;
+    }
+
     auto numParticlesToCreateArgs() const
     {
         return std::make_tuple(baseNumParticlesToCreate);
     }
 
-    template<typename Role>
     auto placeParticleArgs() const
     {
         return std::make_tuple();
     }
 
     // calculate how many particles we need to make in this system
-    template<typename Role>
     struct NumParticlesToCreate
     {
         constexpr auto operator()(
@@ -81,7 +85,6 @@ struct SpeedyRegion
     };
 
     // place each particle at the center of its particle region's AABB
-    template<typename Role>
     struct PlaceParticle
     {
         DINLINE constexpr void operator()(
@@ -100,10 +103,9 @@ struct SpeedyRegion
         }
     };
 
-    template<typename Role>
     void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType, Role>& prBuf,
-        spearhed::DeviceHeap const& deviceHeap)
+        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
+        spearhed::DeviceHeap const& deviceHeap) const
     {
         prBuf.create(1);
         spearhed::PRType boundedParticles{deviceHeap.getAllocatorHandle(), domain};
