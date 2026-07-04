@@ -265,13 +265,4 @@ namespace llama_lite
     requires(to_path_t<Prefix>::template isAncestorOf<FullPath>())
     using relative_path_t = typename FullPath::template drop_first<to_path_t<Prefix>::depth>;
 
-    /**
-     * Container to hold constexpr tag values (non-type template parameters).
-     */
-    template<IsRecordAccess auto... Tags>
-    struct TagList
-    {
-    };
-
-
 } // namespace llama_lite

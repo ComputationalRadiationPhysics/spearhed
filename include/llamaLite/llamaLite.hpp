@@ -8,6 +8,7 @@
 #include "llamaLite/DynSoA.hpp"
 #include "llamaLite/One.hpp"
 #include "llamaLite/Record.hpp"
+#include "llamaLite/Set.hpp"
 #include "llamaLite/Soa.hpp"
 #include "llamaLite/SubRecord.hpp"
 #include "llamaLite/tag/identifier.hpp"
