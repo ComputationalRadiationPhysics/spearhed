@@ -106,7 +106,8 @@ namespace pmacc::spearhed
      * regionOffsets[targetIdx] .. regionOffsets[targetIdx+1] indexes into neighbourRegions for targetIdx.
      * neighbourRegions holds source-region indices (into the source PRBuf, not the target).
      *
-     * Call bundle.subset<Roles...>() to get a narrower view for kernels that only need certain sources.
+     * Call bundle.byRole(role) (or bySpecies(species)) to get a narrower view for kernels that only
+     * need certain sources.
      */
     struct CalculateNeighbourRegions
     {

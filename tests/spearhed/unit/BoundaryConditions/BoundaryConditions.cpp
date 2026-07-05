@@ -44,12 +44,13 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/density/DensitySummation.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/HydroForces.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
@@ -92,15 +93,15 @@ namespace
 
     struct Box2DSetup
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior, pmacc::spearhed::roles::Boundary>;
-
         // Required by SetupInterface concept - represents the interior region's domain
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
 
-        // InteriorBlock
+        // InteriorBlock fills the Default species (interior + movable + source).
 
         struct InteriorBlock
         {
+            using Species = pmacc::spearhed::species::Default;
+
             struct NumParticlesToCreate
             {
                 DINLINE constexpr uint32_t operator()(auto&, auto&, uint32_t n) const
@@ -152,21 +153,19 @@ namespace
                 return std::make_tuple();
             }
 
-            template<typename PRBuf, typename DeviceHeapT>
-            void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+            template<typename>
+            void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
             {
-                using PRType = typename PRBuf::ParticleRegionType;
-                prBuf.create(1);
-                auto dh = deviceHeap.getAllocatorHandle();
-                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}}});
-                prBuf.buffer->hostToDevice();
+                out.push_back(pmacc::spearhed::AABB<spearhed::CS>{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}});
             }
         };
 
-        // BoundaryBlock
+        // BoundaryBlock fills the Boundary species (frozen + source).
 
         struct BoundaryBlock
         {
+            using Species = pmacc::spearhed::species::Boundary;
+
             // Compute particle count from AABB dimensions and the SC lattice spacing
             struct NumParticlesToCreate
             {
@@ -227,36 +226,30 @@ namespace
                 return std::make_tuple();
             }
 
-            template<typename PRBuf, typename DeviceHeapT>
-            void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+            template<typename>
+            void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
             {
-                using PRType = typename PRBuf::ParticleRegionType;
-                prBuf.create(4);
-                auto dh = deviceHeap.getAllocatorHandle();
+                using AABB = pmacc::spearhed::AABB<spearhed::CS>;
                 // Left:   [-1-wt, -1-wt] to [-1,    1+wt]  (full height, covers corners)
-                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f - wt, -1.0f - wt}, {-1.0f, 1.0f + wt}}});
+                out.push_back(AABB{{0, 0}, {-1.0f - wt, -1.0f - wt}, {-1.0f, 1.0f + wt}});
                 // Right:  [  1,   -1-wt] to [ 1+wt, 1+wt]  (full height, covers corners)
-                prBuf.pushBack(PRType{dh, {{0, 0}, {1.0f, -1.0f - wt}, {1.0f + wt, 1.0f + wt}}});
+                out.push_back(AABB{{0, 0}, {1.0f, -1.0f - wt}, {1.0f + wt, 1.0f + wt}});
                 // Bottom: [-1,   -1-wt] to [  1,   -1   ]
-                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, -1.0f - wt}, {1.0f, -1.0f}}});
+                out.push_back(AABB{{0, 0}, {-1.0f, -1.0f - wt}, {1.0f, -1.0f}});
                 // Top:    [-1,    1   ] to [  1,    1+wt ]
-                prBuf.pushBack(PRType{dh, {{0, 0}, {-1.0f, 1.0f}, {1.0f, 1.0f + wt}}});
-                prBuf.buffer->hostToDevice();
+                out.push_back(AABB{{0, 0}, {-1.0f, 1.0f}, {1.0f, 1.0f + wt}});
             }
         };
 
         InteriorBlock interior;
         BoundaryBlock boundary;
 
-        // Multi-role setup: hand out the per-role block. InitParticles/InitRegions pull the
-        // NumParticlesToCreate/PlaceParticle/setupRegions interface straight off the block.
-        template<typename Role>
-        auto const& block() const
+        // The setup just lists its init blocks; each block names the species it fills. Init iterates
+        // this tuple. The two blocks are organised independently of any role - roles live on the
+        // species (Default: Interior+Movable+Source, Boundary: Frozen+Source).
+        auto blocks() const
         {
-            if constexpr(std::same_as<Role, pmacc::spearhed::roles::Interior>)
-                return interior;
-            else
-                return boundary;
+            return std::tie(interior, boundary);
         }
     };
 
@@ -267,19 +260,18 @@ TEST_CASE_METHOD(
     "Boundary: 2D box -- wall particles frozen, interior confined after 5 SPH steps",
     "[boundary][roles][sph][2d]")
 {
-    namespace roles = pmacc::spearhed::roles;
+    namespace species = pmacc::spearhed::species;
     using namespace pmacc::spearhed::tags;
     using namespace spearhed::tags;
 
     Box2DSetup setup;
 
-    setup.template block<roles::Interior>().setupRegions(*prBuf, *deviceHeap);
-    setup.template block<roles::Boundary>().setupRegions(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     // capture boundary initial positions
 
-    auto& boundaryBuf = *this->template prBufFor<roles::Boundary>();
+    auto& boundaryBuf = *this->template prBufFor<species::Boundary>();
     boundaryBuf.buffer->deviceToHost();
     int64_t const initHeapOffset = spearhed::syncHeapToHost();
     auto initBox = boundaryBuf.buffer->getHostBuffer().getDataBox();
@@ -312,10 +304,14 @@ TEST_CASE_METHOD(
             *prBuf,
             interactionRadius,
             *prBuf,
-            *this->template prBufFor<roles::Boundary>());
+            *this->template prBufFor<species::Boundary>());
         spearhed::UpdateDensity<K>{}(bundle, spearhed::h0);
         spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, spearhed::h0);
-        pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::EulerIntegrate{}, spearhed::dt);
+        pmacc::spearhed::launchForEach(
+            pmacc::spearhed::levels::particle,
+            *prBuf,
+            spearhed::EulerIntegrate{},
+            spearhed::dt);
     }
 
     // CHECK 1: boundary positions frozen
@@ -398,13 +394,12 @@ TEST_CASE_METHOD(
     "Boundary: InteractParticlesUnified produces same density as InteractParticles",
     "[boundary][roles][unified]")
 {
-    namespace roles = pmacc::spearhed::roles;
+    namespace species = pmacc::spearhed::species;
     using namespace pmacc::spearhed::tags;
     using namespace spearhed::tags;
 
     Box2DSetup setup;
-    setup.template block<roles::Interior>().setupRegions(*prBuf, *deviceHeap);
-    setup.template block<roles::Boundary>().setupRegions(*this->template prBufFor<roles::Boundary>(), *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     using K = spearhed::CubicSplineKernel;
@@ -416,7 +411,7 @@ TEST_CASE_METHOD(
         *prBuf,
         interactionRadius,
         *prBuf,
-        *this->template prBufFor<roles::Boundary>());
+        *this->template prBufFor<species::Boundary>());
 
     // Reads every live interior particle's density in deterministic (region, frame, slot)
     // order. No particles move between the two passes, so the frame layout - and thus this
@@ -445,12 +440,12 @@ TEST_CASE_METHOD(
     };
 
     // Reference: classic per-source InteractParticles (one kernel launch per source).
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
     pmacc::spearhed::InteractParticles{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
     auto const referenceDensities = readInteriorDensities();
 
     // Unified: single-launch kernel over the same bundle (re-seed the self term first).
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
     pmacc::spearhed::InteractParticlesUnified{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
     auto const unifiedDensities = readInteriorDensities();
 
@@ -462,4 +457,167 @@ TEST_CASE_METHOD(
         REQUIRE(std::isfinite(unifiedDensities[i]));
         REQUIRE(unifiedDensities[i] == Catch::Approx(referenceDensities[i]).epsilon(1e-5));
     }
+}
+
+namespace
+{
+    // Counts the live particles across every region of a species buffer.
+    template<typename Buf>
+    int countLiveParticles(Buf& buf)
+    {
+        using namespace pmacc::spearhed::tags;
+        using namespace spearhed::tags;
+        buf.buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto box = buf.buffer->getHostBuffer().getDataBox();
+
+        int live = 0;
+        for(int r = 0; r < buf.size; ++r)
+        {
+            auto& frameList = box[r].particleFrameList;
+            for(auto& frame : frameList.hostIterable(heapOffset))
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                    if(*frame[slot][multiMask])
+                        ++live;
+        }
+        return live;
+    }
+
+    // Minimal placement: drop each particle at its region centre. SPH attributes are left zeroed
+    // by the initializer; these tests only assert on region and particle counts.
+    struct PlaceAtCentre
+    {
+        DINLINE constexpr void operator()(auto const&, auto& particle, auto const& region, uint32_t) const
+        {
+            using namespace pmacc::spearhed::tags;
+            auto const& aabb = region.volume;
+            pmacc::spearhed::for_each_tag<spearhed::CS>(
+                [&](auto tag)
+                { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+        }
+    };
+
+    struct FixedCount
+    {
+        DINLINE constexpr uint32_t operator()(auto&, auto&, uint32_t n) const
+        {
+            return n;
+        }
+    };
+
+    // One init block that fills the Default species with a single region of `count` particles.
+    struct InteriorChunk
+    {
+        using Species = pmacc::spearhed::species::Default;
+
+        spearhed::Real centreX;
+        uint32_t count;
+
+        using NumParticlesToCreate = FixedCount;
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(count);
+        }
+
+        using PlaceParticle = PlaceAtCentre;
+
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
+        }
+
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
+        {
+            out.push_back(
+                pmacc::spearhed::AABB<spearhed::CS>{{0, 0}, {centreX - 0.4f, -0.4f}, {centreX + 0.4f, 0.4f}});
+        }
+    };
+
+    // Two independent blocks, both targeting the Default species. Their regions are concatenated
+    // into Default's single buffer (overlap would be allowed; here they are merely adjacent).
+    struct TwoBlocksOneSpecies
+    {
+        pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
+        InteriorChunk first{-0.5f, 3u};
+        InteriorChunk second{0.5f, 5u};
+
+        auto blocks() const
+        {
+            return std::tie(first, second);
+        }
+    };
+
+    // One init block that fills two species at once: an Interior region on the left half and a
+    // Boundary region on the right half. The counting/placement recipe is shared across both.
+    struct SplitBlock
+    {
+        using Species = std::tuple<pmacc::spearhed::species::Default, pmacc::spearhed::species::Boundary>;
+
+        using NumParticlesToCreate = FixedCount;
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(4u);
+        }
+
+        using PlaceParticle = PlaceAtCentre;
+
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
+        }
+
+        template<typename S>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
+        {
+            using AABB = pmacc::spearhed::AABB<spearhed::CS>;
+            if constexpr(std::same_as<S, pmacc::spearhed::species::Default>)
+                out.push_back(AABB{{0, 0}, {-1.0f, -1.0f}, {0.0f, 1.0f}});
+            else
+                out.push_back(AABB{{0, 0}, {0.0f, -1.0f}, {1.0f, 1.0f}});
+        }
+    };
+
+    struct OneBlockTwoSpecies
+    {
+        pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
+        SplitBlock block;
+
+        auto blocks() const
+        {
+            return std::tie(block);
+        }
+    };
+} // namespace
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "Init: two blocks feed one species -- regions concatenated",
+    "[boundary][roles][init]")
+{
+    TwoBlocksOneSpecies setup;
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::InitParticles{}(setup);
+
+    // Interior's buffer holds both blocks' regions back to back, each filled by its own recipe.
+    REQUIRE(prBuf->size == 2);
+    REQUIRE(countLiveParticles(*prBuf) == 3 + 5);
+}
+
+TEST_CASE_METHOD(ParticleFixture, "Init: one block feeds two species", "[boundary][roles][init]")
+{
+    namespace species = pmacc::spearhed::species;
+
+    OneBlockTwoSpecies setup;
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::InitParticles{}(setup);
+
+    auto& boundary = *this->template prBufFor<species::Boundary>();
+
+    REQUIRE(prBuf->size == 1);
+    REQUIRE(boundary.size == 1);
+    REQUIRE(countLiveParticles(*prBuf) == 4);
+    REQUIRE(countLiveParticles(boundary) == 4);
 }

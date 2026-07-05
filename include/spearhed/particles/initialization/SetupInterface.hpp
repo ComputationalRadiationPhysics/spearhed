@@ -24,26 +24,68 @@
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
 
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace spearhed
 {
-    // A setup is composed of one "block" per role. A block describes how a single role's
-    // particles are counted, placed, and how its regions are created. Single-role setups can
-    // act as their own block; multi-role setups return a distinct block object per role.
+    // Init is organised as a free collection of "blocks". A block is decoupled from roles: it only
+    // names the *species* it fills (one, or several via std::tuple) and describes, per target species,
+    // which region volumes to create and a single (per-block) recipe for counting and placing particles.
     //
-    // @TODO investigate a way to define setups and their parameters in a text file, which can be read at runtime
+    // Region creation is append-only: a block emits AABB volumes into a vector via
+    // addRegions<Species>; the init driver owns buffer allocation. This lets several blocks feed the
+    // same species (their regions are simply concatenated, overlaps allowed) and lets one block feed
+    // several species. The counting/placement recipe is uniform across a block's regions - if it must
+    // differ per region it branches on the region it is handed (as SodShockTube does for left/right).
+    //
+    // @TODO investigate a way to define setups and their parameters in a text file, read at runtime.
+
+    namespace detail
+    {
+        // A block's Species may be a single tag or a std::tuple of tags; normalise to a tuple.
+        template<typename T>
+        struct AsSpeciesList
+        {
+            using type = std::tuple<T>;
+        };
+
+        template<typename... T>
+        struct AsSpeciesList<std::tuple<T...>>
+        {
+            using type = std::tuple<T...>;
+        };
+
+        template<typename T, typename Tuple>
+        struct InList : std::false_type
+        {
+        };
+
+        template<typename T, typename... Us>
+        struct InList<T, std::tuple<Us...>> : std::bool_constant<(std::same_as<T, Us> || ...)>
+        {
+        };
+    } // namespace detail
+
+    /** The (always-tuple) list of species a block fills. */
     template<typename B>
-    concept SetupBlock = requires(
-        B b,
-        pmacc::spearhed::ParticleRegionBuffer<PRType, pmacc::spearhed::roles::Interior>& prBuf,
-        DeviceHeap const& deviceHeap) {
-        { b.setupRegions(prBuf, deviceHeap) } -> std::same_as<void>;
+    using BlockSpeciesList = typename detail::AsSpeciesList<typename B::Species>::type;
+
+    /** True iff block @p B creates regions for species @p S. */
+    template<typename B, typename S>
+    inline constexpr bool blockTargets = detail::InList<S, BlockSpeciesList<B>>::value;
+
+    template<typename B>
+    concept SetupBlock = requires(B const b, std::vector<pmacc::spearhed::AABB<CS>>& out) {
+        // The species (one tag, or a std::tuple of tags) this block fills.
+        typename B::Species;
+        // Append the region volumes this block contributes to species S (host-side, no device alloc).
+        { b.template addRegions<std::tuple_element_t<0, BlockSpeciesList<B>>>(out) } -> std::same_as<void>;
         // Functor type deciding how many particles a region creates.
         typename B::NumParticlesToCreate;
         // Host-side args forwarded into NumParticlesToCreate.
-        // This is currently a std::tuple unpacked on the host side
         // TODO switch to a device friendly compile time dictionary
         { b.numParticlesToCreateArgs() };
         // Functor type placing each particle's attributes.
@@ -52,15 +94,21 @@ namespace spearhed
         { b.placeParticleArgs() };
     };
 
-    // The block type a setup exposes for a given role.
-    template<typename T, typename Role>
-    using SetupBlockOf = std::remove_cvref_t<decltype(std::declval<T const&>().template block<Role>())>;
+    namespace detail
+    {
+        template<typename Tuple>
+        inline constexpr bool allSetupBlocks = false;
 
+        template<typename... B>
+        inline constexpr bool allSetupBlocks<std::tuple<B...>> = (SetupBlock<std::remove_cvref_t<B>> && ...);
+    } // namespace detail
+
+    // A setup exposes its blocks as a tuple (typically of references via std::tie). Init iterates that
+    // tuple per species. Roles never appear in a setup definition.
     template<typename T>
-    concept SetupInterface = requires(T a) {
-        // Compile-time list (std::tuple) of the roles this setup defines.
-        typename T::Roles;
+    concept SetupInterface = requires(T const a) {
+        { a.blocks() };
         { a.domain } -> std::convertible_to<pmacc::spearhed::AABB<CS>>;
-    } && SetupBlock<SetupBlockOf<T, pmacc::spearhed::roles::Interior>>;
+    } && detail::allSetupBlocks<std::remove_cvref_t<decltype(std::declval<T const&>().blocks())>>;
 
 } // namespace spearhed

@@ -21,9 +21,9 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 #include "spmacc/topology/Point.hpp"
@@ -46,18 +46,17 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 struct SpeedyRegion
 {
-    using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+    // This setup fills a single species and acts as its own (only) init block.
+    using Species = pmacc::spearhed::species::Default;
 
     // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
     pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
     uint32_t baseNumParticlesToCreate = 400u;
 
-    // Single-role setup: it acts as its own block for every role it defines.
-    template<typename Role>
-    auto const& block() const
+    auto blocks() const
     {
-        return *this;
+        return std::tie(*this);
     }
 
     auto numParticlesToCreateArgs() const
@@ -103,21 +102,17 @@ struct SpeedyRegion
         }
     };
 
-    void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-        spearhed::DeviceHeap const& deviceHeap) const
+    template<typename>
+    void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
     {
-        prBuf.create(1);
-        spearhed::PRType boundedParticles{deviceHeap.getAllocatorHandle(), domain};
-        prBuf.pushBack(boundedParticles);
-        prBuf.buffer->hostToDevice();
+        out.push_back(domain);
     }
 };
 
 TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][particles][pusher]")
 {
     auto setup = SpeedyRegion{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     spearhed::ParticlePush{}(1);

@@ -51,8 +51,8 @@ namespace pmacc::spearhed
      * frame produced it; only CommonRec matters. This gives uniform
      * attribute access without frame-list type erasure.
      *
-     * @tparam CommonRec The subset Record, typically derived from the
-     *                   interaction functor's RequiredSharedTags plus
+     * @tparam CommonRec The subset Record, typically derived from an
+     *                   interaction functor's neighbourReads tags plus
      *                   mandatory geometry fields (multiMask, relativePos).
      */
     template<ll::IsRecord CommonRec>

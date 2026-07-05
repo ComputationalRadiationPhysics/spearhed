@@ -25,6 +25,7 @@
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace spearhed
 {
@@ -32,18 +33,17 @@ namespace spearhed
     template<uint32_t N>
     struct EmptyNRegions
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
 
         // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t baseNumParticlesToCreate = 400u;
 
-        // Single-role setup: it acts as its own block for every role it defines.
-        template<typename Role>
-        auto const& block() const
+        auto blocks() const
         {
-            return *this;
+            return std::tie(*this);
         }
 
         auto numParticlesToCreateArgs() const
@@ -85,15 +85,11 @@ namespace spearhed
             }
         };
 
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
         {
-            prBuf.create(N);
-            PRType boundedParticles{deviceHeap.getAllocatorHandle()};
             for(size_t i = 0; i < N; ++i)
-            {
-                prBuf.pushBack(boundedParticles);
-            }
-            prBuf.buffer->hostToDevice();
+                out.push_back(pmacc::spearhed::AABB<CS>{});
         }
     };
 } // namespace spearhed

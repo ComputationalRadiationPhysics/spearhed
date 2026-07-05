@@ -22,6 +22,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
@@ -38,7 +39,7 @@ TEST_CASE_METHOD(ParticleFixture, "Particle Creation and ID Sum Validation", "[i
     constexpr uint64_t numRegions = 2;
 
     auto setup = spearhed::EmptyNRegions<numRegions>{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     spearhed::InitParticles{}(setup);
 

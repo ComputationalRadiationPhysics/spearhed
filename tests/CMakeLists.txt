@@ -39,9 +39,11 @@ endforeach()
 #  - target_prefix: Prefix for the target name. The name of the executable test
 #    file is formed with target_prefix followed by the source file name without
 #    extension.
+#  - layer_label: Short label prepended to every CTest test name so tests can be
+#    filtered by layer (e.g. ctest -R llamaLite).
 #  - folder: Takes all .cpp files in the specified folder and creates an test
 #    executable for each.
-function(add_test_target target_prefix folder)
+function(add_test_target target_prefix layer_label folder)
     message(DEBUG "test target prefix: ${target_prefix}")
 
     file(GLOB test_folders CONFIGURE_DEPENDS ${folder})
@@ -81,38 +83,39 @@ function(add_test_target target_prefix folder)
                         ${_test_target_name}
                         PRIVATE Catch2::Catch2WithMain alpaka::alpaka spearhed-hostonly pmacc::pmacc
                     )
-                    catch_discover_tests(${_test_target_name})
+                    catch_discover_tests(${_test_target_name} TEST_PREFIX "${layer_label}::")
                 endif()
             endforeach()
         endif()
     endforeach()
 endfunction()
 
-add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
-add_test_target(unit_test_ ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
+add_test_target(unit_test_llama_ "llamaLite" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
+add_test_target(unit_test_spmacc_ "spmacc" ${CMAKE_CURRENT_SOURCE_DIR}/spmacc/unit/**)
+add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
 
 # Per-test DIM2 override: shadow the global dimension.param with a 2D version
 # for the BoundaryConditions test only. BEFORE ensures the local file wins.
 target_include_directories(
-    unit_test_BoundaryConditions_BoundaryConditions
+    unit_test_spearhed_BoundaryConditions_BoundaryConditions
     BEFORE
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/BoundaryConditions/param
 )
 
-## Share a setup among selected tests
+## Share a setup among selected tests via the spearhed test-setup directory.
 set(_setup_dir ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/setups)
 foreach(
     t
-    unit_test_FindNeighbourRegions_FindNeighbourRegions
-    unit_test_ParticleCreation_ParticleCreation
-    unit_test_ForEachParticleInPRBuf_ForEachParticle
-    unit_test_ParticleParticleInteraction_ParticleParticleInteraction
-    unit_test_PushParticles_PushParticles
-    unit_test_RegionBoundsUpdate_RegionBoundsUpdate
-    unit_test_CopyParticlesToHost_CopyParticlesToHost
-    unit_test_DensitySummation_DensitySummation
-    unit_test_HydroForces_HydroForces
-    unit_test_BoundaryConditions_BoundaryConditions
+    unit_test_spmacc_FindNeighbourRegions_FindNeighbourRegions
+    unit_test_spmacc_ParticleParticleInteraction_ParticleParticleInteraction
+    unit_test_spmacc_RegionBoundsUpdate_RegionBoundsUpdate
+    unit_test_spmacc_CopyParticlesToHost_CopyParticlesToHost
+    unit_test_spmacc_HierarchyForEach_HierarchyForEach
+    unit_test_spearhed_ParticleCreation_ParticleCreation
+    unit_test_spearhed_PushParticles_PushParticles
+    unit_test_spearhed_DensitySummation_DensitySummation
+    unit_test_spearhed_HydroForces_HydroForces
+    unit_test_spearhed_BoundaryConditions_BoundaryConditions
 )
     target_include_directories(${t} PRIVATE ${_setup_dir})
 endforeach()

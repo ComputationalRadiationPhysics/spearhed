@@ -30,20 +30,23 @@ namespace spearhed
      *
      * A kernel type @c K is a stateless tag struct exposing the following
      * static, host-and-device-callable members for a given CoordinateSystem CS:
-     *   - W<CS>(r, h)     -> T_Axis    : the kernel value
-     *   - dWdr<CS>(r, h)  -> T_Axis    : the radial derivative
+     *   - W<CS>(r, h)        -> T_Axis : the kernel value
+     *   - dWdr<CS>(r, h)     -> T_Axis : the radial derivative
+     *   - gradWScalar<CS>(r, invR, h) -> T_Axis : the scalar gradient factor (dW/dr)/r,
+     *                                    so that gradW(r_vec, h) == gradWScalar * r_vec
      *   - gradW<CS>(rVec, r, h)        : the vector gradient
      *   - supportRadius                : integer multiplier on h beyond which W = 0
      *   - name                         : short identifier used by the CLI / logging
      *
-     * gradW is intentionally not pinned in the concept (its argument type would
-     * require pulling in Vec headers transitively); a use-site failure to provide
-     * it produces a regular template error.
+     * gradWScalar takes all-scalar arguments, so it CAN be pinned in the concept. The vector
+     * gradW is intentionally not pinned (its argument type would require pulling in Vec headers
+     * transitively); a use-site failure to provide it produces a regular template error.
      */
     template<typename K>
     concept SphKernel = requires(typename CS::T_Axis r, typename CS::T_Axis h) {
         { K::W(r, h) } -> std::same_as<typename CS::T_Axis>;
         { K::dWdr(r, h) } -> std::same_as<typename CS::T_Axis>;
+        { K::gradWScalar(r, r, h) } -> std::same_as<typename CS::T_Axis>;
         { K::supportRadius } -> std::convertible_to<int>;
     };
 } // namespace spearhed

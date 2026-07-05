@@ -32,9 +32,9 @@
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
@@ -81,17 +81,16 @@ namespace
 
     struct InitMomEnergyTestSetup
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
 
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         static constexpr uint32_t N = 2u;
 
-        // Single-role setup: it acts as its own block for every role it defines.
-        template<typename Role>
-        auto const& block() const
+        auto blocks() const
         {
-            return *this;
+            return std::tie(*this);
         }
 
         struct NumParticlesToCreate
@@ -150,15 +149,10 @@ namespace
             return std::make_tuple();
         }
 
-        void setupRegions(
-            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-            spearhed::DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
         {
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = spearhed::PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<spearhed::CS>{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}});
         }
     };
 
@@ -170,7 +164,7 @@ TEST_CASE_METHOD(
     "[sph][momentum][energy]")
 {
     auto setup = InitMomEnergyTestSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     // All-to-all neighbour graph (single region)

@@ -31,23 +31,23 @@
 
 #include <cstdint>
 #include <tuple>
+#include <vector>
 
 namespace spearhed
 {
     // Default setup. Override at CMake configure time with -DSPEARHED_SETUP_FILE=/path/to/MySetup.hpp
     struct DefaultSetup
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
 
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t totalParticles = 1000u;
 
-        // Single-role setup: it acts as its own block for every role it defines.
-        template<typename Role>
-        auto const& block() const
+        auto blocks() const
         {
-            return *this;
+            return std::tie(*this);
         }
 
         struct NumParticlesToCreate
@@ -85,16 +85,10 @@ namespace spearhed
 
         KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
         {
-            prBuf.create(1);
-
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
-
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<CS>{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}});
         }
     };
 

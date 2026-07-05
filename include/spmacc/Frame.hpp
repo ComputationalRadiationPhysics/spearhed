@@ -48,8 +48,6 @@ namespace pmacc
          *                              from single type ( pair<name,dataType> )
          *                              @see MapTupel
          * @tparam T_ValueTypeSeq sequence with value_identifier
-         * @tparam T_Flags sequence with identifiers to add flags on a frame
-         *                 (e.g. useSolverXY, calcRadiation, ...)
          */
         template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
         struct Frame
@@ -62,7 +60,6 @@ namespace pmacc
             //! Number of particle slots within the frame
             static constexpr uint32_t frameSize = ParticleDescription::numSlots;
             using ParticleRecord = typename ParticleDescription::ParticleRecord;
-            using FlagTuple = typename pmacc::spearhed::meta::AsTuple_t<typename ParticleDescription::FlagsList>;
 
             /* type of a single particle*/
             // using ParticleType = Particle<ParticleDescription, ParticleRecord>;
@@ -71,8 +68,6 @@ namespace pmacc
 
             SoAType particlesSoa;
             PMACC_ALIGN(liveParticles, uint32_t) { 0 };
-            // this should not have storage else we will get severe memory bloat due to padding to ensure alignment
-            // [[no_unique_address]] FlagTuple flags;
 
 
         public:
@@ -135,21 +130,8 @@ namespace pmacc
 
             static constexpr std::string getName()
             {
-                return Name::str();
+                return std::string(Name::view());
             }
-
-            // Helper to access flags by Type
-            // template<typename T>
-            // [[nodiscard]] constexpr T& getFlag(T)
-            // {
-            //     return std::get<T>(flags);
-            // }
-
-            // template<typename T>
-            // [[nodiscard]] constexpr T const& getFlag(T) const
-            // {
-            //     return std::get<T>(flags);
-            // }
         };
     } // namespace spearhed
 

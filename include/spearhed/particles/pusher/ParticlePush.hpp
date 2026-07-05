@@ -21,8 +21,11 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/particles/pusher/PushVelocity.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <type_traits>
 
 namespace spearhed
 {
@@ -30,12 +33,16 @@ namespace spearhed
     {
         void operator()(uint32_t currentStep) const
         {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-                pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
-
-            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, PushVelocity{}, dt);
-            // forEachParticleInPR();
+            // Advance every species that is integrated in time. Frozen species (walls) carry no
+            // Movable role, so they are skipped without naming a hardcoded species list.
+            pmacc::spearhed::forEachSpeciesBufWithRole(
+                allSpecies,
+                pmacc::spearhed::roles::movable,
+                [&](auto& prBuf)
+                {
+                    using S = typename std::remove_reference_t<decltype(prBuf)>::Species;
+                    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, prBuf, PushVelocity<S>{}, dt);
+                });
             // Push particles
             // PushDistance{}();
             // Update bounding boxes

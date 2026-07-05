@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "spmacc/meta/String.hpp"
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
@@ -56,7 +57,7 @@ namespace pmacc::spearhed
     template<typename T, T_Dim Dim>
     struct Cartesian
     {
-        static constexpr char const* name = "Cartesian";
+        static constexpr meta::FixedString name{"Cartesian"};
         using T_Axis = T;
         static constexpr std::size_t dimension = Dim;
         static constexpr MetricKind metricKind = MetricKind::Orthonormal;
@@ -87,7 +88,7 @@ namespace pmacc::spearhed
     template<typename T, T_Dim Dim>
     struct Polar
     {
-        static constexpr char const* name = "Polar";
+        static constexpr meta::FixedString name{"Polar"};
         using T_Axis = T;
         static constexpr std::size_t dimension = Dim;
         static constexpr MetricKind metricKind = MetricKind::Orthonormal;

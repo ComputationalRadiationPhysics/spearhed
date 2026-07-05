@@ -28,7 +28,7 @@
 #include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/sph/HydroForces.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -135,31 +135,34 @@ namespace spearhed
     void Simulation::stepWithKernel(uint32_t /*currentStep*/)
     {
         auto& dc = pmacc::Environment<>::get().DataConnector();
-        auto& interior = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-            pmacc::spearhed::prBufId<pmacc::spearhed::roles::Interior>());
-
-        using BoundaryPRBuf = pmacc::spearhed::ParticleRegionBuffer<PRType, pmacc::spearhed::roles::Boundary>;
-        BoundaryPRBuf* boundaryPtr
-            = dc.hasId(pmacc::spearhed::prBufId<pmacc::spearhed::roles::Boundary>())
-                  ? dc.get<BoundaryPRBuf>(pmacc::spearhed::prBufId<pmacc::spearhed::roles::Boundary>()).get()
-                  : nullptr;
+        // The integration target: the (single) species advanced in time and used as the bundle target.
+        auto& defaultSpecies = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+            pmacc::spearhed::prBufId(pmacc::spearhed::species::default_));
 
         auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
 
-        auto doStep = [&](auto&... sources)
-        {
-            auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(interior, interactionRadius, sources...);
-            spearhed::UpdateDensity<K>{}(bundle, h0);
-            spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
+        // Every present species that contributes to neighbour sums is a source; the boundary wall is
+        // included automatically when the setup created it, with no hardcoded species list.
+        pmacc::spearhed::withSpeciesBufsWithRole(
+            allSpecies,
+            pmacc::spearhed::roles::source,
+            [&](auto&... sources)
+            {
+                auto bundle
+                    = pmacc::spearhed::CalculateNeighbourRegions{}(defaultSpecies, interactionRadius, sources...);
+                spearhed::UpdateDensity<K>{}(bundle, h0);
+                spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
+            });
 
-            // Euler update: v += dvdt*dt, u += dudt*dt
-            pmacc::spearhed::ForEachParticleInPRBuf{}(interior, spearhed::EulerIntegrate{}, dt);
-        };
-
-        if(boundaryPtr)
-            doStep(interior, *boundaryPtr);
-        else
-            doStep(interior);
+        // Euler update: v += dvdt*dt, u += dudt*dt, on every species advanced in time. The forces
+        // computed above persist on the device buffers, so this runs as a separate phase.
+        pmacc::spearhed::forEachSpeciesBufWithRole(
+            allSpecies,
+            pmacc::spearhed::roles::thermodynamic,
+            [&](auto& buf)
+            {
+                pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);
+            });
     }
 
     void Simulation::runOneStep(uint32_t currentStep)

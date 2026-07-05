@@ -21,7 +21,8 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/MultiMask.hpp"
+#include "spmacc/particles/algorithms/FrameSchedule.hpp"
+#include "spmacc/particles/algorithms/HierarchyForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
@@ -53,25 +54,23 @@ namespace pmacc::spearhed
             {
                 auto& region = prDeviceBox[regionIdx];
                 using VolumeType = std::remove_cvref_t<decltype(region.volume)>;
-                using FrameType = typename std::remove_cvref_t<decltype(region.particleFrameList)>::FrameType;
 
-                // Thread-Local Accumulation
+                // Thread-Local Accumulation: walk the region's frames sequentially with the
+                // hierarchy iterator, distributing each frame's live slots across the block with
+                // the lockstep combinator (same distribution as the previous hand-rolled walk).
                 VolumeType localBounds;
 
-                auto& frameList = region.particleFrameList;
-                for(auto frameItr = frameList.begin(); frameItr != frameList.end(); ++frameItr)
-                {
-                    auto forEachSlot = pmacc::lockstep::makeForEach<FrameType::frameSize>(worker);
-                    forEachSlot(
-                        [&](uint32_t const idx)
-                        {
-                            auto particle = (*frameItr)[idx];
-                            if(*particle[tags::multiMask])
-                            {
-                                localBounds.extend(particle[tags::relativePos].get());
-                            }
-                        });
-                }
+                forEach(
+                    levels::frame,
+                    deviceHeap,
+                    makeRegionView(region),
+                    [&](auto frame)
+                    {
+                        lockstepForEachParticle(
+                            worker,
+                            frame,
+                            [&](auto particle) { localBounds.extend(particle[tags::relativePos].get()); });
+                    });
 
                 // Block-Wide Reduction
                 // Allocate shared memory for the reduction tree
@@ -176,8 +175,9 @@ namespace pmacc::spearhed
 
             // Note: Ensure PRType is defined in this scope or passed as a template
             using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
+            using Species = typename T_ParticleRegion::Species;
 
-            auto& prBuf = *dc.get<BufferType>(prBufId<roles::Interior>());
+            auto& prBuf = *dc.get<BufferType>(prBufId<Species>());
 
             // Dynamic Grid Sizing:
             // Calculate enough blocks to cover the regions, capped at maxBlocks.

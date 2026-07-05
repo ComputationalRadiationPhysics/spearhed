@@ -19,23 +19,37 @@
 
 #pragma once
 
-#include "spearhed/param.hpp"
+#include "spearhed/ParticleDefinition.hpp"
 #include "spmacc/particles/View.hpp"
 
 #include <llamaLite/llamaLite.hpp>
 
 namespace spearhed
 {
-
-    namespace particleView
-    {
-        using PartDescT = decltype(particleDesc);
-
-        using SoaT = ll::SoA<PartDescT::ParticleRecord, PartDescT::numSlots>;
-
-    } // namespace particleView
-
-    template<auto... TagInstances>
-    using ParticleView = pmacc::spearhed::ParticleView<particleView::SoaT, TagInstances...>;
+    /** Per-species particle view: constrains a particle operand to the SoA layout derived
+     *  from @p S (a species tag) and a selected set of attribute tags.
+     *
+     *  The species flows through FrameDescFor<S> to pick up the correct ParticleRecord
+     *  and frame size, so different species with different attribute sets produce distinct
+     *  View types.
+     *
+     *  Usage in a kernel functor that is specialised per species:
+     *  @code
+     *      template<typename Species>
+     *      struct MyFunctor {
+     *          void operator()(auto worker, ParticleView<Species, relativePos, vel> view, T_dt dt) { ... }
+     *      };
+     *
+     *      initSpecies<Species>(setup);
+     *      // inside: launchForEach(levels::particle, prBuf, MyFunctor<Species>{}, ...);
+     *  @endcode
+     *
+     *  For species-agnostic functors that only access fields present in every species'
+     *  record (e.g. multiMask, relativePos), prefer an unconstrained auto& particle
+     *  parameter, the compiler checks the fields at instantiation time anyway.
+     */
+    template<pmacc::spearhed::SpeciesTag S, auto... TagInstances>
+    using ParticleView = pmacc::spearhed::
+        ParticleView<ll::SoA<typename FrameDescFor<S>::ParticleRecord, FrameDescFor<S>::numSlots>, TagInstances...>;
 
 } // namespace spearhed

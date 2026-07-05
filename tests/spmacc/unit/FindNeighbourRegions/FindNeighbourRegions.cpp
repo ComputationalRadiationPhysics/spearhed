@@ -20,6 +20,7 @@
 #include "TestSetup.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/param/mallocMC.param"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 
@@ -37,7 +38,7 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[integration][particles][neighbours]")
 {
     auto setup = spearhed::EmptyNRegions<3>{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     // Initialize region volumes manually
     prBuf->buffer->deviceToHost();
@@ -85,7 +86,7 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     constexpr float smoothingLength = 0.6f;
 
     auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(*prBuf, smoothingLength, *prBuf);
-    auto& entry = bundle.get<pmacc::spearhed::roles::Interior>();
+    auto& entry = bundle.bySpecies(pmacc::spearhed::species::default_);
 
     // Validation
     entry.neighbourRegions.deviceToHost();

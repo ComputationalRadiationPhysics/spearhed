@@ -24,9 +24,9 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
 #include "spmacc/particles/algorithms/InteractParticlesUnified.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
@@ -42,30 +42,41 @@ namespace spearhed
      * Accumulates the neighbour contribution into ownParticle's density:
      *   rho_i += m_j * W(r, h_i)
      *
-     * r and is_self are provided by InteractParticles; self-contribution
-     * is seeded by DensityInitSelf before the pairwise pass.
+     * r and isSelf are provided in the PairContext; the self-contribution is seeded by
+     * DensityInitSelf before the pairwise pass and resumed by the framework accumulator.
+     *   - neighbourReads: only the neighbour mass m_j (h comes from the own side).
+     *   - ownReads:       the own smoothing length h_i.
+     *   - ownAccumulate:  the density accumulator rho_i.
      */
     template<SphKernel KernelT>
     struct AccumulateDensity
     {
-        using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
-        using RequiredOwnTags = ll::TagList<tags::smoothingLength, tags::density>;
+        static constexpr auto neighbourReads = ll::makeSet(tags::mass);
+        static constexpr auto ownReads = ll::makeSet(tags::smoothingLength);
+        static constexpr auto ownAccumulate = ll::makeSet(tags::density);
 
         HDINLINE constexpr void operator()(
             auto& /*worker*/,
-            auto& ownParticle,
-            auto& neighbourParticle,
-            pmacc::spearhed::InteractionContext<CS> const& ctx) const
+            auto const& ownRead,
+            auto const& nb,
+            pmacc::spearhed::PairContext<CS> const& ctx,
+            auto& acc) const
         {
             using namespace spearhed::tags;
 
-            if(ctx.is_self) [[unlikely]]
+            if(ctx.isSelf) [[unlikely]]
                 return;
 
-            typename CS::T_Axis const h = *ownParticle[smoothingLength];
-            typename CS::T_Axis const m_j = *neighbourParticle[mass];
+            typename CS::T_Axis const h = *ownRead[smoothingLength];
+            typename CS::T_Axis const m_j = *nb[mass];
 
-            *ownParticle[density] += m_j * KernelT::W(ctx.r(), h);
+            // Unlike the gradient (which vanishes at r == 0 and is guarded inside gradWScalar), the
+            // kernel value W peaks at r == 0. The framework yields ctx.r == NaN for coincident
+            // (r2 == 0) non-self neighbours (r = r2 * invR with invR = +inf), which would poison W to
+            // zero, so clamp the distance to zero here to recover the true W(0, h) contribution.
+            typename CS::T_Axis const r = (ctx.r2 > typename CS::T_Axis{0}) ? ctx.r : typename CS::T_Axis{0};
+
+            *acc[density] += m_j * KernelT::W(r, h);
         }
     };
 
@@ -105,7 +116,10 @@ namespace spearhed
     {
         void operator()(pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle, typename CS::T_Axis h0) const
         {
-            pmacc::spearhed::ForEachParticleInPRBuf{}(neighbourBundle.target(), DensityInitSelf<KernelT>{});
+            pmacc::spearhed::launchForEach(
+                pmacc::spearhed::levels::particle,
+                neighbourBundle.target(),
+                DensityInitSelf<KernelT>{});
             Interactor{}(
                 std::forward<decltype(neighbourBundle)>(neighbourBundle),
                 static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,

@@ -20,8 +20,9 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/initialization/Random.hpp"
 #include "spmacc/particles/initialization/SC.hpp"
 
@@ -46,17 +47,16 @@ static constexpr unsigned TEST_DIM = spearhed::simDim;
  */
 struct SCLatticeSetup
 {
-    using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+    // This setup fills a single species and acts as its own (only) init block.
+    using Species = pmacc::spearhed::species::Default;
 
     uint32_t numParticles = 8u;
 
     pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
 
-    // Single-role setup: it acts as its own block for every role it defines.
-    template<typename Role>
-    auto const& block() const
+    auto blocks() const
     {
-        return *this;
+        return std::tie(*this);
     }
 
     struct NumParticlesToCreate
@@ -82,14 +82,10 @@ struct SCLatticeSetup
         return std::make_tuple(pmacc::spearhed::computeSCCellCounts(numParticles, domain));
     }
 
-    void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-        spearhed::DeviceHeap const& deviceHeap) const
+    template<typename>
+    void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
     {
-        prBuf.create(1);
-        spearhed::PRType region{deviceHeap.getAllocatorHandle(), domain};
-        prBuf.pushBack(region);
-        prBuf.buffer->hostToDevice();
+        out.push_back(domain);
     }
 };
 
@@ -112,7 +108,7 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid", "[integration][particles][sc]")
 {
     auto setup = SCLatticeSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     spearhed::InitParticles{}(setup);
 
@@ -122,7 +118,7 @@ TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid",
     posSumBuf.hostToDevice();
 
     auto posSum = posSumBuf.getDeviceBuffer().getDataBox();
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, SumPositions{}, posSum);
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SumPositions{}, posSum);
 
     posSumBuf.deviceToHost();
     auto hostData = posSumBuf.getHostBuffer().getDataBox();
@@ -139,17 +135,16 @@ TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid",
  */
 struct RandomSetup
 {
-    using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+    // This setup fills a single species and acts as its own (only) init block.
+    using Species = pmacc::spearhed::species::Default;
 
     uint32_t numParticles = 64u;
 
     pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
 
-    // Single-role setup: it acts as its own block for every role it defines.
-    template<typename Role>
-    auto const& block() const
+    auto blocks() const
     {
-        return *this;
+        return std::tie(*this);
     }
 
     struct NumParticlesToCreate
@@ -175,14 +170,10 @@ struct RandomSetup
         return std::make_tuple(42u, pmacc::spearhed::UniformDistribution{});
     }
 
-    void setupRegions(
-        pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-        spearhed::DeviceHeap const& deviceHeap) const
+    template<typename>
+    void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
     {
-        prBuf.create(1);
-        spearhed::PRType region{deviceHeap.getAllocatorHandle(), domain};
-        prBuf.pushBack(region);
-        prBuf.buffer->hostToDevice();
+        out.push_back(domain);
     }
 };
 
@@ -208,7 +199,7 @@ TEST_CASE_METHOD(
     "[integration][particles][random]")
 {
     auto setup = RandomSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     spearhed::InitParticles{}(setup);
 
@@ -217,7 +208,7 @@ TEST_CASE_METHOD(
     outOfBoundsBuf.hostToDevice();
 
     auto outOfBoundsCount = outOfBoundsBuf.getDeviceBuffer().getDataBox();
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, CountOutOfBounds{}, outOfBoundsCount);
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, CountOutOfBounds{}, outOfBoundsCount);
 
     outOfBoundsBuf.deviceToHost();
     REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);

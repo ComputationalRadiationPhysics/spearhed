@@ -23,8 +23,9 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
@@ -79,11 +80,11 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration][particles][bounds]")
 {
     auto setup = spearhed::EmptyNRegions<1>{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     // Initialize and modify positions
     spearhed::InitParticles{}(setup);
-    pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, SetPosFunctor{});
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SetPosFunctor{});
 
     // Execute
     pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();

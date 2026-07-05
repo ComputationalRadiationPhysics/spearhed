@@ -24,6 +24,7 @@
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
 
@@ -46,10 +47,10 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     constexpr uint64_t numRegions = 2;
     auto setup = spearhed::EmptyNRegions<numRegions>{};
     setup.baseNumParticlesToCreate = 130u;
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
 
     spearhed::InitParticles{}(setup);
-    // InitParticles calls waitForAllTasks() internally via ForEachFrameInPRBuf.
+    // InitParticles calls waitForAllTasks() internally via launchForEachFrameInBlock.
 
     // Sync region metadata to host.
     prBuf->synchronize();

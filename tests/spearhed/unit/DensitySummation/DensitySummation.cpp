@@ -39,10 +39,11 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
@@ -94,17 +95,16 @@ namespace
 
     struct InitDensityTestSetup
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
 
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         static constexpr uint32_t N = 4u;
 
-        // Single-role setup: it acts as its own block for every role it defines.
-        template<typename Role>
-        auto const& block() const
+        auto blocks() const
         {
-            return *this;
+            return std::tie(*this);
         }
 
         struct NumParticlesToCreate
@@ -139,15 +139,10 @@ namespace
             return std::make_tuple();
         }
 
-        void setupRegions(
-            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-            spearhed::DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
         {
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = spearhed::PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<spearhed::CS>{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}});
         }
     };
 
@@ -184,17 +179,16 @@ namespace
 
     struct InitSpacedTestSetup
     {
-        using Roles = std::tuple<pmacc::spearhed::roles::Interior>;
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
 
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}};
 
         static constexpr uint32_t N = 3u;
 
-        // Single-role setup: it acts as its own block for every role it defines.
-        template<typename Role>
-        auto const& block() const
+        auto blocks() const
         {
-            return *this;
+            return std::tie(*this);
         }
 
         struct NumParticlesToCreate
@@ -229,15 +223,10 @@ namespace
             return std::make_tuple();
         }
 
-        void setupRegions(
-            pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>& prBuf,
-            spearhed::DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
         {
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = spearhed::PRType{deviceHeapHandle, {{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<spearhed::CS>{{0, 0, 0}, {-5.0, -5.0, -5.0}, {5.0, 5.0, 5.0}});
         }
     };
 
@@ -249,7 +238,7 @@ TEST_CASE_METHOD(
     "[sph][density]")
 {
     auto setup = InitDensityTestSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     // All-to-all neighbour graph (single region)
@@ -276,7 +265,7 @@ TEST_CASE_METHOD(
         {
             using K = std::decay_t<decltype(kernel)>;
             // Self-contribution first, then pairwise accumulation
-            pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+            pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
                 bundle,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
@@ -317,7 +306,7 @@ TEST_CASE_METHOD(
     "[sph][density]")
 {
     auto setup = InitSpacedTestSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     constexpr int numRegions = 1;
@@ -342,7 +331,7 @@ TEST_CASE_METHOD(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
-            pmacc::spearhed::ForEachParticleInPRBuf{}(*prBuf, spearhed::DensityInitSelf<K>{});
+            pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
             pmacc::spearhed::InteractParticles{}(
                 bundle2,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,

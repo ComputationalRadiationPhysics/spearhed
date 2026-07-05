@@ -37,6 +37,10 @@ namespace pmacc
         template<typename TVolume, concepts::SpecializationOf<Frame> T_Frame, typename T_DeviceHeapHandle>
         struct ParticleRegion
         {
+            using VolumeType = TVolume;
+            using FrameType = T_Frame;
+            using Species = typename T_Frame::ParticleDescription::Species;
+
             constexpr ParticleRegion(T_DeviceHeapHandle const& deviceHeapHandle) : particleFrameList{deviceHeapHandle}
             {
             }
