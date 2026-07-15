@@ -33,5 +33,5 @@ namespace spearhed
     using CS = pmacc::spearhed::Cartesian<Real, simDim>;
 
     using T_dt = float;
-    constexpr T_dt dt = T_dt{0.01};
+    constexpr T_dt dt = T_dt{0.01f};
 } // namespace spearhed

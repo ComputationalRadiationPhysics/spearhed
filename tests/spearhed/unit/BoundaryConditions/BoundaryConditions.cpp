@@ -29,7 +29,7 @@
  *
  * Assertions:
  *   1. Every boundary particle position equals its initial position within 1e-5.
- *   2. Every interior particle position lies inside [-1-h0, 1+h0]^2.
+ *   2. Every interior particle position lies inside [-1, 1]^2.
  */
 
 #include "spearhed/ParticleDefinition.hpp"
@@ -300,13 +300,20 @@ TEST_CASE_METHOD(
     {
         spearhed::ParticlePush{}(step);
         pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-        auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(
+        auto bundle = pmacc::spearhed::calculateNeighbours(
             *prBuf,
             interactionRadius,
             *prBuf,
             *this->template prBufFor<species::Boundary>());
-        spearhed::UpdateDensity<K>{}(bundle, spearhed::h0);
-        spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, spearhed::h0);
+        // One frame index serves both passes: neither mutates frame-list topology, only
+        // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
+        // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        auto densityDone = spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0);
+        auto hydroDone = spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, *prBuf, index, spearhed::h0);
+        // bundle and index own device memory read by the still-queued kernels and die at the
+        // end of this scope, so this is the mandatory sync point for both passes.
+        (densityDone + hydroDone).waitForFinished();
         pmacc::spearhed::launchForEach(
             pmacc::spearhed::levels::particle,
             *prBuf,
@@ -348,15 +355,16 @@ TEST_CASE_METHOD(
         REQUIRE(checkedCount > 0u);
     }
 
-    // CHECK 2: interior confined in [-1-h0, 1+h0]^2
+    // CHECK 2: interior confined in [-1, 1]^2
 
     {
         prBuf->buffer->deviceToHost();
         int64_t const heapOffset = spearhed::syncHeapToHost();
         auto interiorBox = prBuf->buffer->getHostBuffer().getDataBox();
 
-        constexpr spearhed::Real lo = -1.0f - spearhed::h0;
-        constexpr spearhed::Real hi = 1.0f + spearhed::h0;
+        constexpr spearhed::Real eps = 1.0e-5f;
+        constexpr spearhed::Real lo = -1.0f - eps;
+        constexpr spearhed::Real hi = 1.0f + eps;
 
         uint32_t checkedCount = 0u;
         for(int r = 0; r < prBuf->size; ++r)
@@ -385,13 +393,15 @@ TEST_CASE_METHOD(
 }
 
 /**
- * Verifies InteractParticlesUnified (single launch, own-state persisted in SMEM)
- * produces the same interior densities as the reference InteractParticles
- * (one launch per source) in a multi-source scene (interior + boundary).
+ * Verifies that the high-level UpdateDensity API produces the same interior
+ * densities as the manual DensityInitSelf + interact() code path. Both paths are
+ * driven by an explicit FrameIndexBuffer, so this confirms the indexed
+ * UpdateDensity overload yields identical results to the hand-rolled
+ * DensityInitSelf + interact path in a multi-source scene (interior + boundary).
  */
 TEST_CASE_METHOD(
     ParticleFixture,
-    "Boundary: InteractParticlesUnified produces same density as InteractParticles",
+    "Boundary: UpdateDensity with explicit index matches manual DensityInitSelf + interact path",
     "[boundary][roles][unified]")
 {
     namespace species = pmacc::spearhed::species;
@@ -407,7 +417,7 @@ TEST_CASE_METHOD(
 
     // Build a neighbour bundle for the multi-source scene (interior + boundary).
     // The same bundle drives both interaction strategies below.
-    auto bundle = pmacc::spearhed::CalculateNeighbourRegions{}(
+    auto bundle = pmacc::spearhed::calculateNeighbours(
         *prBuf,
         interactionRadius,
         *prBuf,
@@ -439,23 +449,32 @@ TEST_CASE_METHOD(
         return out;
     };
 
-    // Reference: classic per-source InteractParticles (one kernel launch per source).
-    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-    pmacc::spearhed::InteractParticles{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
+    // Reference: high-level UpdateDensity API driven by an explicit frame index. The index owns
+    // device memory read by the queued kernel, so it must outlive the wait below.
+    {
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0).waitForFinished();
+    }
     auto const referenceDensities = readInteriorDensities();
 
-    // Unified: single-launch kernel over the same bundle (re-seed the self term first).
+    // Re-initialize and compute via the manual code path (explicit index, same internals as UpdateDensity).
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-    pmacc::spearhed::InteractParticlesUnified{}(bundle, interactionRadius, spearhed::AccumulateDensity<K>{});
-    auto const unifiedDensities = readInteriorDensities();
+    {
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        using PRType = spearhed::PRType;
+        pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, spearhed::AccumulateDensity<K>{})
+            .waitForFinished();
+    }
+    auto const manualDensities = readInteriorDensities();
 
     REQUIRE(!referenceDensities.empty());
-    REQUIRE(referenceDensities.size() == unifiedDensities.size());
+    REQUIRE(referenceDensities.size() == manualDensities.size());
     for(std::size_t i = 0; i < referenceDensities.size(); ++i)
     {
         REQUIRE(referenceDensities[i] > 0.0);
-        REQUIRE(std::isfinite(unifiedDensities[i]));
-        REQUIRE(unifiedDensities[i] == Catch::Approx(referenceDensities[i]).epsilon(1e-5));
+        REQUIRE(std::isfinite(manualDensities[i]));
+        REQUIRE(manualDensities[i] == Catch::Approx(referenceDensities[i]).epsilon(1e-5));
     }
 }
 

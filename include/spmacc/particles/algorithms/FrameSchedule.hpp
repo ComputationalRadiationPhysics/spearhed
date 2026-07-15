@@ -23,6 +23,7 @@
 
 #include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
+#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -37,121 +38,54 @@ namespace pmacc::spearhed
     namespace detail
     {
         /**
-         * @brief Forward cursor over every frame in a ParticleRegion device box, presented
-         *        as one flat sequence (the regions' frame lists concatenated).
-         *
-         * operator++ follows the frame list's next pointer (O(1)); region boundaries -- and
-         * empty regions -- are skipped transparently. Random access to a global frame index
-         * is provided by makeFlatFrameCursor via the inclusive-scan index (one binary search
-         * plus a bounded forward walk), so a contiguous traversal pays the seek once and then
-         * advances with ++, whereas a strided traversal re-seeks per step.
-         *
-         * The cursor is a per-thread register object: every worker thread in a block holds its
-         * own copy. There is no shared-memory hand-off, matching the FrameInteractionKernel
-         * pattern, so no extra sync is needed to read the frame pointer.
-         *
-         * @tparam PRBox   ParticleRegion device data box type (indexable by region index).
-         * @tparam ScanBox Inclusive prefix-sum data box type (frame counts per region).
-         */
-        template<typename PRBox, typename ScanBox>
-        struct FlatFrameCursor
-        {
-            using Region = std::remove_reference_t<decltype(std::declval<PRBox&>()[0])>;
-            using FrameListType = std::remove_cvref_t<decltype(std::declval<Region&>().particleFrameList)>;
-            using FrameType = typename FrameListType::FrameType;
-            using FrameIt = decltype(std::declval<Region&>().particleFrameList.begin());
-            using FramePtr = pmacc::spearhed::memory::FramePointer<FrameType>;
-
-            /**
-             * @brief What dereferencing the cursor yields: the owning region (for volume and
-             *        other region-level data) plus a pointer to the current frame.
-             */
-            struct FrameRef
-            {
-                using FrameType = FlatFrameCursor::FrameType;
-                Region& region;
-                FramePtr framePtr;
-            };
-
-            PRBox prBox;
-            ScanBox scanBox;
-            int numRegions;
-            int regionIdx;
-            int localFrameIdx;
-            FrameIt frameIt;
-
-            DINLINE FrameRef operator*()
-            {
-                Region& region = prBox[regionIdx];
-                return FrameRef{region, FramePtr{&(*frameIt)}};
-            }
-
-            DINLINE FlatFrameCursor& operator++()
-            {
-                ++frameIt;
-                ++localFrameIdx;
-                // Roll forward over exhausted/empty regions until we land on a frame
-                // or run past the last region (in which case the cursor is "end").
-                while(regionIdx < numRegions && frameIt == prBox[regionIdx].particleFrameList.end())
-                {
-                    ++regionIdx;
-                    localFrameIdx = 0;
-                    if(regionIdx < numRegions)
-                        frameIt = prBox[regionIdx].particleFrameList.begin();
-                }
-                return *this;
-            }
-        };
-
-        /**
-         * @brief Build a FlatFrameCursor positioned at a global frame index.
-         *
-         * Resolves the index to (region, localFrame) via findFrameLocation (binary search on
-         * the inclusive-scan array) and walks the region's forward list to that frame.
-         */
-        template<typename PRBox, typename ScanBox>
-        DINLINE auto makeFlatFrameCursor(PRBox prBox, ScanBox scanBox, int numRegions, int globalFrameIdx)
-        {
-            auto const loc = findFrameLocation(globalFrameIdx, scanBox, numRegions);
-            auto frameIt = prBox[loc.regionIdx].particleFrameList.begin();
-            for(int i = 0; i < loc.localFrameIdx; ++i)
-                ++frameIt;
-            return FlatFrameCursor<PRBox, ScanBox>{
-                prBox,
-                scanBox,
-                numRegions,
-                loc.regionIdx,
-                loc.localFrameIdx,
-                frameIt};
-        }
-
-        /**
          * @brief Device-side driver: invoke @p frameBody(FrameRef) for every frame this block
-         *        owns under @p Schedule.
+         *        owns under @p schedule, reading the block-to-frame mapping straight from a
+         *        prebuilt FrameIndexBuffer's device boxes (see FrameIndex.hpp).
          *
-         * Computes the total frame count from the scan array and hands a cursor factory to the
-         * schedule, which decides the (start, stride, count) of frames for the calling block.
-         * The body receives one frame at a time and is responsible for its own intra-frame work
-         * (lockstep over slots) and any shared-memory synchronisation.
+         * Derives FrameType from the PRBox's region type (Region -> particleFrameList ->
+         * FrameListType::FrameType) and builds a local frameAt(g) accessor that resolves global
+         * frame slot g to a FrameRef{region, framePtr} in O(1) -- a direct index into
+         * framePtrsBox / regionIdxBox, no list walk and no binary search. The schedule decides
+         * which slots g the calling block visits; frameAt is handed to it as a factory.
          *
          * @param schedule Frame-to-block mapping policy value (e.g. gridStride, contiguous, oneToOne).
          */
         DINLINE void forEachBlockFrame(
             auto const& worker,
             auto prBox,
-            int numRegions,
-            auto scanBox,
+            auto framePtrsBox,
+            auto regionIdxBox,
+            int totalFrames,
             auto schedule,
             auto frameBody)
         {
-            int const total = static_cast<int>(scanBox[numRegions - 1]);
-            if(total <= 0)
+            if(totalFrames <= 0)
                 return;
-            schedule(
-                worker,
-                total,
-                [&](int globalFrameIdx) { return makeFlatFrameCursor(prBox, scanBox, numRegions, globalFrameIdx); },
-                frameBody);
+
+            using Region = std::remove_reference_t<decltype(prBox[0])>;
+            using FrameListType = std::remove_cvref_t<decltype(prBox[0].particleFrameList)>;
+            using FrameType = typename FrameListType::FrameType;
+            using FramePtr = pmacc::spearhed::memory::FramePointer<FrameType>;
+
+            /**
+             * @brief What frameAt(g) yields: the owning region (for volume and other
+             *        region-level data) plus a pointer to the frame at global slot g.
+             */
+            struct FrameRef
+            {
+                using FrameType = typename FramePtr::type;
+                Region& region;
+                FramePtr framePtr;
+            };
+
+            auto frameAt = [&](int g)
+            {
+                int const rIdx = static_cast<int>(regionIdxBox[g]);
+                Region& region = prBox[rIdx];
+                return FrameRef{region, FramePtr{framePtrsBox[g]}};
+            };
+
+            schedule(worker, totalFrames, frameAt, frameBody);
         }
     } // namespace detail
 
@@ -159,8 +93,9 @@ namespace pmacc::spearhed
      * @brief Frame-to-block mapping (schedule) policies.
      *
      * Each policy is the device-side half of an execution policy: given the launched grid
-     * (worker.gridDomSize()) and the total frame count, it drives a cursor over the frames the
-     * calling block must process. Orthogonal to the host-side grid-sizing policy in
+     * (worker.gridDomSize()) and the total frame count, it drives @p frameAt (an O(1) index into
+     * the prebuilt FrameIndexBuffer's device boxes, see detail::forEachBlockFrame) over the frames
+     * the calling block must process. Orthogonal to the host-side grid-sizing policy in
      * FrameDispatch.hpp (OneBlockPerFrame, FixedGrid), subject to the constraint that OneToOne
      * is only valid when the grid was sized one-block-per-frame.
      */
@@ -168,44 +103,40 @@ namespace pmacc::spearhed
     //! One block per frame: block i processes frame i. Requires a OneBlockPerFrame grid.
     struct OneToOne
     {
-        DINLINE void operator()(auto const& worker, int total, auto makeCursor, auto frameBody) const
+        DINLINE void operator()(auto const& worker, int total, auto frameAt, auto frameBody) const
         {
             int const f = static_cast<int>(worker.blockDomIdx());
             if(f < total)
-                frameBody(*makeCursor(f));
+                frameBody(frameAt(f));
         }
     };
 
     //! Grid-stride: block i processes frames i, i + gridDim, i + 2*gridDim, ... Valid for any grid.
-    //! Re-seeks the cursor per step, so it does not rely on the forward list's cheap ++.
     struct GridStride
     {
-        DINLINE void operator()(auto const& worker, int total, auto makeCursor, auto frameBody) const
+        DINLINE void operator()(auto const& worker, int total, auto frameAt, auto frameBody) const
         {
             int const stride = static_cast<int>(worker.gridDomSize());
             for(int f = static_cast<int>(worker.blockDomIdx()); f < total; f += stride)
-                frameBody(*makeCursor(f));
+                frameBody(frameAt(f));
         }
     };
 
-    //! Static contiguous chunks: block i processes frames [i*chunk, (i+1)*chunk). Seeks once to
-    //! the chunk start, then advances with the forward list's O(1) ++. Valid for any grid.
+    //! Static contiguous chunks: block i processes frames [i*chunk, (i+1)*chunk). With the index,
+    //! frameAt is O(1) per call just like GridStride's access, so Contiguous now differs from
+    //! GridStride only in which frames land in the same block (contiguous slot range vs. strided),
+    //! not in per-frame access cost -- there is no more cursor to reuse across the chunk. Valid for
+    //! any grid.
     struct Contiguous
     {
-        DINLINE void operator()(auto const& worker, int total, auto makeCursor, auto frameBody) const
+        DINLINE void operator()(auto const& worker, int total, auto frameAt, auto frameBody) const
         {
             int const numBlocks = static_cast<int>(worker.gridDomSize());
             int const chunk = (total + numBlocks - 1) / numBlocks;
             int const first = static_cast<int>(worker.blockDomIdx()) * chunk;
             int const last = (first + chunk < total) ? first + chunk : total;
-            if(first >= last)
-                return;
-            auto cursor = makeCursor(first);
             for(int f = first; f < last; ++f)
-            {
-                frameBody(*cursor);
-                ++cursor;
-            }
+                frameBody(frameAt(f));
         }
     };
 
@@ -241,30 +172,30 @@ namespace pmacc::spearhed
      * @brief Bundled compile-time configuration for a frame-based for-each, as a single value object.
      *
      * The behavioural policies (schedule, grid) are stateless constexpr sub-objects. The thread
-     * counts -- which must be compile-time constants for the lockstep kernel launch -- live in the
-     * type as static constexpr members, so they survive being passed by value and are recovered at
+     * count -- which must be a compile-time constant for the lockstep kernel launch -- lives in the
+     * type as a static constexpr member, so it survives being passed by value and is recovered at
      * the call site via decltype(cfg)::processThreads. This lets callers configure everything with
-     * one constexpr value (see forEachConfig / defaultForEach) instead of template arguments.
+     * one constexpr value (see forEachConfig / defaultForEach) instead of template arguments. There
+     * is no count-kernel thread count here: the index (FrameIndexBuffer, see FrameIndex.hpp) owns
+     * its own kernel thread count for its (re)build.
      */
-    template<typename T_Schedule, typename T_Grid, uint32_t T_ProcessThreads = 32, uint32_t T_CountThreads = 32>
+    template<typename T_Schedule, typename T_Grid, uint32_t T_ProcessThreads = 32>
     struct ForEachConfig
     {
         T_Schedule schedule;
         T_Grid grid;
         static constexpr uint32_t processThreads = T_ProcessThreads;
-        static constexpr uint32_t countThreads = T_CountThreads;
     };
 
     /**
      * @brief Build a ForEachConfig from constexpr policy objects.
      *
      * @tparam T_ProcessThreads Threads per block for the per-frame processing kernel.
-     * @tparam T_CountThreads   Threads per block for the frame-counting kernel.
      */
-    template<uint32_t T_ProcessThreads = 32, uint32_t T_CountThreads = 32>
+    template<uint32_t T_ProcessThreads = 32>
     constexpr auto forEachConfig(auto schedule, auto grid)
     {
-        return ForEachConfig<decltype(schedule), decltype(grid), T_ProcessThreads, T_CountThreads>{schedule, grid};
+        return ForEachConfig<decltype(schedule), decltype(grid), T_ProcessThreads>{schedule, grid};
     }
 
     //! Default configuration: grid-stride schedule over a one-block-per-frame grid (original behaviour).

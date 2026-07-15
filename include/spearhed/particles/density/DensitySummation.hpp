@@ -24,11 +24,10 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/InteractParticlesUnified.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
-#include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -107,28 +106,45 @@ namespace spearhed
      * neighbour contributions via the pairwise pass.
      *
      * @tparam KernelT    SPH smoothing kernel.
-     * @tparam Interactor Pairwise-interaction launcher. Defaults to InteractParticles
-     *                    (one kernel pass per source); pass InteractParticlesUnified to
-     *                    accumulate all sources in a single launch.
      */
-    template<SphKernel KernelT, typename Interactor = pmacc::spearhed::InteractParticles>
+    template<SphKernel KernelT>
     struct UpdateDensity
     {
-        void operator()(pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle, typename CS::T_Axis h0) const
+        /** Requires a caller-built FrameIndexBuffer for the target, which can be cached across passes
+         *  and timesteps while the frame-list topology is unchanged. The same index also drives the
+         *  self-init launch below, so no separate index build/scan is paid for that pass either.
+         *
+         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
+         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
+        [[nodiscard]] pmacc::EventTask operator()(
+            pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
+            auto& target,
+            auto& index,
+            typename CS::T_Axis h0) const
         {
-            pmacc::spearhed::launchForEach(
+            // PMacc transaction ordering runs this zero/self-init kernel before the interaction
+            // kernels enqueued by interact() below on the device queue, so no host wait is needed
+            // between them -- only the caller's eventual wait on the combined event.
+            auto zeroDone = pmacc::spearhed::launchForEach(
                 pmacc::spearhed::levels::particle,
-                neighbourBundle.target(),
+                target,
+                index,
                 DensityInitSelf<KernelT>{});
-            Interactor{}(
-                std::forward<decltype(neighbourBundle)>(neighbourBundle),
-                static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
-                AccumulateDensity<KernelT>{});
+
+            // Combine both launches rather than returning interact()'s event alone: interact()
+            // short-circuits to an already-finished empty event when there are no source regions
+            // (numSources == 0), and then this self-init is the only real work -- it must still be
+            // represented in the returned event. When both launches are live they share the compute
+            // stream, so the combine is host-side bookkeeping with no added cross-stream sync.
+            auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            return zeroDone
+                   + pmacc::spearhed::interact(
+                       sources,
+                       target,
+                       index,
+                       static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                       AccumulateDensity<KernelT>{});
         }
     };
-
-    /// Convenience alias for the single-launch unified interactor.
-    template<SphKernel KernelT>
-    using UpdateDensityUnified = UpdateDensity<KernelT, pmacc::spearhed::InteractParticlesUnified>;
 
 } // namespace spearhed

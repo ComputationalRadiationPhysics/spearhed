@@ -218,11 +218,32 @@ namespace pmacc::spearhed
             {
                 return detail::InRoleSet<R, RolesOf<decltype(species)>>::value;
             }
+
+            /** Type-level query: true iff @p Entry's species carries role R.  Used by
+             *  NeighbourBundle::select<P>() for compile-time entry filtering. */
+            template<typename Entry>
+            static constexpr bool value = detail::InRoleSet<R, RolesOf<typename Entry::Species>>::value;
         };
 
         /** Value form: `pred::withRole<roles::Source>`. */
         template<RoleTag R>
         inline constexpr HasRole<R> withRole{};
+
+        /** Predicate: entry's species is exactly S.  For use with NeighbourBundle::select<>(). */
+        template<SpeciesTag S>
+        struct IsSpecies
+        {
+            template<typename Entry>
+            static constexpr bool value = std::same_as<typename Entry::Species, S>;
+        };
+
+        /** Predicate: entry's species is one of S...  For use with NeighbourBundle::select<>(). */
+        template<SpeciesTag... S>
+        struct IsAnySpecies
+        {
+            template<typename Entry>
+            static constexpr bool value = (std::same_as<typename Entry::Species, S> || ...);
+        };
     } // namespace pred
 
     /** Walk @p SpeciesList and invoke @p fn(species, args...) for every species accepted by predicate
@@ -243,8 +264,7 @@ namespace pmacc::spearhed
         }(static_cast<SpeciesList*>(nullptr));
     }
 
-    // --- value-based iteration --------------------------------------------------
-
+    // value-based iteration
     /** Value-based forEachSpecies: iterates every species in @p speciesTuple. */
     template<typename Fn>
     constexpr void forEachSpecies(auto speciesTuple, Fn&& fn, auto&&... args)

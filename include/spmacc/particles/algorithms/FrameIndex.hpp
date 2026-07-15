@@ -30,6 +30,7 @@
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
+#include <concepts>
 #include <cstdint>
 #include <optional>
 
@@ -79,9 +80,8 @@ namespace pmacc::spearhed
                         for(auto it = frameList.begin(); it != frameList.end(); ++it)
                         {
                             int const slot = static_cast<int>(offset + i);
-                            // Store the device heap address as an integer (see FrameIndexBuffer::FramePtr
-                            // for why the box element is uintptr_t rather than a raw pointer).
-                            framePtrsBox[slot] = reinterpret_cast<std::uintptr_t>(&*it);
+                            // Store the frame's device heap address.
+                            framePtrsBox[slot] = &*it;
                             regionIdxBox[slot] = static_cast<uint32_t>(blockIdx);
                             ++i;
                         }
@@ -97,7 +97,7 @@ namespace pmacc::spearhed
      * added/removed dynamically as particles migrate and are created. This index is a flat, derived
      * view that maps a global block index directly to (owning region, frame device pointer), so the
      * one-block-per-frame interaction kernels no longer walk the list per block (O(localFrameIdx)
-     * std::advance) nor binary-search an inclusive scan (findFrameLocation) in their prologue.
+     * std::advance) nor binary-search an inclusive scan in their prologue.
      *
      * Layout: frames are laid out region-contiguously. For global slot g, @c regionIdxPerFrame[g] is
      * the owning region index and @c framePtrs[g] is that frame's device heap address. rebuild()
@@ -113,11 +113,17 @@ namespace pmacc::spearhed
      *     compacted. Therefore writing particle data into existing frames (positions, accumulators,
      *     even the live/dead multiMask of a slot) does NOT invalidate the index -- only the frame-list
      *     topology matters.
+     *   - Staleness is now machine-checked rather than a purely mental caller obligation: the index
+     *     records the ParticleRegionBuffer::topologyVersion it was built against in builtVersion.
+     *     Call refreshIfStale(prBuf) at call sites to rebuild only when the counters disagree, and
+     *     the launcher (launchForEachFrameInBlockIndexed, see FrameDispatch.hpp) additionally
+     *     PMACC_ASSERTs builtVersion == prBuf.topologyVersion so a stale index is caught before it
+     *     can dereference dangling device frame pointers.
      *
-     * @note Follow-up: the interaction host helpers rebuild the index once per operator() call. The
-     *       index is not yet persisted across passes within a timestep; a caller that runs several
-     *       interaction passes with no intervening frame-list mutation could build it once and reuse
-     *       it across all of them. That lifetime-management is an explicit non-goal here.
+     * @note Callers always build the index explicitly. A caller that runs several interaction passes
+     *       with no intervening frame-list mutation should build one index and share it across the
+     *       passes (see Simulation::stepWithKernel, which shares one index between the density and
+     *       hydro-force passes).
      *
      * @tparam T_PRType The ParticleRegion type stored in the buffer (supplies FrameType).
      */
@@ -125,14 +131,8 @@ namespace pmacc::spearhed
     struct FrameIndexBuffer
     {
         using FrameType = typename T_PRType::FrameType;
-        //! Element type of framePtrs: the frame's device heap address as an integer. A raw @c FrameType*
-        //! element cannot be used because PMacc's buffer set-value kernel (KernelSetValue) special-cases
-        //! @c std::is_pointer_v element types to mean "the fill value is passed by pointer" and emits
-        //! @c memBox(idx) = *value, which fails to type-check when the element itself is a pointer. A
-        //! uintptr_t sidesteps that (it takes the trivially-copyable-by-value path, like uint32_t) and
-        //! is reinterpret_cast back to @c FrameType* inside the interaction kernels. The host never
-        //! dereferences these device addresses.
-        using FramePtr = std::uintptr_t;
+        //! The host never dereferences these device pointers.
+        using FramePtr = FrameType*;
 
         //! Threads per block for the (master-only) count and fill kernels; matches CountFramesKernel.
         static constexpr uint32_t kIndexThreads = 32;
@@ -150,6 +150,9 @@ namespace pmacc::spearhed
         uint32_t frameCapacity = 0;
         //! Allocated capacity of framesPerRegion.
         uint32_t regionCapacity = 0;
+        //! ParticleRegionBuffer::topologyVersion this index was built against; compared by
+        //! refreshIfStale() to detect a stale index without a caller having to track it by hand.
+        uint64_t builtVersion = 0;
 
         //! Constructs an empty index and performs the initial build for @p prBuf.
         explicit FrameIndexBuffer(auto& prBuf)
@@ -170,6 +173,22 @@ namespace pmacc::spearhed
         }
 
         /**
+         * @brief Device data box of the per-region inclusive frame-count scan (valid entries
+         *        [0, regions in the last build)).
+         *
+         * Post-rebuild, framesPerRegion holds the INCLUSIVE prefix sum of frame counts per region:
+         * scan[i] = frames in regions [0, i]. Kernels can therefore recover, given a regionIdx read
+         * from regionIdxBox():
+         *   localFrameIdx = globalSlot - (regionIdx ? scan[regionIdx - 1] : 0)
+         *   framesInRegion = scan[regionIdx] - (regionIdx ? scan[regionIdx - 1] : 0)
+         * without any binary search over the scan array.
+         */
+        auto scanBox()
+        {
+            return framesPerRegion->getDeviceBuffer().getDataBox();
+        }
+
+        /**
          * @brief (Re)builds the index from the current frame lists of @p prBuf.
          *
          * Must be called after any frame-list mutation (see the invalidation contract). Growth is
@@ -179,6 +198,11 @@ namespace pmacc::spearhed
          */
         void rebuild(auto& prBuf)
         {
+            // Recorded first, before any early return, so an index rebuilt against an empty buffer
+            // is still considered fresh (builtVersion tracks the topology it was built against, not
+            // whether that topology happened to contain any frames).
+            builtVersion = prBuf.topologyVersion;
+
             totalFrames = 0;
             if(prBuf.size == 0)
                 return;
@@ -208,6 +232,21 @@ namespace pmacc::spearhed
                     regionIdxPerFrame->getDeviceBuffer().getDataBox());
         }
 
+        /**
+         * @brief Rebuilds the index only if it is stale against @p prBuf's current topology.
+         *
+         * A cheap host integer compare (builtVersion vs. prBuf.topologyVersion) when the index is
+         * already fresh -- this is the preferred call-site idiom over unconditionally rebuilding.
+         * It is deliberately called explicitly at call sites rather than hidden inside launchers, so
+         * that the device-to-host sync point rebuild() incurs (see inclusiveScanOnHost) stays visible
+         * at the point where it happens.
+         */
+        void refreshIfStale(auto& prBuf)
+        {
+            if(builtVersion != prBuf.topologyVersion)
+                rebuild(prBuf);
+        }
+
     private:
         //! Grow framesPerRegion to hold at least @p needed regions (exact fit).
         void ensureRegionCapacity(uint32_t needed)
@@ -230,6 +269,20 @@ namespace pmacc::spearhed
             framePtrs.emplace(pmacc::DataSpace<DIM1>{static_cast<int>(frameCapacity)});
             regionIdxPerFrame.emplace(pmacc::DataSpace<DIM1>{static_cast<int>(frameCapacity)});
         }
+    };
+
+    /**
+     * @brief Structural concept satisfied by FrameIndexBuffer<T_PRType> for any T_PRType.
+     *
+     * Used to disambiguate launcher/launchForEach overloads that accept a caller-built index (e.g.
+     * launchForEachFrameInBlockIndexed) from the synchronous overloads that build and discard their
+     * own index, without naming the FrameIndexBuffer template explicitly.
+     */
+    template<typename T>
+    concept IsFrameIndexBuffer = requires(T t) {
+        t.framePtrsBox();
+        t.regionIdxBox();
+        { t.totalFrames } -> std::convertible_to<uint32_t>;
     };
 
 } // namespace pmacc::spearhed

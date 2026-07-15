@@ -30,11 +30,10 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/sph/EquationOfState.hpp"
 #include "spearhed/sph/SphKernel.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
-#include "spmacc/topology/Vec.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -186,16 +185,32 @@ namespace spearhed
     {
         typename CS::T_Axis gamma;
 
-        void operator()(pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle, typename CS::T_Axis h0) const
+        /** Requires a caller-built FrameIndexBuffer for the target, which can be cached across passes
+         *  and timesteps while the frame-list topology is unchanged. The same index also drives the
+         *  zeroing launch below, so no separate index build/scan is paid for that pass either.
+         *
+         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
+         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
+        [[nodiscard]] pmacc::EventTask operator()(
+            pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
+            auto& target,
+            auto& index,
+            typename CS::T_Axis h0) const
         {
-            pmacc::spearhed::launchForEach(
-                pmacc::spearhed::levels::particle,
-                neighbourBundle.target(),
-                ZeroDerivatives{});
-            pmacc::spearhed::InteractParticles{}(
-                std::forward<decltype(neighbourBundle)>(neighbourBundle),
-                static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
-                HydroInteraction<KernelT>{gamma});
+            // PMacc transaction ordering runs this zeroing kernel before the interaction kernels
+            // enqueued by interact() below on the device queue, so no host wait is needed between
+            // them -- only the caller's eventual wait on the combined event.
+            auto zeroDone
+                = pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, target, index, ZeroDerivatives{});
+
+            auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            return zeroDone
+                   + pmacc::spearhed::interact(
+                       sources,
+                       target,
+                       index,
+                       static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                       HydroInteraction<KernelT>{gamma});
         }
     };
 

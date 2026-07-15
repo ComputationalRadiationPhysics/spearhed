@@ -33,10 +33,13 @@
 /** Validates that every particle was pushed to the expected position.
  *
  * Host-side verification sweep: after all kernels are done, mirror the region metadata and the
- * device heap to the host, then count particles whose relativePos is not approx Vec(1.f).
+ * device heap to the host, then count particles whose relativePos is not approx the expected
+ * displacement vector derived from the test setup (e.g. vel * dt).
  */
 struct ValidatePush
 {
+    spearhed::Real expectedDisplacement;
+
     auto operator()() const -> void
     {
         namespace sp = pmacc::spearhed;
@@ -50,14 +53,15 @@ struct ValidatePush
         auto const heapOffset = spearhed::syncHeapToHost();
 
         int errorCount = 0;
+        auto const displacement = expectedDisplacement;
         sp::forEach(
             sp::levels::particle,
             sp::hostHeap(heapOffset),
             sp::hostSpecies(prBuf),
-            [&](auto particle)
+            [&errorCount, displacement](auto particle)
             {
                 if(!particle[spearhed::relativePos].get().isApprox(
-                       pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ValueStorage<spearhed::CS>>(1.f)))
+                       pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ValueStorage<spearhed::CS>>(displacement)))
                     ++errorCount;
             });
 

@@ -28,8 +28,8 @@
 #include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/sph/HydroForces.hpp"
+#include "spmacc/particles/algorithms/FrameIndex.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
@@ -148,10 +148,15 @@ namespace spearhed
             pmacc::spearhed::roles::source,
             [&](auto&... sources)
             {
-                auto bundle
-                    = pmacc::spearhed::CalculateNeighbourRegions{}(defaultSpecies, interactionRadius, sources...);
-                spearhed::UpdateDensity<K>{}(bundle, h0);
-                spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, h0);
+                auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
+                // One frame index serves both passes: neither mutates frame-list topology, only
+                // particle attributes (see the FrameIndexBuffer invalidation contract).
+                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
+                auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
+                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
+                // bundle and index own device memory read by the still-queued kernels and die at the
+                // end of this scope, so this is the mandatory sync point for both passes.
+                (densityDone + hydroDone).waitForFinished();
             });
 
         // Euler update: v += dvdt*dt, u += dudt*dt, on every species advanced in time. The forces
@@ -167,11 +172,14 @@ namespace spearhed
 
     void Simulation::runOneStep(uint32_t currentStep)
     {
+        // order of operations? which species to start with?
+        // force calculation first? or pusher or something else?
         ParticlePush{}(currentStep);
         pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         // Single host-side visit turns the runtime kernel choice into a
         // compile-time template parameter for the device path
+        // continues the step
         std::visit([&](auto kernel) { stepWithKernel<decltype(kernel)>(currentStep); }, kernelVariant);
     }
 

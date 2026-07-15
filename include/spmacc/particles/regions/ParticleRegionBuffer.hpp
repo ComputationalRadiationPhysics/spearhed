@@ -29,6 +29,7 @@
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
+#include <cstdint>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -48,6 +49,7 @@ namespace pmacc::spearhed
         auto create(size_t capacity)
         {
             buffer = pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>(pmacc::DataSpace<DIM1>(capacity), false);
+            ++topologyVersion;
         }
 
         // Copies the particle region to the host buffer
@@ -55,6 +57,7 @@ namespace pmacc::spearhed
         auto pushBack(ParticleRegionType const& pr)
         {
             buffer->getHostBuffer().getDataBox()[size++] = pr;
+            ++topologyVersion;
         }
 
         auto getDeviceDataBox()
@@ -74,6 +77,17 @@ namespace pmacc::spearhed
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;
         int size = 0;
+
+        /**
+         * @brief Monotonically increasing counter of frame-list topology mutations.
+         *
+         * Bumped whenever the set or ordering of frames owned by this buffer can change: frame
+         * allocation/free, region add/remove. FrameIndexBuffer (see FrameIndex.hpp) compares its
+         * builtVersion against this counter to detect staleness without relying on callers to track
+         * it by hand. Host code that launches a device kernel which mutates frame-list topology
+         * (e.g. allocates or frees frames) must increment this after the launch.
+         */
+        uint64_t topologyVersion = 0;
     };
 
     /**

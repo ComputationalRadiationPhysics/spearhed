@@ -160,6 +160,7 @@ namespace pmacc::spearhed
         }
     };
 
+    // Update region bounds after particles in a region move
     template<typename T_ParticleRegion>
     struct UpdateVolumes
     {

@@ -28,14 +28,16 @@
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include "spmacc/particles/regions/NeighbourEntry.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <pmacc/eventSystem/Manager.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Variable.hpp>
 #include <pmacc/math/functions/Root.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
+#include <pmacc/memory/tuple/STLTuple.hpp>
 
 #include <cstdint>
 #include <limits>
@@ -48,6 +50,9 @@ namespace pmacc::spearhed
 {
     namespace detail
     {
+        template<typename T>
+        using ElementView = decltype((*static_cast<T*>(nullptr))[uint32_t{0}]);
+
         //! Empty placeholder used as the register type when a functor has no prepare() hook.
         struct NoPrepare
         {
@@ -194,7 +199,7 @@ namespace pmacc::spearhed
             using FnType = std::remove_cvref_t<decltype(fn)>;
             constexpr bool hasStage = HasStageHook<FnType>;
 
-            // --- Phase 1: cooperatively stage neighbours (one slot per worker, no compaction) ---
+            // Phase 1: cooperatively stage neighbours (one slot per worker, no compaction)
             // Origin offset baked into every staged position so the inner loop skips getPosition().
             Vec<CS, ValueStorage<CS>> const originShift = neighbourVolume.origin - ownVolume.origin;
             // Large finite sentinel: sentinel*sentinel overflows to +inf so the cull rejects it.
@@ -226,7 +231,7 @@ namespace pmacc::spearhed
                 });
             worker.sync();
 
-            // --- Phase 2: sweep the staged neighbours and accumulate into registers ---
+            // Phase 2: sweep the staged neighbours and accumulate into registers
             forEachSlot(
                 [&](pmacc::lockstep::Idx const idx)
                 {
@@ -321,7 +326,7 @@ namespace pmacc::spearhed
                     return;
 
                 // The prebuilt frame index maps this block straight to its (region, frame) -- no
-                // per-block list walk (std::advance) and no findFrameLocation binary search.
+                // per-block list walk (std::advance) and no inclusive-scan binary search.
                 int const rIdx = static_cast<int>(regionIdxBox[blockIdx]);
 
                 auto& region = targetPRDeviceBox[rIdx];
@@ -347,7 +352,7 @@ namespace pmacc::spearhed
                 using PosCacheType = ll::SoA<PosRecord, frameSize>;
                 using OwnReadsOne = ll::One<OwnReadsRecord>;
                 using OwnAccumulateOne = ll::One<OwnAccumulateRecord>;
-                using OwnReadsView = decltype(std::declval<OwnReadsOne&>()[uint32_t{0}]);
+                using OwnReadsView = detail::ElementView<OwnReadsOne>;
 
                 constexpr bool hasPrepare = HasPrepareHook<FnType, OwnReadsView>;
                 using PrepareType = typename PrepareResult<hasPrepare, FnType, OwnReadsView>::type;
@@ -355,7 +360,7 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, nbCache, NbCacheType);
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
-                memory::FramePointer const ownFramePtr{reinterpret_cast<FrameType*>(framePtrsBox[blockIdx])};
+                memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
                 VolumeType const ownVolume = region.volume;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
@@ -423,88 +428,152 @@ namespace pmacc::spearhed
                 storeOwnAccumulators<ValidParticlePredicate>(forEachSlot, ownFramePtr, validVar, ownAccVar);
             }
         };
-    } // namespace detail
 
-    /**
-     * @brief Host helper: launch pairwise interactions using the precalculated neighbour lists.
-     *
-     * Launches one kernel pass per source entry in the bundle. Each pass loads the target frame's
-     * own state once, sweeps every neighbour frame of that source, and writes the accumulators back
-     * once, so a target attribute is read-modify-written exactly once per source pass.
-     *
-     * Per neighbour frame the kernel runs two barrier-separated phases (no serial compaction):
-     *   1. Staging -- each worker stages its own slot verbatim (cacheIndex == slot). Live slots get
-     *      their functor-facing neighbour attributes plus a pre-shifted position; dead slots get a
-     *      large finite sentinel position whose squared distance overflows to +inf, so the radius
-     *      cull rejects them for free.
-     *   2. Compute -- each worker sweeps the full frame, culls on squared distance, and for accepted
-     *      pairs resolves the geometry with a single reciprocal square root before invoking @p fn.
-     * The self pair is detected by index (own particle sits at its own slot on the self frame).
-     *
-     * The functor receives a PairContext<CS> carrying rVec, r2, r, invR (= 1/r via rsqrt) and
-     * isSelf. In the coincident r2 == 0 case invR is +inf and r is NaN, so functors must guard it
-     * (self pairs are likewise expected to be short-circuited on ctx.isSelf).
-     *
-     * @param neighbourBundle  NeighbourBundle (or NeighbourBundleView) holding the target buffer and
-     *                         the neighbour lists for each source. Call bundle.byRole(role) (or
-     *                         bySpecies(species)) to restrict which sources are iterated.
-     * @param interactionRadius Maximum pairwise interaction distance.
-     * @param fn Interaction functor for one @c ownParticle / @c neighbourParticle pair. It must
-     *           declare three attribute sets and may expose two optional hooks:
-     *             static constexpr auto neighbourReads = ll::makeSet(...); // neighbour read contract:
-     *                 the global fields stage() / the default staging path may read
-     *             static constexpr auto ownReads       = ll::makeSet(...); // const own registers
-     *             static constexpr auto ownAccumulate  = ll::makeSet(...); // register accumulators,
-     *                 seeded from the current attribute values and written back once per pass
-     *             // optional, detected via requires-expressions:
-     *             DINLINE auto prepare(ownReadsView) const;                // once per own particle
-     *             using StagedRecord = ll::Record<...>;                    // derived neighbour record
-     *             DINLINE void stage(neighbourParticleView, stagedView) const; // once per staged nb
-     *           When StagedRecord is present the neighbour SMEM cache holds that derived record and
-     *           stage() populates it once per staged neighbour (so per-pair neighbour work is
-     *           hoisted, the symmetric twin of prepare()); otherwise the cache holds the raw
-     *           @c neighbourReads sub-record staged verbatim, and the functor sees ONLY those fields.
-     *           The call operator has the signature
-     *             fn(worker, ownRead, [prep,] nb, PairContext<CS> const&, acc, args...)
-     *           where @c prep is present only when prepare() exists, @c nb is a view of StagedRecord
-     *           (with the hook) or of the neighbourReads sub-record (without), @c ownRead / @c acc are
-     *           register views restricted to the corresponding set, and accumulation goes into
-     *           @c acc. Contributions must be additive so per-source passes compose.
-     */
-    struct InteractParticles
-    {
-        void operator()(IsNeighbourBundle auto&& neighbourBundle, auto interactionRadius, auto fn, auto&&... args)
-            const
+        /**
+         * @brief Single-launch GPU kernel that folds every source view into one kernel invocation,
+         *        amortising the target-side work.
+         *
+         * The own-particle registers (position, ownReads, ownAccumulate, prepare result) are loaded
+         * once, kept in per-virtual-worker lockstep context variables across all sources, and written
+         * back to the target frame exactly once at the end. Each neighbour frame -- of every source --
+         * is processed by the shared interactWithNeighbourFrame path (two barrier-separated phases:
+         * per-slot staging with a sentinel for dead slots, then a compute sweep resolving the geometry
+         * with a single reciprocal square root), so the physics, stage()/prepare() hooks and self-pair
+         * semantics are identical to the per-source FrameInteractionKernel launch.
+         * No persistent own-particle SMEM is needed, registers replace it.
+         *
+         * @tparam ValidParticlePredicate  Predicate for the live-particle check.
+         */
+        template<typename ValidParticlePredicate>
+        struct UnifiedFrameInteractionKernel
         {
-            auto& target = neighbourBundle.target();
-            if(target.size == 0)
-                return;
+            DINLINE constexpr auto operator()(
+                auto const& worker,
+                auto targetPRDeviceBox,
+                auto framePtrsBox,
+                auto regionIdxBox,
+                uint32_t totalFrames,
+                auto sourceViewTuple,
+                auto interactionRadius,
+                auto fn,
+                auto... args) const
+            {
+                auto const blockIdx = worker.blockDomIdx();
+                if(blockIdx >= static_cast<int>(totalFrames))
+                    return;
 
-            // Build the frame index ONCE for the target buffer: InteractParticles launches one kernel
-            // per source, so a single build amortises over every source pass. The index must outlive
-            // all those launches, so it lives on the stack here and we synchronise once at the end.
-            // TODO: persist the index across passes within a timestep (currently rebuilt per call).
-            using TargetPRType = typename std::remove_reference_t<decltype(target)>::ParticleRegionType;
-            FrameIndexBuffer<TargetPRType> index{target};
+                // The prebuilt frame index maps this block straight to its (region, frame) -- no
+                // per-block list walk (std::advance) and no inclusive-scan binary search.
+                int const rIdx = static_cast<int>(regionIdxBox[blockIdx]);
 
-            neighbourBundle.forEachDeviceView(
-                [&](auto sourceView)
+                auto& region = targetPRDeviceBox[rIdx];
+                auto& frameList = region.particleFrameList;
+                using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
+                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+                using RecordType = typename FrameType::ParticleRecord;
+                using CS = typename VolumeType::Vec::CS;
+                constexpr uint32_t frameSize = FrameType::frameSize;
+
+                // Derive the SMEM cache and register records from the functor's declared tag sets.
+                using FnType = std::remove_cvref_t<decltype(fn)>;
+                using NeighbourReadsSet = std::remove_cvref_t<decltype(FnType::neighbourReads)>;
+                using OwnReadsSet = std::remove_cvref_t<decltype(FnType::ownReads)>;
+                using OwnAccumulateSet = std::remove_cvref_t<decltype(FnType::ownAccumulate)>;
+
+                using NbRecord = nb_cache_record_t<FnType, RecordType, NeighbourReadsSet>;
+                using PosRecord = position_record_t<RecordType>;
+                using OwnReadsRecord = ll::sub_record_from_set_t<RecordType, OwnReadsSet>;
+                using OwnAccumulateRecord = ll::sub_record_from_set_t<RecordType, OwnAccumulateSet>;
+
+                using NbCacheType = ll::SoA<NbRecord, frameSize>;
+                using PosCacheType = ll::SoA<PosRecord, frameSize>;
+                using OwnReadsOne = ll::One<OwnReadsRecord>;
+                using OwnAccumulateOne = ll::One<OwnAccumulateRecord>;
+                using OwnReadsView = detail::ElementView<OwnReadsOne>;
+                ;
+
+                constexpr bool hasPrepare = HasPrepareHook<FnType, OwnReadsView>;
+                using PrepareType = typename PrepareResult<hasPrepare, FnType, OwnReadsView>::type;
+
+                PMACC_SMEM(worker, nbCache, NbCacheType);
+                PMACC_SMEM(worker, posCache, PosCacheType);
+
+                memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
+                VolumeType const ownVolume = region.volume;
+
+                auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
+
+                // Per-virtual-worker registers persisting across all sources (own SMEM is gone).
+                auto ownRelVar = pmacc::lockstep::makeVar<Vec<CS, ValueStorage<CS>>>(forEachSlot);
+                auto ownReadsVar = pmacc::lockstep::makeVar<OwnReadsOne>(forEachSlot);
+                auto ownAccVar = pmacc::lockstep::makeVar<OwnAccumulateOne>(forEachSlot);
+                auto validVar = pmacc::lockstep::makeVar<bool>(forEachSlot);
+                auto prepVar = pmacc::lockstep::makeVar<PrepareType>(forEachSlot);
+
+                auto const radius2 = static_cast<typename CS::T_Axis>(interactionRadius)
+                                     * static_cast<typename CS::T_Axis>(interactionRadius);
+
+                // Load own-particle registers once, then accumulate across all sources
+                loadOwnRegisters<ValidParticlePredicate, hasPrepare>(
+                    forEachSlot,
+                    ownFramePtr,
+                    fn,
+                    ownRelVar,
+                    ownReadsVar,
+                    ownAccVar,
+                    validVar,
+                    prepVar);
+
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
                 {
-                    launchForEachFrameInBlockIndexed(
-                        launchConfig<64>(oneBlockPerFrame),
-                        target,
-                        index,
-                        detail::FrameInteractionKernel<pred::Occupied>{},
-                        sourceView,
-                        interactionRadius,
-                        fn,
-                        std::forward<decltype(args)>(args)...);
-                });
+                    auto processSource = [&](auto const& sourceView)
+                    {
+                        int const startNeighbour = sourceView.regionOffsetsBox[rIdx];
+                        int const endNeighbour = sourceView.regionOffsetsBox[rIdx + 1];
 
-            // Keep the index's device buffers alive until every launched kernel has finished.
-            // TODO fix this
-            pmacc::eventSystem::waitForAllTasks();
-        }
-    };
+                        for(int n = startNeighbour; n < endNeighbour; ++n)
+                        {
+                            int const neighbourRegionIdx = sourceView.neighbourRegionsBox[n];
+                            auto& neighbourRegion = sourceView.sourcePRDeviceBox[neighbourRegionIdx];
+                            auto& neighbourFrameList = neighbourRegion.particleFrameList;
+
+                            for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
+                            {
+                                memory::FramePointer const neighbourFramePtr{&*it};
+                                VolumeType const neighbourVolume = neighbourRegion.volume;
+                                // Equal frame pointers identify the frames as the same.
+                                bool const isSelfFrame
+                                    = (static_cast<void const*>(ownFramePtr.operator->())
+                                       == static_cast<void const*>(neighbourFramePtr.operator->()));
+
+                                interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
+                                    worker,
+                                    forEachSlot,
+                                    posCache,
+                                    nbCache,
+                                    ownVolume,
+                                    neighbourFramePtr,
+                                    neighbourVolume,
+                                    isSelfFrame,
+                                    radius2,
+                                    fn,
+                                    ownRelVar,
+                                    ownReadsVar,
+                                    ownAccVar,
+                                    validVar,
+                                    prepVar,
+                                    args...);
+                            }
+                        }
+                    };
+                    (processSource(pmacc::memory::tuple::get<Is>(sourceViewTuple)), ...);
+                }(std::make_index_sequence<
+                    pmacc::memory::tuple::tuple_size_v<std::remove_cvref_t<decltype(sourceViewTuple)>>>{});
+
+                // Write the accumulated state back to the target frame (once)
+                storeOwnAccumulators<ValidParticlePredicate>(forEachSlot, ownFramePtr, validVar, ownAccVar);
+            }
+        };
+    } // namespace detail
 
 } // namespace pmacc::spearhed

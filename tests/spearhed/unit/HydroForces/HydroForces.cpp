@@ -35,7 +35,7 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -77,7 +77,7 @@ namespace
     constexpr spearhed::Real TEST_RHO = spearhed::Real{1.0};
     constexpr spearhed::Real TEST_U = spearhed::Real{1.0};
     // Separation between the two particles; must be < 2*TEST_H
-    constexpr spearhed::Real TEST_D = spearhed::Real{0.4};
+    constexpr spearhed::Real TEST_D = spearhed::Real{0.4f};
 
     struct InitMomEnergyTestSetup
     {
@@ -178,23 +178,27 @@ TEST_CASE_METHOD(
     regionOffsets.hostToDevice();
 
     using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle = pmacc::spearhed::NeighbourBundle<PRBufType, pmacc::spearhed::NeighbourEntry<PRBufType>>{
-        prBuf.get(),
-        std::make_tuple(
-            pmacc::spearhed::NeighbourEntry<PRBufType>{
-                prBuf.get(),
-                std::move(neighbourRegions),
-                std::move(regionOffsets)})};
+    auto bundle = pmacc::spearhed::makeNeighbourBundle(
+        pmacc::spearhed::NeighbourEntry<PRBufType>{
+            prBuf.get(),
+            std::move(neighbourRegions),
+            std::move(regionOffsets)});
 
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
 
-            pmacc::spearhed::InteractParticles{}(
-                bundle,
+            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            using PRType = spearhed::PRType;
+            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+            pmacc::spearhed::interact(
+                sources,
+                *prBuf,
+                index,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::HydroInteraction<K>{spearhed::gamma_eos});
+                spearhed::HydroInteraction<K>{spearhed::gamma_eos})
+                .waitForFinished();
 
             prBuf->buffer->deviceToHost();
             int64_t const heapOffset = spearhed::syncHeapToHost();
@@ -206,8 +210,7 @@ TEST_CASE_METHOD(
             //   dvdt_x = m * 2 * P/rho^2 * dWdr(d, h)   (negative value since dWdr < 0)
             spearhed::Real const P = spearhed::pressure(spearhed::gamma_eos, TEST_RHO, TEST_U);
             spearhed::Real const dw = K::dWdr(TEST_D, TEST_H);
-            spearhed::Real const expected_left
-                = TEST_MASS * static_cast<spearhed::CS::T_Axis>(K::supportRadius) * P / (TEST_RHO * TEST_RHO) * dw;
+            spearhed::Real const expected_left = TEST_MASS * 2 * P / (TEST_RHO * TEST_RHO) * dw;
             uint32_t checkedCount = 0;
             for(auto& frame : frameList.hostIterable(heapOffset))
             {

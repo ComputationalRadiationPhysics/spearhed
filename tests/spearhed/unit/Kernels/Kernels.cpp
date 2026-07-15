@@ -81,7 +81,7 @@ TEMPLATE_TEST_CASE(
     Real const r_outside = static_cast<Real>(K::supportRadius) * h;
 
     REQUIRE(static_cast<double>(K::W(r_outside, h)) == Catch::Approx(0.0).margin(1e-7));
-    REQUIRE(static_cast<double>(K::W(r_outside + Real{0.1}, h)) == Catch::Approx(0.0).margin(1e-7));
+    REQUIRE(static_cast<double>(K::W(r_outside + Real{0.1f}, h)) == Catch::Approx(0.0).margin(1e-7));
 
     // Inside support: positive at the centre.
     REQUIRE(static_cast<double>(K::W(Real{0}, h)) > 0.0);
@@ -97,10 +97,10 @@ TEMPLATE_TEST_CASE(
     constexpr Real h = Real{0.5};
 
     Vec rVec{Real{0}};
-    rVec[pmacc::spearhed::tags::x_t{}] = Real{0.4};
-    rVec[pmacc::spearhed::tags::y_t{}] = Real{-0.3};
-    rVec[pmacc::spearhed::tags::z_t{}] = Real{0.2};
-    auto const r = Real(std::sqrt(0.4 * 0.4 + 0.3 * 0.3 + 0.2 * 0.2));
+    rVec[pmacc::spearhed::tags::x_t{}] = Real{0.4f};
+    rVec[pmacc::spearhed::tags::y_t{}] = Real{-0.3f};
+    rVec[pmacc::spearhed::tags::z_t{}] = Real{0.2f};
+    auto const r = Real(std::sqrt(0.4f * 0.4f + 0.3f * 0.3f + 0.2f * 0.2f));
 
     Vec gPos = K::gradW(rVec, r, h);
 

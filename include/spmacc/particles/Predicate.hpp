@@ -54,7 +54,7 @@ namespace pmacc::spearhed::pred
     template<typename T>
     concept Predicate = std::derived_from<std::remove_cvref_t<T>, PredicateBase>;
 
-    // --- boolean combinators ----------------------------------------------------
+    // boolean combinators
 
     template<Predicate A, Predicate B>
     struct And : PredicateBase
@@ -109,7 +109,7 @@ namespace pmacc::spearhed::pred
         return Neg<A>{{}, a};
     }
 
-    // --- constant predicates ----------------------------------------------------
+    // constant predicates
 
     struct Always : PredicateBase
     {
@@ -130,7 +130,7 @@ namespace pmacc::spearhed::pred
     inline constexpr Always always{};
     inline constexpr Never never{};
 
-    // --- adapt an arbitrary callable (lambda, std:: predicate) into the algebra -
+    // adapt an arbitrary callable (lambda, std:: predicate) into the algebra
     // Device use requires F itself be device-callable; prefer named leaves for kernels.
 
     template<typename F>
@@ -150,7 +150,7 @@ namespace pmacc::spearhed::pred
         return {{}, std::forward<F>(f)};
     }
 
-    // --- functional composition: predicate on a projected value -----------------
+    // functional composition: predicate on a projected value
     // `on(p, proj)` == p . proj : project the input(s), then test.
 
     template<Predicate P, typename Proj>
@@ -171,7 +171,7 @@ namespace pmacc::spearhed::pred
         return On<P, std::decay_t<Proj>>{{}, p, proj};
     }
 
-    // --- value predicates: curried comparisons against a bound ------------------
+    // value predicates: curried comparisons against a bound
     // These carry the bound, so they are not empty; keep bounds trivially copyable for device use.
 
     template<typename T>
@@ -276,7 +276,7 @@ namespace pmacc::spearhed::pred
         return {{}, b};
     }
 
-    // --- projections -------------------------------------------------------------
+    // projections
 
     /** Projection: particle -> value of attribute @p Tag (by value, so no dangling into a frame). */
     template<typename Tag>
@@ -304,7 +304,7 @@ namespace pmacc::spearhed::pred
     template<typename Tag>
     inline constexpr FieldSet<Tag> fieldSet{};
 
-    // --- point-free sugar:  get<Tag> <op> bound  -> a particle predicate --------
+    // point-free sugar:  get<Tag> <op> bound  -> a particle predicate
     // The projection sits on the left; the bound is any comparable value.
 
     template<typename Tag, typename T>
@@ -343,7 +343,7 @@ namespace pmacc::spearhed::pred
         return on(ne(b), get<Tag>);
     }
 
-    // --- compile-time evaluation front door -------------------------------------
+    // compile-time evaluation front door
 
     /** Force compile-time evaluation of a stateless predicate on tag @p S (e.g. a species tag):
      *

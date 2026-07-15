@@ -50,7 +50,7 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     spearhed::InitRegions{}(*deviceHeap, setup);
 
     spearhed::InitParticles{}(setup);
-    // InitParticles calls waitForAllTasks() internally via launchForEachFrameInBlock.
+    // InitParticles syncs via its own explicit waitForAllTasks() call in initBlockSlice.
 
     // Sync region metadata to host.
     prBuf->synchronize();

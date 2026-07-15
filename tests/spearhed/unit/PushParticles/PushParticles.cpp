@@ -17,6 +17,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "TestSetup.hpp"
 #include "ValidatePush.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
@@ -48,6 +49,9 @@ struct SpeedyRegion
 {
     // This setup fills a single species and acts as its own (only) init block.
     using Species = pmacc::spearhed::species::Default;
+    using NumParticlesToCreate = spearhed::ScaledNumParticlesToCreate;
+
+    static constexpr spearhed::Real velInit = 100.0f;
 
     // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
     pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
@@ -69,21 +73,7 @@ struct SpeedyRegion
         return std::make_tuple();
     }
 
-    // calculate how many particles we need to make in this system
-    struct NumParticlesToCreate
-    {
-        constexpr auto operator()(
-            [[maybe_unused]] auto& worker,
-            [[maybe_unused]] auto& particleRegion,
-            uint32_t baseNumParticlesToCreate) const
-        {
-            // Intentionally scale by (block index + 1) so each block creates a distinct
-            // particle count, which makes per-block test validation deterministic.
-            return baseNumParticlesToCreate * (worker.blockDomIdx() + 1);
-        };
-    };
-
-    // place each particle at the center of its particle region's AABB
+    // place each particle at the center of its particle region's AABB and set velocity
     struct PlaceParticle
     {
         DINLINE constexpr void operator()(
@@ -92,13 +82,8 @@ struct SpeedyRegion
             auto const& particleRegion,
             [[maybe_unused]] uint32_t globalParticleIdx) const
         {
-            auto const& aabb = particleRegion.volume;
-            pmacc::spearhed::for_each_tag<CS>(
-                [&](auto tag)
-                {
-                    *particle[spearhed::relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f;
-                    *particle[spearhed::vel][tag] = 100.0f;
-                });
+            spearhed::CenterPlaceParticle{}(worker, particle, particleRegion, globalParticleIdx);
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { *particle[spearhed::vel][tag] = velInit; });
         }
     };
 
@@ -115,6 +100,7 @@ TEST_CASE_METHOD(ParticleFixture, "Particle Pusher Validation", "[integration][p
     spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
+    constexpr spearhed::Real expectedDisplacement = SpeedyRegion::velInit * spearhed::dt;
     spearhed::ParticlePush{}(1);
-    ValidatePush{}();
+    ValidatePush{expectedDisplacement}();
 }

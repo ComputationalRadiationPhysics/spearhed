@@ -48,6 +48,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <numeric>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -58,6 +59,48 @@ namespace spearhed
 {
     namespace init::detail
     {
+        /**
+         * Result of mapping a block index to a frame within the inclusive-scan layout.
+         */
+        struct FrameLocation
+        {
+            int regionIdx;
+            // index of the frame within its region
+            int localFrameIdx;
+            int framesInRegion;
+        };
+
+        /**
+         * @brief Maps a block index to a frame location using binary search on the inclusive-scan array.
+         *
+         * Init dispatches blocks over frames that do not exist yet (each block's kernel allocates its
+         * own frame), so at launch time there is nothing for a FrameIndexBuffer to index; this keeps
+         * the scan-based block-to-frame mapping InteractParticles/LaunchForEach no longer need. This
+         * is the only remaining user.
+         *
+         * @param blockIdx   Global block index (== worker.blockDomIdx() at the call site)
+         * @param scanBox    Inclusive prefix-sum of frame counts: scanBox[i] = sum of frames in regions [0, i]
+         * @param numRegions Number of regions (== length of scanBox)
+         * @return           FrameLocation with regionIdx, localFrameIdx, framesInRegion
+         */
+        DINLINE FrameLocation findFrameLocation(int blockIdx, auto const& scanBox, int numRegions)
+        {
+            // Upper-bound binary search: find smallest regionIdx s.t. scanBox[regionIdx] > blockIdx
+            int left = 0;
+            int right = numRegions;
+            while(left < right)
+            {
+                int const mid = std::midpoint(left, right);
+                if(static_cast<int>(scanBox[mid]) <= blockIdx)
+                    left = mid + 1;
+                else
+                    right = mid;
+            }
+            int const regionIdx = left;
+            int const start = (regionIdx == 0) ? 0 : static_cast<int>(scanBox[regionIdx - 1]);
+            int const end = static_cast<int>(scanBox[regionIdx]);
+            return {.regionIdx = regionIdx, .localFrameIdx = blockIdx - start, .framesInRegion = end - start};
+        }
 
         /** Kernel which calculates number of frames needed per particle region
          * One block per particle region
@@ -197,10 +240,7 @@ namespace spearhed
                 auto placeParticleArgsTuple) const
             {
                 auto const blockIdx = worker.blockDomIdx();
-                auto const loc = pmacc::spearhed::detail::findFrameLocation(
-                    blockIdx,
-                    framesPerParticleRegionScan,
-                    numParticleRegions);
+                auto const loc = findFrameLocation(blockIdx, framesPerParticleRegionScan, numParticleRegions);
 
                 PMACC_ASSERT(loc.localFrameIdx < loc.framesInRegion);
 
@@ -287,6 +327,12 @@ namespace spearhed
                         ...);
                 },
                 setup.blocks());
+
+            // The init kernels above (CreateParticlesInFrame, via getEmptyFrame) allocated frames in
+            // prBuf's frame lists, so any existing FrameIndexBuffer built over this buffer is now
+            // stale; bump the topology version once all blocks have run so the buffer's own
+            // bookkeeping reflects the mutation.
+            ++prBuf.topologyVersion;
         }
 
         template<typename Species, typename Block>

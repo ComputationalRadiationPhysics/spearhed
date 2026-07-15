@@ -61,7 +61,7 @@ namespace pmacc::spearhed
     {
         constexpr auto find_index = []<std::size_t... Is>(std::index_sequence<Is...>)
         {
-            std::size_t match = -1;
+            std::size_t match = static_cast<std::size_t>(-1);
             [[maybe_unused]] bool _
                 = ((std::same_as<T, std::tuple_element_t<Is, typename CS::tags>> ? (match = Is, true) : false) || ...);
             return match;

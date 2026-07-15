@@ -29,12 +29,12 @@
 
 namespace spearhed
 {
+    // Advance every species that moves (is integrated in time). Frozen species (walls) carry no
+    // Movable role, so they are skipped without naming a hardcoded species list.
     struct ParticlePush
     {
         void operator()(uint32_t currentStep) const
         {
-            // Advance every species that is integrated in time. Frozen species (walls) carry no
-            // Movable role, so they are skipped without naming a hardcoded species list.
             pmacc::spearhed::forEachSpeciesBufWithRole(
                 allSpecies,
                 pmacc::spearhed::roles::movable,

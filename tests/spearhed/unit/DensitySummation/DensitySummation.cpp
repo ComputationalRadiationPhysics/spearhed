@@ -43,8 +43,8 @@
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -252,13 +252,11 @@ TEST_CASE_METHOD(
     regionOffsets.hostToDevice();
 
     using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle = pmacc::spearhed::NeighbourBundle<PRBufType, pmacc::spearhed::NeighbourEntry<PRBufType>>{
-        prBuf.get(),
-        std::make_tuple(
-            pmacc::spearhed::NeighbourEntry<PRBufType>{
-                prBuf.get(),
-                std::move(neighbourRegions),
-                std::move(regionOffsets)})};
+    auto bundle = pmacc::spearhed::makeNeighbourBundle(
+        pmacc::spearhed::NeighbourEntry<PRBufType>{
+            prBuf.get(),
+            std::move(neighbourRegions),
+            std::move(regionOffsets)});
 
     std::visit(
         [&](auto kernel)
@@ -266,10 +264,16 @@ TEST_CASE_METHOD(
             using K = std::decay_t<decltype(kernel)>;
             // Self-contribution first, then pairwise accumulation
             pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-            pmacc::spearhed::InteractParticles{}(
-                bundle,
+            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            using PRType = spearhed::PRType;
+            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+            pmacc::spearhed::interact(
+                sources,
+                *prBuf,
+                index,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::AccumulateDensity<K>{});
+                spearhed::AccumulateDensity<K>{})
+                .waitForFinished();
         },
         setup.kernelVariant);
 
@@ -319,23 +323,27 @@ TEST_CASE_METHOD(
     regionOffsets2.hostToDevice();
 
     using PRBufType2 = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle2 = pmacc::spearhed::NeighbourBundle<PRBufType2, pmacc::spearhed::NeighbourEntry<PRBufType2>>{
-        prBuf.get(),
-        std::make_tuple(
-            pmacc::spearhed::NeighbourEntry<PRBufType2>{
-                prBuf.get(),
-                std::move(neighbourRegions2),
-                std::move(regionOffsets2)})};
+    auto bundle2 = pmacc::spearhed::makeNeighbourBundle(
+        pmacc::spearhed::NeighbourEntry<PRBufType2>{
+            prBuf.get(),
+            std::move(neighbourRegions2),
+            std::move(regionOffsets2)});
 
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
             pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-            pmacc::spearhed::InteractParticles{}(
-                bundle2,
+            auto sources = bundle2.template selectByRole<pmacc::spearhed::roles::Source>();
+            using PRType = spearhed::PRType;
+            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+            pmacc::spearhed::interact(
+                sources,
+                *prBuf,
+                index,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,
-                spearhed::AccumulateDensity<K>{});
+                spearhed::AccumulateDensity<K>{})
+                .waitForFinished();
 
             prBuf->buffer->deviceToHost();
             int64_t const heapOffset = spearhed::syncHeapToHost();
@@ -349,8 +357,7 @@ TEST_CASE_METHOD(
             // rho_mid: self + two neighbours at distance dx
             spearhed::Real const rho_mid = SPACED_MASS
                                            * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                              + static_cast<spearhed::CS::T_Axis>(K::supportRadius)
-                                                    * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
+                                              + 2 * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
 
             uint32_t countEdge = 0;
             uint32_t countMid = 0;
