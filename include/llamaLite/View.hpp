@@ -6,90 +6,177 @@
 
 #pragma once
 
-// #include "AccessSet.hpp"
 #include "Record.hpp"
+#include "llamaLite/AccessSet.hpp"
+#include "llamaLite/Set.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 #include "llamaLite/utility.hpp"
 #include "traits.hpp"
 
 #include <concepts>
 #include <cstdint>
-#include <tuple>
 #include <type_traits>
 
 namespace llama_lite
 {
-    template<typename TStorage, IsRecordAccess... RAs>
-    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+    // A View is parameterized on a storage and an access Set S -- the set of record accesses
+    // (tags or TagPaths) it exposes over that storage. S is kept at the granularity the caller
+    // named it (a node stays a node) so that composite-node handling via traits::AsType and
+    // node-level indexing keep working; the closure-aware leaf semantics live in AccessSet and
+    // are only reached for in the constraints (Selects) and in deep copies.
+    //
+    // The empty set S = Set<> is the "root" cursor: it denotes the whole record and can be
+    // drilled into from the top. A size-1 set is a cursor at a single node/leaf. A size>1 set
+    // is a selection of sibling accesses.
+    //
+    // TODO decouple view from storage.
+    // TODO merge deepCopyTo and deepCopyFrom and clarify copy semantics. Do we copy intersections? should the user
+    // check if they are subsets if they want a full copy? What if they want the sets to be equal? Should they check
+    // this or should we?
+
+    namespace detail
+    {
+        // The single element of a size-1 access Set.
+        template<IsAccessSet S>
+        struct SingleAccess;
+
+        template<typename A>
+        struct SingleAccess<Set<A>>
+        {
+            using type = A;
+        };
+
+        template<IsAccessSet S>
+        using single_access_t = typename SingleAccess<S>::type;
+
+        // All accesses named by S resolve to a field of the storage record.
+        template<typename TStorage, typename S>
+        concept ViewStorageFor = IsAccessSet<S> && requires { typename TStorage::record_type; }
+                                 && ValidAccessSetFor<typename TStorage::record_type, S>;
+    } // namespace detail
+
+    /**
+     * Resolves a single-access view (View or ViewIndexed) to its value.
+     *
+     * This is the one place the leaf/node distinction and the traits::AsType
+     * mapping live; the views delegate their get(), operator* and getSpan() here
+     * so they carry no resolution logic of their own. Given a view over exactly
+     * one record access it returns:
+     *   - a composite node carrying a traits::AsType specialization:
+     *       the AsType-constructed object, built from the view;
+     *   - a leaf reached through an indexed view:
+     *       a reference to the scalar element at the view's index;
+     *   - a leaf reached through a non-indexed view:
+     *       the std::span over the whole leaf column.
+     *
+     * A composite node without an AsType specialization has no value to resolve
+     * to and is rejected at compile time.
+     *
+     * @tparam V a View or ViewIndexed whose access set names a single access
+     * @param  view the view to resolve (cheap to copy: a storage pointer, plus
+     *              an index for indexed views)
+     */
+    template<typename V>
+    requires(V::access_set::size == 1)
+    [[nodiscard]] static constexpr decltype(auto) resolve(V view)
+    {
+        using Record = typename V::record_type;
+        using Access = decltype(view.getRecordAccess());
+        using Field = typename Record::template field_for<Access>;
+
+        if constexpr(traits::IsTraitSpecialized<traits::AsType, Field>::value)
+        {
+            return traits::AsType<Field>{}(view);
+        }
+        else
+        {
+            static_assert(
+                Record::template isLeaf<Access>(),
+                "resolve: access names a composite node without an AsType specialization; nothing to resolve to.");
+
+            if constexpr(requires { view.idx; })
+                return view.storage->template getLeaf<Access>()[view.idx];
+            else
+                return view.storage->template getLeaf<Access>();
+        }
+    }
+
+
+    template<typename TStorage, IsAccessSet S>
+    requires detail::ViewStorageFor<TStorage, S>
     struct ViewIndexed;
 
-    template<typename TStorage, IsRecordAccess... RAs>
-    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+    template<typename TStorage, IsAccessSet S>
+    requires detail::ViewStorageFor<TStorage, S>
     struct View
     {
         using record_type = TStorage::record_type;
+        using access_set = S;
 
         TStorage* storage;
 
-        // constructor only available if RAs exist in the TStorage record
-        constexpr View(TStorage& storage_, RAs...) noexcept
-            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
-            : storage{&storage_}
+        // Construct over storage with a given (or empty/root) access set.
+        constexpr View(TStorage& storage_, S /*accessSet*/ = {}) noexcept : storage{&storage_}
         {
         }
 
-        template<typename... ParentRAs>
-        constexpr View(View<TStorage, ParentRAs...> view, RAs...) noexcept
-            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
-                    && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
+        // Narrow from a parent view whose selection contains ours.
+        template<IsAccessSet ParentS>
+        constexpr View(View<TStorage, ParentS> view, S /*accessSet*/ = {}) noexcept
+            requires Selects<record_type, ParentS, S>
             : storage{view.storage}
         {
         }
 
         [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx)
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<TStorage, S>(*this, idx);
         }
 
         [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx) const
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<TStorage, S>(*this, idx);
         }
 
+        // Drill into the single current node.
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(sizeof...(RAs) == 1)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(S::size == 1)
         {
-            using ViewRA = typename SingleElementPack<RAs...>::type;
-            using Path = append_t<ViewRA, RA>;
-            return View<TStorage, Path>(*(this->storage), Path{});
+            using Path = append_t<detail::single_access_t<S>, RA>;
+            return View<TStorage, access_set_t<Path>>(*(this->storage));
         }
 
         [[nodiscard]] constexpr decltype(auto) getSpan()
-            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
+            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
         {
-            return storage->template getLeaf<RAs...>();
+            return resolve(*this);
         }
 
         [[nodiscard]] constexpr decltype(auto) getSpan() const
-            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
+            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
         {
-            return storage->template getLeaf<RAs...>();
+            return resolve(*this);
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
         {
-            if constexpr(sizeof...(RAs) == 1)
-                return typename SingleElementPack<RAs...>::type{};
+            if constexpr(S::size == 1)
+                return detail::single_access_t<S>{};
             else
-                return std::tuple<RAs...>{};
+                return S{};
         }
     };
 
-    template<typename TStorage, IsRecordAccess... RAs>
-    requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+    // Deduce the whole-record (root) view from storage alone.
+    template<typename TStorage>
+    View(TStorage&) -> View<TStorage, Set<>>;
+
+    template<typename TStorage, IsAccessSet S>
+    requires detail::ViewStorageFor<TStorage, S>
     struct ViewIndexed
     {
         using record_type = TStorage::record_type;
+        using access_set = S;
 
         TStorage* storage;
         uint32_t idx;
@@ -97,138 +184,95 @@ namespace llama_lite
         // consteval default constructor, to help get the type of a view more easily
         consteval ViewIndexed() = default;
 
-        // constructor only available if RAs exist in the TStorage record
-        constexpr ViewIndexed(TStorage& storage_, uint32_t index, RAs...) noexcept
-            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
+        // Construct over storage at an index with a given (or empty/root) access set.
+        constexpr ViewIndexed(TStorage& storage_, uint32_t index, S /*accessSet*/ = {}) noexcept
             : storage{&storage_}
             , idx{index}
         {
         }
 
-        constexpr ViewIndexed(View<TStorage, RAs...> view, uint32_t index) noexcept
-            : storage{view.storage}
-            , idx{index} {};
+        constexpr ViewIndexed(View<TStorage, S> view, uint32_t index) noexcept : storage{view.storage}, idx{index} {};
 
-        template<typename... ParentRAs>
-        constexpr ViewIndexed(View<TStorage, ParentRAs...> view, uint32_t index, RAs...) noexcept
-            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
-                        && (IsInSet<to_path_t<RAs>, to_path_t<ParentRAs>...> && ...)
-            : storage{view.storage}
-            , idx{index}
-        {
-        }
-
-        template<typename... ParentRAs>
-        constexpr ViewIndexed(ViewIndexed<TStorage, ParentRAs...> idxView, RAs...) noexcept
-            requires(requires { typename TStorage::record_type::template field_for<RAs>; } && ...)
-                        && (IsInSet<to_path_t<RAs>, ParentRAs...> && ...)
-            : storage{idxView.storage}
-            , idx{idxView.idx}
-        {
-        }
-
-        // conversion constructor to defined RAs from another view.
-        template<typename... OtherRAs>
-        constexpr ViewIndexed(ViewIndexed<TStorage, OtherRAs...> const& other) noexcept
-            requires(
-                        // Allow conversion from Root view
-                        sizeof...(OtherRAs) == 0 ||
-                        // OR Ensure all RAs in this view are present in the OtherRAs
-                        (IsInSet<to_path_t<RAs>, to_path_t<OtherRAs>...> && ...))
+        // Convert to this view's access set from another indexed view over the same storage.
+        // A root source (whole record) may narrow to anything; otherwise its selection must
+        // contain ours. This subsumes narrowing from a parent (indexed) view.
+        template<IsAccessSet OtherS>
+        constexpr ViewIndexed(ViewIndexed<TStorage, OtherS> const& other) noexcept
+            requires(OtherS::size == 0 || Selects<record_type, OtherS, S>)
             : storage{other.storage}
             , idx{other.idx}
         {
         }
 
-        // TODO add checks on RA being valid for the storage record
+        // Drill into the single current node (or from the root for an empty set).
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(sizeof...(RAs) <= 1)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(S::size <= 1)
         {
-            if constexpr(sizeof...(RAs) == 1)
+            if constexpr(S::size == 1)
             {
-                using ViewRA = typename SingleElementPack<RAs...>::type;
-                using Path = append_t<ViewRA, RA>;
-                return ViewIndexed<TStorage, Path>(*(this->storage), idx, Path{});
+                using Path = append_t<detail::single_access_t<S>, RA>;
+                return ViewIndexed<TStorage, access_set_t<Path>>(*(this->storage), idx);
             }
             else
             {
                 using Path = to_path_t<RA>;
-                return ViewIndexed<TStorage, Path>(*(this->storage), idx, Path{});
+                return ViewIndexed<TStorage, access_set_t<Path>>(*(this->storage), idx);
             }
         }
 
+        // Select one access out of a multi-access selection.
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto operator[](RA) const
-            requires((sizeof...(RAs) > 1) && IsInSet<to_path_t<RA>, to_path_t<RAs>...>)
+            requires((S::size > 1) && Selects<record_type, S, access_set_t<RA>>)
         {
-            return ViewIndexed<TStorage, to_path_t<RA>>(*this);
+            return ViewIndexed<TStorage, access_set_t<RA>>(*this);
         }
 
         // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
         // for example implicitly when the user requests it
         [[nodiscard]] constexpr decltype(auto) operator*()
-            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
+            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
         {
-            return storage->template getLeaf<RAs...>()[idx];
+            return resolve(*this);
         }
 
         [[nodiscard]] constexpr decltype(auto) operator*() const
-            requires((sizeof...(RAs) == 1) && (TStorage::record_type::template isLeaf<RAs...>()))
+            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
         {
-            return storage->template getLeaf<RAs...>()[idx];
+            return resolve(*this);
         }
 
         // requires we are a leaf node or AsType is
         [[nodiscard]] constexpr decltype(auto) get() requires(
-            (sizeof...(RAs) == 1)
-            && (TStorage::record_type::template isLeaf<RAs...>()
+            (S::size == 1)
+            && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()
                 || traits::IsTraitSpecialized<
                     traits::AsType,
-                    typename TStorage::record_type::template field_for<RAs...>>::value))
+                    typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
         {
-            if constexpr(
-                traits::IsTraitSpecialized<
-                    traits::AsType,
-                    typename TStorage::record_type::template field_for<RAs...>>::value)
-            {
-                return traits::AsType<typename TStorage::record_type::template field_for<RAs...>>{}(*this);
-            }
-            else // is a leaf
-            {
-                return *(*this);
-            }
+            return resolve(*this);
         }
 
         [[nodiscard]] constexpr decltype(auto) get() const requires(
-            (sizeof...(RAs) == 1)
-            && (TStorage::record_type::template isLeaf<RAs...>()
+            (S::size == 1)
+            && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()
                 || traits::IsTraitSpecialized<
                     traits::AsType,
-                    typename TStorage::record_type::template field_for<RAs...>>::value))
+                    typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
         {
-            if constexpr(
-                traits::IsTraitSpecialized<
-                    traits::AsType,
-                    typename TStorage::record_type::template field_for<RAs...>>::value)
-            {
-                return traits::AsType<typename TStorage::record_type::template field_for<RAs...>>{}(*this);
-            }
-            else // is a leaf
-            {
-                return *(*this);
-            }
+            return resolve(*this);
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
         {
-            if constexpr(sizeof...(RAs) == 1)
-                return typename SingleElementPack<RAs...>::type{};
+            if constexpr(S::size == 1)
+                return detail::single_access_t<S>{};
             else
-                return std::tuple<RAs...>{};
+                return S{};
         }
 
-        template<typename OtherTStorage, typename... OtherRAs>
-        constexpr void deepCopyFrom(ViewIndexed<OtherTStorage, OtherRAs...> other) noexcept
+        template<typename OtherTStorage, typename OtherS>
+        constexpr void deepCopyFrom(ViewIndexed<OtherTStorage, OtherS> other) noexcept
         {
             using SrcR = typename OtherTStorage::record_type;
             using DestR = record_type;
@@ -253,8 +297,8 @@ namespace llama_lite
 
         // Flush this sub-record's fields into a (potentially larger) destination record.
         // Walks this record's leaf paths and asserts the destination contains all of them.
-        template<typename OtherTStorage, typename... OtherRAs>
-        constexpr void deepCopyTo(ViewIndexed<OtherTStorage, OtherRAs...> other) const noexcept
+        template<typename OtherTStorage, typename OtherS>
+        constexpr void deepCopyTo(ViewIndexed<OtherTStorage, OtherS> other) const noexcept
         {
             using SrcR = record_type;
             using DestR = typename OtherTStorage::record_type;
@@ -278,36 +322,17 @@ namespace llama_lite
         }
 
         // deep copy
-        template<typename OtherTStorage, typename... OtherRAs>
+        template<typename OtherTStorage, typename OtherS>
         requires(!std::same_as<TStorage, OtherTStorage>)
-        constexpr ViewIndexed& operator=(ViewIndexed<OtherTStorage, OtherRAs...> other) noexcept
+        constexpr ViewIndexed& operator=(ViewIndexed<OtherTStorage, OtherS> other) noexcept
         {
             deepCopyFrom(other);
             return *this;
         }
     };
 
-    // template<template<typename> typename Func, typename T_Record, IsRecordAccess... RAs>
-    // constexpr void for_each(T_Record Record, RAs...)
-    //     requires(requires { typename T_Record::template field_for<RAs>; } && ...)
-    // {
-    //     // if view has 0 RAs, go over all elements in a record
-    //     // else go over all RAs only.
-
-    //     // if Func<RA> is defined call it
-    //     // else (if RA points to a record, call Func<> on its fields, and so on recursively. If RA is a field )
-
-    //     using CurrentRecordType = std::conditional_t<
-    //         sizeof...(RAs) == 0,
-    //         typename TStorage::record_type,
-    //         typename TStorage::record_type::template value_type_for<
-    //             to_path_t<std::tuple_element_t<0, Tuple<RAs...>>>>>;
-
-    //     // We inspect the structure of the record currently pointed to by this View
-    //     using Fields = typename CurrentRecordType::fields_tuple_type;
-
-    //     // Fold expression to apply function to all children
-    //     [&]<typename... Fs>(Tuple<Fs...>) { (func((*this)[typename Fs::tag_type{}]), ...); }(Fields{});
-    // }
+    // Deduce the whole-record (root) indexed view from storage and an index.
+    template<typename TStorage>
+    ViewIndexed(TStorage&, uint32_t) -> ViewIndexed<TStorage, Set<>>;
 
 } // namespace llama_lite

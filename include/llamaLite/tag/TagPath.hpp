@@ -12,6 +12,12 @@
 #include <cstddef>
 #include <string>
 
+// Tags form an alphabet; a TagPath is a word in the free monoid over it. operator/ is
+// concatenation and TagPath<> is the identity. Path relationships are the prefix partial
+// order: isAncestorOf is <= (reflexive), isStrictAncestorOf is <, and the empty path is the
+// minimum. Every pair of paths has a meet -- their longest common prefix (commonPrefixLength)
+// -- so paths form a meet-semilattice whose Hasse diagram is a tree.
+
 namespace llama_lite
 {
 
@@ -54,33 +60,10 @@ namespace llama_lite
     template<IsRecordAccess RA>
     using to_path_t = typename ToPath<RA>::type;
 
-    // namespace detail
-    // {
-    //     template<IsTag... Tags>
-    //     struct PathHeadTail
-    //     {
-    //         using Head = void;
-    //         using Tail = void;
-    //         constexpr bool operator==(PathHeadTail const&) const = default;
-    //     };
-
-    //     template<IsTag H, IsTag... T>
-    //     struct PathHeadTail<H, T...>
-    //     {
-    //         using Head = H;
-    //         using Tail = TagPath<T...>;
-    //         constexpr bool operator==(PathHeadTail const&) const = default;
-    //     };
-
-    // } // namespace detail
-
     template<IsTag... Tags>
     struct TagPath
     {
         static constexpr size_t depth = sizeof...(Tags);
-
-        // using HeadTag = typename detail::PathHeadTail<Tags...>::Head;
-        // using TailPath = typename detail::PathHeadTail<Tags...>::Tail;
 
         constexpr bool operator==(TagPath const&) const = default;
 
@@ -131,14 +114,15 @@ namespace llama_lite
             return (depth == Other::depth) && (commonPrefixLength<RA>() == depth);
         }
 
-        // We define that each node is its own ancestor
-        // TODO reconsider this
-        /// This path is an ancestor of Other (or equal)
+        /// This path is an ancestor of Other (or equal).
+        ///
+        /// The prefix order is a reflexive partial order, so isAncestorOf means
+        /// ancestor-or-equal (`<=`); every path is its own ancestor. The empty path is the
+        /// minimum, so it is an ancestor of every path. Use isStrictAncestorOf for the
+        /// irreflexive `<` variant.
         template<IsRecordAccess RA>
         [[nodiscard]] static consteval bool isAncestorOf()
         {
-            // Empty path is an ancestor for everything
-            // TODO reconsider this based on whats useful for algorithms
             using Other = to_path_t<RA>;
             return commonPrefixLength<Other>() == depth;
         }
@@ -187,7 +171,7 @@ namespace llama_lite
                 };
 
                 [&]<size_t... I>(std::index_sequence<I...>)
-                { (check.template operator()<I>() && ...); }(std::make_index_sequence<minDepth>{});
+                { (void) (check.template operator()<I>() && ...); }(std::make_index_sequence<minDepth>{});
 
                 return len;
             }
@@ -224,7 +208,9 @@ namespace llama_lite
         }
     } // namespace detail
 
-    /// Returns true if any path in RAs is a strict ancestor of another.
+    /// Returns true if any path in RAs is a strict ancestor of another, i.e. RAs is not a
+    /// minimal antichain under the prefix order. A path that strictly dominates another is
+    /// redundant, because in the prefix order it already selects its descendant.
     template<IsRecordAccess... RAs>
     consteval bool hasRedundantPaths()
     {
