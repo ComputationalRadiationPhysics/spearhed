@@ -37,7 +37,7 @@ namespace spearhed
     {
         HDINLINE constexpr void operator()(auto worker, ParticleView<S, relativePos, vel> view, T_dt delt) const
         {
-            pmacc::spearhed::for_each_tag<CS>([=](auto tag) { *view[relativePos][tag] += *view[vel][tag] * delt; });
+            pmacc::spearhed::for_each_tag<CS>([=](auto tag) { view[relativePos][tag] += view[vel][tag] * delt; });
         }
     };
 

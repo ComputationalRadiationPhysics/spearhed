@@ -59,9 +59,9 @@ namespace llama_lite
      * Resolves a single-access view (View or ViewIndexed) to its value.
      *
      * This is the one place the leaf/node distinction and the traits::AsType
-     * mapping live; the views delegate their get(), operator* and getSpan() here
-     * so they carry no resolution logic of their own. Given a view over exactly
-     * one record access it returns:
+     * mapping live; the views delegate their terminal-access resolution (drilling
+     * to a leaf, get() and operator*) here so they carry no resolution logic of
+     * their own. Given a view over exactly one record access it returns:
      *   - a composite node carrying a traits::AsType specialization:
      *       the AsType-constructed object, built from the view;
      *   - a leaf reached through an indexed view:
@@ -101,6 +101,24 @@ namespace llama_lite
         }
     }
 
+    namespace detail
+    {
+        // Result of drilling a cursor into a single child access: if the child names a leaf
+        // (a terminal access) it is resolved to its value -- an element reference for an indexed
+        // view, the std::span over the column otherwise. A composite node (including one carrying
+        // an AsType specialization) stays a cursor, so it can be drilled further or .get()'d.
+        template<typename ChildView>
+        [[nodiscard]] static constexpr decltype(auto) resolveIfLeaf(ChildView child)
+        {
+            using Record = typename ChildView::record_type;
+            using Access = single_access_t<typename ChildView::access_set>;
+            if constexpr(Record::template isLeaf<Access>())
+                return resolve(child);
+            else
+                return child;
+        }
+    } // namespace detail
+
 
     template<typename TStorage, IsAccessSet S>
     requires detail::ViewStorageFor<TStorage, S>
@@ -138,24 +156,13 @@ namespace llama_lite
             return ViewIndexed<TStorage, S>(*this, idx);
         }
 
-        // Drill into the single current node.
+        // Drill into the single current node. A terminal (leaf) child resolves to its
+        // std::span over the column; a composite node stays a cursor.
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(S::size == 1)
         {
             using Path = append_t<detail::single_access_t<S>, RA>;
-            return View<TStorage, access_set_t<Path>>(*(this->storage));
-        }
-
-        [[nodiscard]] constexpr decltype(auto) getSpan()
-            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
-        {
-            return resolve(*this);
-        }
-
-        [[nodiscard]] constexpr decltype(auto) getSpan() const
-            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
-        {
-            return resolve(*this);
+            return detail::resolveIfLeaf(View<TStorage, access_set_t<Path>>{*(this->storage)});
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
@@ -204,28 +211,31 @@ namespace llama_lite
         {
         }
 
-        // Drill into the single current node (or from the root for an empty set).
+        // Drill into the single current node (or from the root for an empty set). A terminal
+        // (leaf) child resolves to the element reference at this index; a composite node stays
+        // a cursor.
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(S::size <= 1)
         {
             if constexpr(S::size == 1)
             {
                 using Path = append_t<detail::single_access_t<S>, RA>;
-                return ViewIndexed<TStorage, access_set_t<Path>>(*(this->storage), idx);
+                return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<Path>>{*(this->storage), idx});
             }
             else
             {
                 using Path = to_path_t<RA>;
-                return ViewIndexed<TStorage, access_set_t<Path>>(*(this->storage), idx);
+                return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<Path>>{*(this->storage), idx});
             }
         }
 
-        // Select one access out of a multi-access selection.
+        // Select one access out of a multi-access selection. A selected leaf resolves to its
+        // element reference; a selected composite node stays a cursor.
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto operator[](RA) const
+        [[nodiscard]] constexpr decltype(auto) operator[](RA) const
             requires((S::size > 1) && Selects<record_type, S, access_set_t<RA>>)
         {
-            return ViewIndexed<TStorage, access_set_t<RA>>(*this);
+            return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<RA>>(*this));
         }
 
         // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
@@ -291,7 +301,7 @@ namespace llama_lite
                      && ...),
                     "Type mismatch between source and destination fields.");
 
-                ((*(*this)[Paths{}] = *other[Paths{}]), ...);
+                (((*this)[Paths{}] = other[Paths{}]), ...);
             }(DestLeafPaths{});
         }
 
@@ -317,7 +327,7 @@ namespace llama_lite
                      && ...),
                     "Type mismatch between source and destination fields.");
 
-                ((*other[Paths{}] = *(*this)[Paths{}]), ...);
+                ((other[Paths{}] = (*this)[Paths{}]), ...);
             }(SrcLeafPaths{});
         }
 

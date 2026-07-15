@@ -205,13 +205,13 @@ namespace llama_lite
         template<IsRecordAccess RA>
         [[nodiscard]] auto operator[](RA tag)
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] auto operator[](RA tag) const
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         [[nodiscard]] auto operator[](uint32_t idx)

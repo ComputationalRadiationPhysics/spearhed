@@ -220,13 +220,13 @@ namespace pmacc::spearhed
                         auto const relView = nParticle[tags::relativePos].get();
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
-                            { *posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
+                            { posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
                     }
                     else
                     {
                         // Dead slot: sentinel position; nbCache[slot] left garbage (never read).
                         pmacc::spearhed::for_each_tag<CS>([&](auto tag)
-                                                          { *posCache[slot][tags::relativePos][tag] = sentinel; });
+                                                          { posCache[slot][tags::relativePos][tag] = sentinel; });
                     }
                 });
             worker.sync();
@@ -250,7 +250,7 @@ namespace pmacc::spearhed
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
                             {
-                                Axis const d = ownRel[tag] - *posCache[j][tags::relativePos][tag];
+                                Axis const d = ownRel[tag] - posCache[j][tags::relativePos][tag];
                                 rVec[tag] = d;
                                 r2 += d * d;
                             });

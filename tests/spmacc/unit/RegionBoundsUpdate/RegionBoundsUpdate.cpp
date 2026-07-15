@@ -62,12 +62,12 @@ struct SetPosFunctor
         constexpr auto def = defaultPos;
         particle[spearhed::relativePos].get() = def;
         // Set outliers to define the bounding box
-        if(*particle[particleId] == 0)
+        if(particle[particleId] == 0)
         {
             constexpr auto min = expectedMin;
             particle[spearhed::relativePos].get() = min;
         }
-        else if(*particle[particleId] == 1)
+        else if(particle[particleId] == 1)
         {
             constexpr auto max = expectedMax;
             particle[spearhed::relativePos].get() = max;

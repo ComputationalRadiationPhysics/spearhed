@@ -53,7 +53,7 @@ struct ComputeParticleIdSum
             sp::levels::particle,
             sp::hostHeap(heapOffset),
             sp::hostSpecies(prBuf),
-            [&](auto particle) { totalSum += *particle[spearhed::particleId]; });
+            [&](auto particle) { totalSum += particle[spearhed::particleId]; });
 
         return totalSum;
     }

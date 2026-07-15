@@ -46,8 +46,8 @@ namespace spearhed
         {
             using namespace spearhed::tags;
 
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { *particle[vel][tag] += *particle[dvdt][tag] * delt; });
-            *particle[internalEnergy] += *particle[dudt] * delt;
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { particle[vel][tag] += particle[dvdt][tag] * delt; });
+            particle[internalEnergy] += particle[dudt] * delt;
         }
     };
 

@@ -55,7 +55,7 @@ namespace spearhed
         {
             auto const& aabb = particleRegion.volume;
             pmacc::spearhed::for_each_tag<CS>(
-                [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
         }
     };
 

@@ -97,9 +97,9 @@ struct SumPositions
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto posSum) const
     {
         using namespace pmacc::spearhed::tags;
-        alpaka::atomicAdd(worker.getAcc(), &posSum(0), *particle[relativePos][x], ::alpaka::hierarchy::Blocks{});
-        alpaka::atomicAdd(worker.getAcc(), &posSum(1), *particle[relativePos][y], ::alpaka::hierarchy::Blocks{});
-        alpaka::atomicAdd(worker.getAcc(), &posSum(2), *particle[relativePos][z], ::alpaka::hierarchy::Blocks{});
+        alpaka::atomicAdd(worker.getAcc(), &posSum(0), particle[relativePos][x], ::alpaka::hierarchy::Blocks{});
+        alpaka::atomicAdd(worker.getAcc(), &posSum(1), particle[relativePos][y], ::alpaka::hierarchy::Blocks{});
+        alpaka::atomicAdd(worker.getAcc(), &posSum(2), particle[relativePos][z], ::alpaka::hierarchy::Blocks{});
     }
 };
 
@@ -185,9 +185,9 @@ struct CountOutOfBounds
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto outOfBoundsCount) const
     {
         using namespace pmacc::spearhed::tags;
-        auto const px = *particle[relativePos][x];
-        auto const py = *particle[relativePos][y];
-        auto const pz = *particle[relativePos][z];
+        auto const px = particle[relativePos][x];
+        auto const py = particle[relativePos][y];
+        auto const pz = particle[relativePos][z];
         if(px < 0.0f || px >= 1.0f || py < 0.0f || py >= 1.0f || pz < 0.0f || pz >= 1.0f)
             alpaka::atomicAdd(worker.getAcc(), &outOfBoundsCount(0), 1u, ::alpaka::hierarchy::Blocks{});
     }

@@ -67,25 +67,25 @@ namespace pmacc::spearhed
         template<CartesianTag Tag>
         [[nodiscard]] constexpr T& operator[](Tag t) noexcept
         {
-            return *view[t];
+            return view[t];
         }
 
         template<CartesianTag Tag>
         [[nodiscard]] constexpr T operator[](Tag t) const noexcept
         {
-            return *view[t];
+            return view[t];
         }
 
         template<std::size_t I>
         [[nodiscard]] constexpr T& get() noexcept
         {
-            return *view[tag_of<CS, I>{}];
+            return view[tag_of<CS, I>{}];
         }
 
         template<std::size_t I>
         [[nodiscard]] constexpr T get() const noexcept
         {
-            return *view[tag_of<CS, I>{}];
+            return view[tag_of<CS, I>{}];
         }
     };
 

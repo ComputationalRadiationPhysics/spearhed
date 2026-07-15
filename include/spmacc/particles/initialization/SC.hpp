@@ -200,7 +200,7 @@ namespace pmacc::spearhed
                     uint32_t const ik = (globalParticleIdx / accum) % n[i.value];
                     accum *= n[i.value];
                     Scalar const di = extents[tag] / static_cast<Scalar>(n[i.value]);
-                    *particle[tags::relativePos][tag] = aabb.min[tag] + (static_cast<Scalar>(ik) + Scalar{0.5}) * di;
+                    particle[tags::relativePos][tag] = aabb.min[tag] + (static_cast<Scalar>(ik) + Scalar{0.5}) * di;
                 });
         }
     };

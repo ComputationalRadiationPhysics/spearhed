@@ -284,7 +284,7 @@ namespace pmacc::spearhed::pred
     {
         HDINLINE constexpr auto operator()(auto const& particle) const
         {
-            return *particle[Tag{}];
+            return particle[Tag{}];
         }
     };
 
@@ -297,7 +297,7 @@ namespace pmacc::spearhed::pred
     {
         HDINLINE constexpr bool operator()(auto const& particle) const
         {
-            return static_cast<bool>(*particle[Tag{}]);
+            return static_cast<bool>(particle[Tag{}]);
         }
     };
 

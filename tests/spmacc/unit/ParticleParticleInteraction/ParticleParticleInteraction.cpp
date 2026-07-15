@@ -85,7 +85,7 @@ struct StageDerivedFunc
 
     HDINLINE void stage(auto const& nParticle, auto staged) const
     {
-        *staged[stage_test::derivedId] = *nParticle[spearhed::particleId] + uint64_t{1};
+        staged[stage_test::derivedId] = nParticle[spearhed::particleId] + uint64_t{1};
     }
 
     HDINLINE void operator()(
@@ -102,7 +102,7 @@ struct StageDerivedFunc
         alpaka::atomicAdd(
             worker.getAcc(),
             &sum_db(0),
-            static_cast<uint64_t>(*nb[stage_test::derivedId]),
+            static_cast<uint64_t>(nb[stage_test::derivedId]),
             ::alpaka::hierarchy::Blocks{});
     }
 };

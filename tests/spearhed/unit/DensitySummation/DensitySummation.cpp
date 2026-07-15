@@ -84,12 +84,11 @@ namespace
             auto const& aabb = particleRegion.volume;
             // All particles at AABB centre
             pmacc::spearhed::for_each_tag<spearhed::CS>(
-                [&](auto tag)
-                { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
 
-            *particle[mass] = TEST_MASS;
-            *particle[smoothingLength] = TEST_H;
-            *particle[density] = spearhed::Real{0};
+            particle[mass] = TEST_MASS;
+            particle[smoothingLength] = TEST_H;
+            particle[density] = spearhed::Real{0};
         }
     };
 
@@ -167,13 +166,13 @@ namespace
             pmacc::spearhed::for_each_enum_tag<spearhed::CS>(
                 [&](auto axisIdx, auto tag)
                 {
-                    *particle[relativePos][tag]
+                    particle[relativePos][tag]
                         = (axisIdx.value == 0) ? spearhed::Real(globalParticleIdx) * SPACED_DX : spearhed::Real{0};
                 });
 
-            *particle[mass] = SPACED_MASS;
-            *particle[smoothingLength] = SPACED_H;
-            *particle[density] = spearhed::Real{0};
+            particle[mass] = SPACED_MASS;
+            particle[smoothingLength] = SPACED_H;
+            particle[density] = spearhed::Real{0};
         }
     };
 
@@ -293,9 +292,9 @@ TEST_CASE_METHOD(
         for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
         {
             auto particle = frame[slot];
-            if(*particle[pmacc::spearhed::tags::multiMask])
+            if(particle[pmacc::spearhed::tags::multiMask])
             {
-                spearhed::Real const rho = *particle[spearhed::tags::density];
+                spearhed::Real const rho = particle[spearhed::tags::density];
                 REQUIRE(static_cast<double>(rho) == Catch::Approx(static_cast<double>(expected)).epsilon(1e-5));
                 ++checkedCount;
             }
@@ -366,9 +365,9 @@ TEST_CASE_METHOD(
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[pmacc::spearhed::tags::multiMask])
+                    if(particle[pmacc::spearhed::tags::multiMask])
                     {
-                        spearhed::Real const rho = *particle[spearhed::tags::density];
+                        spearhed::Real const rho = particle[spearhed::tags::density];
                         double const rho_d = static_cast<double>(rho);
                         if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
                             ++countEdge;

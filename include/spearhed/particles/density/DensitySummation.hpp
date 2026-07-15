@@ -66,8 +66,8 @@ namespace spearhed
             if(ctx.isSelf) [[unlikely]]
                 return;
 
-            typename CS::T_Axis const h = *ownRead[smoothingLength];
-            typename CS::T_Axis const m_j = *nb[mass];
+            typename CS::T_Axis const h = ownRead[smoothingLength];
+            typename CS::T_Axis const m_j = nb[mass];
 
             // Unlike the gradient (which vanishes at r == 0 and is guarded inside gradWScalar), the
             // kernel value W peaks at r == 0. The framework yields ctx.r == NaN for coincident
@@ -75,7 +75,7 @@ namespace spearhed
             // zero, so clamp the distance to zero here to recover the true W(0, h) contribution.
             typename CS::T_Axis const r = (ctx.r2 > typename CS::T_Axis{0}) ? ctx.r : typename CS::T_Axis{0};
 
-            *acc[density] += m_j * KernelT::W(r, h);
+            acc[density] += m_j * KernelT::W(r, h);
         }
     };
 
@@ -92,10 +92,10 @@ namespace spearhed
         {
             using namespace spearhed::tags;
 
-            typename CS::T_Axis const h = *particle[smoothingLength];
-            typename CS::T_Axis const m_i = *particle[mass];
+            typename CS::T_Axis const h = particle[smoothingLength];
+            typename CS::T_Axis const m_i = particle[mass];
 
-            *particle[density] = m_i * KernelT::W(typename CS::T_Axis{0}, h);
+            particle[density] = m_i * KernelT::W(typename CS::T_Axis{0}, h);
         }
     };
 

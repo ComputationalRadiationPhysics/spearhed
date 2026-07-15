@@ -42,9 +42,9 @@ namespace pmacc::spearhed
     template<>
     struct Init<::spearhed::tags::idField>
     {
-        HDINLINE constexpr void operator()(auto idView, auto worker, auto idGen) const
+        HDINLINE constexpr void operator()(auto&& idView, auto worker, auto idGen) const
         {
-            *idView = idGen.fetchInc(worker);
+            idView = idGen.fetchInc(worker);
         }
     };
 

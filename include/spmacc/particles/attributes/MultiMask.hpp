@@ -39,9 +39,9 @@ namespace pmacc::spearhed
     template<>
     struct InitValue<tags::MultiMaskField>
     {
-        HDINLINE constexpr void operator()(auto multiMaskView, uint8_t val) const
+        HDINLINE constexpr void operator()(auto&& multiMaskView, uint8_t val) const
         {
-            *multiMaskView = val;
+            multiMaskView = val;
         }
     };
 
@@ -53,7 +53,7 @@ namespace pmacc::spearhed
         {
             HDINLINE constexpr bool operator()(auto const& particle) const
             {
-                return static_cast<bool>(*particle[tags::multiMask]);
+                return static_cast<bool>(particle[tags::multiMask]);
             }
         };
 

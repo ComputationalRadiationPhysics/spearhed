@@ -54,8 +54,8 @@ namespace spearhed
         {
             using namespace spearhed::tags;
 
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { *particle[dvdt][tag] = typename CS::T_Axis{0}; });
-            *particle[dudt] = typename CS::T_Axis{0};
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { particle[dvdt][tag] = typename CS::T_Axis{0}; });
+            particle[dudt] = typename CS::T_Axis{0};
         }
     };
 
@@ -114,8 +114,8 @@ namespace spearhed
             using namespace spearhed::tags;
             using T = typename CS::T_Axis;
 
-            T const rho_i = *ownRead[density];
-            T const u_i = *ownRead[internalEnergy];
+            T const rho_i = ownRead[density];
+            T const u_i = ownRead[internalEnergy];
             T const P_i = pressure(gamma, rho_i, u_i);
             return Prepared{P_i / (rho_i * rho_i)};
         }
@@ -126,14 +126,14 @@ namespace spearhed
             using namespace spearhed::tags;
             using T = typename CS::T_Axis;
 
-            T const rho_j = *nParticle[density];
-            T const u_j = *nParticle[internalEnergy];
+            T const rho_j = nParticle[density];
+            T const u_j = nParticle[internalEnergy];
             T const P_j = pressure(gamma, rho_j, u_j);
 
-            *staged[pOverRho2] = P_j / (rho_j * rho_j);
-            *staged[mass] = *nParticle[mass];
-            *staged[smoothingLength] = *nParticle[smoothingLength];
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { *staged[vel][tag] = *nParticle[vel][tag]; });
+            staged[pOverRho2] = P_j / (rho_j * rho_j);
+            staged[mass] = nParticle[mass];
+            staged[smoothingLength] = nParticle[smoothingLength];
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { staged[vel][tag] = nParticle[vel][tag]; });
         }
 
         HDINLINE constexpr void operator()(
@@ -150,28 +150,28 @@ namespace spearhed
             if(ctx.isSelf) [[unlikely]]
                 return;
 
-            T const h_i = *ownRead[smoothingLength];
-            T const h_j = *nb[smoothingLength];
+            T const h_i = ownRead[smoothingLength];
+            T const h_j = nb[smoothingLength];
 
             // Scalar gradient factors: gW_i == s_i * rVec, gW_j == s_j * rVec (single rsqrt in ctx).
             T const s_i = KernelT::gradWScalar(ctx.r, ctx.invR, h_i);
             T const s_j = KernelT::gradWScalar(ctx.r, ctx.invR, h_j);
 
-            T const m_j = *nb[mass];
-            T const pOverRho2_j = *nb[pOverRho2];
+            T const m_j = nb[mass];
+            T const pOverRho2_j = nb[pOverRho2];
 
             // Symmetric pressure gradient: dv_i -= m_j*(P_i/rho_i^2*gW_i + P_j/rho_j^2*gW_j)
             T const term_i = m_j * prep.pOverRho2;
             T const term_j = m_j * pOverRho2_j;
 
             pmacc::spearhed::for_each_tag<CS>([&](auto tag)
-                                              { *acc[dvdt][tag] -= (term_i * s_i + term_j * s_j) * ctx.rVec[tag]; });
+                                              { acc[dvdt][tag] -= (term_i * s_i + term_j * s_j) * ctx.rVec[tag]; });
 
             // P*dV energy: du_i += P_i/rho_i^2 * m_j * dot(v_i - v_j, gW_i), gW_i = s_i * rVec.
             T dot_v_rVec{0};
             pmacc::spearhed::for_each_tag<CS>([&](auto tag)
-                                              { dot_v_rVec += (*ownRead[vel][tag] - *nb[vel][tag]) * ctx.rVec[tag]; });
-            *acc[dudt] += term_i * s_i * dot_v_rVec;
+                                              { dot_v_rVec += (ownRead[vel][tag] - nb[vel][tag]) * ctx.rVec[tag]; });
+            acc[dudt] += term_i * s_i * dot_v_rVec;
         }
     };
 

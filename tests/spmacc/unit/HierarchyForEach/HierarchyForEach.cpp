@@ -68,7 +68,7 @@ struct HierarchySumKernel
                         alpaka::atomicAdd(
                             worker.getAcc(),
                             &sumBox(0),
-                            static_cast<T_Sum>(*particle[spearhed::particleId]),
+                            static_cast<T_Sum>(particle[spearhed::particleId]),
                             ::alpaka::hierarchy::Blocks{});
                     });
             });
@@ -124,7 +124,7 @@ TEST_CASE_METHOD(
             sp::levels::particle,
             sp::hostHeap(heapOffset),
             sp::hostSpecies(*prBuf),
-            [&](auto particle) { sum += static_cast<T_Sum>(*particle[spearhed::particleId]); });
+            [&](auto particle) { sum += static_cast<T_Sum>(particle[spearhed::particleId]); });
         REQUIRE(sum == expectedSum);
     }
 
@@ -146,7 +146,7 @@ TEST_CASE_METHOD(
                     sp::levels::particle,
                     access,
                     region,
-                    [&](auto particle) { total += static_cast<T_Sum>(*particle[spearhed::particleId]); });
+                    [&](auto particle) { total += static_cast<T_Sum>(particle[spearhed::particleId]); });
             });
         REQUIRE(seenRegions == static_cast<int>(numRegions));
         REQUIRE(total == expectedSum);
@@ -175,7 +175,7 @@ TEST_CASE_METHOD(
                 alpaka::atomicAdd(
                     worker.getAcc(),
                     &sumBox(0),
-                    static_cast<T_Sum>(*particle[spearhed::particleId]),
+                    static_cast<T_Sum>(particle[spearhed::particleId]),
                     ::alpaka::hierarchy::Blocks{});
             },
             sumBuffer.getDeviceBuffer().getDataBox());
@@ -216,7 +216,7 @@ TEST_CASE_METHOD(
             sp::levels::particle,
             sp::hostHeap(heapOffset),
             sp::hostMultiSpecies(*prBuf),
-            [&](auto particle) { sum += static_cast<T_Sum>(*particle[spearhed::particleId]); });
+            [&](auto particle) { sum += static_cast<T_Sum>(particle[spearhed::particleId]); });
         REQUIRE(sum == expectedSum);
     }
 
@@ -244,7 +244,7 @@ struct SumFunc
 {
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto sumBox) const
     {
-        alpaka::atomicAdd(worker.getAcc(), &sumBox(0), *particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
+        alpaka::atomicAdd(worker.getAcc(), &sumBox(0), particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
     }
 };
 

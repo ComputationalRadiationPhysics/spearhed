@@ -122,23 +122,22 @@ namespace
                 constexpr spearhed::Real half_d = TEST_D * spearhed::Real{0.5};
                 bool const isLeft = (globalParticleIdx % 2u == 0u);
 
-                *particle[relativePos][x] = isLeft ? -half_d : half_d;
-                *particle[relativePos][y] = spearhed::Real{0};
-                *particle[relativePos][z] = spearhed::Real{0};
+                particle[relativePos][x] = isLeft ? -half_d : half_d;
+                particle[relativePos][y] = spearhed::Real{0};
+                particle[relativePos][z] = spearhed::Real{0};
 
-                *particle[mass] = TEST_MASS;
-                *particle[smoothingLength] = TEST_H;
-                *particle[density] = TEST_RHO;
-                *particle[internalEnergy] = TEST_U;
+                particle[mass] = TEST_MASS;
+                particle[smoothingLength] = TEST_H;
+                particle[density] = TEST_RHO;
+                particle[internalEnergy] = TEST_U;
 
                 // Both particles at rest
-                pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                            { *particle[vel][tag] = spearhed::Real{0}; });
+                pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag) { particle[vel][tag] = spearhed::Real{0}; });
 
                 // Accumulators start at zero
                 pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                            { *particle[dvdt][tag] = spearhed::Real{0}; });
-                *particle[dudt] = spearhed::Real{0};
+                                                            { particle[dvdt][tag] = spearhed::Real{0}; });
+                particle[dudt] = spearhed::Real{0};
             }
         };
 
@@ -217,24 +216,24 @@ TEST_CASE_METHOD(
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[pmacc::spearhed::tags::multiMask])
+                    if(particle[pmacc::spearhed::tags::multiMask])
                     {
                         using namespace spearhed::tags;
                         using namespace pmacc::spearhed::tags;
 
                         // dudt must be zero (both particles at rest)
-                        REQUIRE(static_cast<double>(*particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
 
                         // y and z components of dvdt must be zero
-                        REQUIRE(static_cast<double>(*particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
-                        REQUIRE(static_cast<double>(*particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
 
                         // x component: sign depends on which side of x=0 the particle is on
-                        spearhed::Real const abs_x = *particle[relativePos][x];
+                        spearhed::Real const abs_x = particle[relativePos][x];
                         bool const isLeft = (abs_x < spearhed::Real{0});
                         spearhed::Real const expected_x = isLeft ? expected_left : -expected_left;
                         REQUIRE(
-                            static_cast<double>(*particle[dvdt][x])
+                            static_cast<double>(particle[dvdt][x])
                             == Catch::Approx(static_cast<double>(expected_x)).epsilon(1e-4));
 
                         ++checkedCount;

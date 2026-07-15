@@ -89,7 +89,7 @@ namespace pmacc
                 // out of the constructor
                 /* disable all particles since we can not assume that newly allocated memory contains zeros */
                 for(int i = 0; i < static_cast<int>(frameSize); ++i)
-                    *particlesSoa[::spearhed::multiMask][i] = 0;
+                    particlesSoa[::spearhed::multiMask][i] = 0;
             }
 
             constexpr Frame(Frame const&) = delete;

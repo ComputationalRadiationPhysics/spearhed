@@ -83,7 +83,7 @@ struct SpeedyRegion
             [[maybe_unused]] uint32_t globalParticleIdx) const
         {
             spearhed::CenterPlaceParticle{}(worker, particle, particleRegion, globalParticleIdx);
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { *particle[spearhed::vel][tag] = velInit; });
+            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { particle[spearhed::vel][tag] = velInit; });
         }
     };
 

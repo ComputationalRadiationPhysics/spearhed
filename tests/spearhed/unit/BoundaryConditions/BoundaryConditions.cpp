@@ -130,21 +130,21 @@ namespace
                     spearhed::Real const py
                         = spearhed::Real{-1} + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
 
-                    *particle[relativePos][x] = px;
-                    *particle[relativePos][y] = py;
+                    particle[relativePos][x] = px;
+                    particle[relativePos][y] = py;
 
-                    *particle[mass] = particleMass;
-                    *particle[density] = rho0;
-                    *particle[smoothingLength] = spearhed::h0;
-                    *particle[internalEnergy] = u0;
+                    particle[mass] = particleMass;
+                    particle[density] = rho0;
+                    particle[smoothingLength] = spearhed::h0;
+                    particle[internalEnergy] = u0;
 
                     // Outward radial velocity from origin
-                    *particle[vel][x] = outwardScale * px;
-                    *particle[vel][y] = outwardScale * py;
+                    particle[vel][x] = outwardScale * px;
+                    particle[vel][y] = outwardScale * py;
 
                     pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                                { *particle[dvdt][tag] = spearhed::Real{0}; });
-                    *particle[dudt] = spearhed::Real{0};
+                                                                { particle[dvdt][tag] = spearhed::Real{0}; });
+                    particle[dudt] = spearhed::Real{0};
                 }
             };
 
@@ -203,21 +203,21 @@ namespace
                     uint32_t const ix = globalParticleIdx % nx;
                     uint32_t const iy = globalParticleIdx / nx;
 
-                    *particle[relativePos][x]
+                    particle[relativePos][x]
                         = aabb.min[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
-                    *particle[relativePos][y]
+                    particle[relativePos][y]
                         = aabb.min[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
 
-                    *particle[mass] = particleMass;
-                    *particle[density] = rho0;
-                    *particle[smoothingLength] = spearhed::h0;
-                    *particle[internalEnergy] = u0;
+                    particle[mass] = particleMass;
+                    particle[density] = rho0;
+                    particle[smoothingLength] = spearhed::h0;
+                    particle[internalEnergy] = u0;
 
                     pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                                { *particle[vel][tag] = spearhed::Real{0}; });
+                                                                { particle[vel][tag] = spearhed::Real{0}; });
                     pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                                { *particle[dvdt][tag] = spearhed::Real{0}; });
-                    *particle[dudt] = spearhed::Real{0};
+                                                                { particle[dvdt][tag] = spearhed::Real{0}; });
+                    particle[dudt] = spearhed::Real{0};
                 }
             };
 
@@ -285,8 +285,8 @@ TEST_CASE_METHOD(
             for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
             {
                 auto particle = frame[slot];
-                if(*particle[multiMask])
-                    initBoundaryPos.push_back({*particle[relativePos][x], *particle[relativePos][y]});
+                if(particle[multiMask])
+                    initBoundaryPos.push_back({particle[relativePos][x], particle[relativePos][y]});
             }
         }
     }
@@ -338,13 +338,13 @@ TEST_CASE_METHOD(
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[multiMask])
+                    if(particle[multiMask])
                     {
                         REQUIRE(
-                            static_cast<double>(*particle[relativePos][x])
+                            static_cast<double>(particle[relativePos][x])
                             == Catch::Approx(static_cast<double>(initBoundaryPos[posIdx][0])).margin(1e-5));
                         REQUIRE(
-                            static_cast<double>(*particle[relativePos][y])
+                            static_cast<double>(particle[relativePos][y])
                             == Catch::Approx(static_cast<double>(initBoundaryPos[posIdx][1])).margin(1e-5));
                         ++posIdx;
                         ++checkedCount;
@@ -375,10 +375,10 @@ TEST_CASE_METHOD(
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[multiMask])
+                    if(particle[multiMask])
                     {
-                        spearhed::Real const px = *particle[relativePos][x];
-                        spearhed::Real const py = *particle[relativePos][y];
+                        spearhed::Real const px = particle[relativePos][x];
+                        spearhed::Real const py = particle[relativePos][y];
                         REQUIRE(px >= lo);
                         REQUIRE(px <= hi);
                         REQUIRE(py >= lo);
@@ -441,8 +441,8 @@ TEST_CASE_METHOD(
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[multiMask])
-                        out.push_back(static_cast<double>(*particle[density]));
+                    if(particle[multiMask])
+                        out.push_back(static_cast<double>(particle[density]));
                 }
             }
         }
@@ -496,7 +496,7 @@ namespace
             auto& frameList = box[r].particleFrameList;
             for(auto& frame : frameList.hostIterable(heapOffset))
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
-                    if(*frame[slot][multiMask])
+                    if(frame[slot][multiMask])
                         ++live;
         }
         return live;
@@ -511,8 +511,7 @@ namespace
             using namespace pmacc::spearhed::tags;
             auto const& aabb = region.volume;
             pmacc::spearhed::for_each_tag<spearhed::CS>(
-                [&](auto tag)
-                { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
         }
     };
 
