@@ -72,14 +72,14 @@ struct SCLatticeSetup
 
     auto numParticlesToCreateArgs() const
     {
-        return std::make_tuple(pmacc::spearhed::computeSCTotalParticles(numParticles, domain));
+        return std::make_tuple(numParticles);
     }
 
     using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
 
     auto placeParticleArgs() const
     {
-        return std::make_tuple(pmacc::spearhed::computeSCCellCounts(numParticles, domain));
+        return std::make_tuple(pmacc::spearhed::computeSCNumCells(numParticles, domain));
     }
 
     template<typename>

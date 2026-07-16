@@ -21,7 +21,8 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/memory.hpp"
-#include "spearhed/plugins/openPMD/OutputParticleRecord.hpp"
+#include "spearhed/param/setup.hpp"
+#include "spearhed/plugins/openPMD/Position.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
@@ -88,7 +89,7 @@ namespace spearhed
                 pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::OpenPMDOutput>,
                 [&](auto& prBuf)
                 {
-                    llama_lite::DynSoA<output::OutputParticleRecord> hostParticles;
+                    llama_lite::DynSoA<Setup::OutputParticleRecord> hostParticles;
                     pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, syncHeapToHost());
                     writer->writeStep(currentStep, hostParticles);
                 });

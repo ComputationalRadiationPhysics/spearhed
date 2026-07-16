@@ -21,108 +21,303 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/plugins/openPMD/Position.hpp"
+#include "spearhed/sph/KernelVariant.hpp"
+#include "spmacc/particles/initialization/SC.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <cstdint>
 #include <tuple>
 #include <vector>
 
+#include <llamaLite/Record.hpp>
+
 namespace spearhed
 {
-    struct SodShockTube
+    namespace sod
     {
-        // This setup fills a single species and acts as its own (only) init block.
-        using Species = pmacc::spearhed::species::Default;
+        // Wall thickness must cover one kernel support radius so the kernel sums for
+        // fluid particles right at the end caps see a full neighbour disk.
+        // CubicSplineKernel::supportRadius = 2 => W = 2 * h0 = 0.1.
+        constexpr Real wallThickness = Real{2} * h0;
 
-        pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
-
-        // Standard Sod shock tube initial conditions:
-        // contact discontinuity at x=0, zero velocity everywhere
         struct InitialConditions
         {
             // Left state (x < 0)
-            float densityLeft = 1.0f;
-            // Right state (x > 0)
-            float densityRight = 0.125f;
+            Real densityLeft = Real{1.0};
+            Real pressureLeft = Real{1.0};
+            // Right state (x >= 0)
+            Real densityRight = Real{0.125};
+            Real pressureRight = Real{0.1};
         };
 
-        InitialConditions initialConditions;
+        // Fluid: x is in [-1, 1], split at 0
+        constexpr pmacc::spearhed::AABB<CS> leftFluidVol{{Real{0}}, {Real{-1.0}}, {Real{0.0}}};
+        constexpr pmacc::spearhed::AABB<CS> rightFluidVol{{Real{0}}, {Real{0.0}}, {Real{1.0}}};
 
-        // Region volumes shared between setupRegions and NumParticlesToCreate
-        pmacc::spearhed::AABB<CS> leftVolume{{0, 0, 0}, {-1.0, -1.0, -1.0}, {0.0, 1.0, 1.0}};
-        pmacc::spearhed::AABB<CS> rightVolume{{0, 0, 0}, {0.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
+        // Walls flank the fluid by one support radius
+        constexpr pmacc::spearhed::AABB<CS> leftWallVol{{Real{0}}, {Real{-1.0} - wallThickness}, {Real{-1.0}}};
+        constexpr pmacc::spearhed::AABB<CS> rightWallVol{{Real{0}}, {Real{1.0}}, {Real{1.0} + wallThickness}};
 
-        // Sum of rho_i * V_i across all regions which is used to distribute totalParticles
-        float totalWeightedVolume = pmacc::spearhed::computeVolume(leftVolume) * initialConditions.densityLeft
-                                    + pmacc::spearhed::computeVolume(rightVolume) * initialConditions.densityRight;
+        constexpr uint32_t defaultTotalParticles = 32000u;
 
-        // Total number of particles across all regions.
-        // Each region receives a share proportional to rho * V, giving equal particle mass.
-        uint32_t totalParticles = 32000u;
+        // Helpers shared by both blocks
+
+        // Equal-mass distribution: mass per particle is fixed so each region's particle
+        // count is proportional to rho * V. Using float32 internally for the volume sum.
+        constexpr Real totalWeightedFluidVolume(InitialConditions const& ic)
+        {
+            return pmacc::spearhed::computeVolume(leftFluidVol) * ic.densityLeft
+                   + pmacc::spearhed::computeVolume(rightFluidVol) * ic.densityRight;
+        }
+
+        constexpr Real particleMass(InitialConditions const& ic, uint32_t totalParticles)
+        {
+            return totalWeightedFluidVolume(ic) / static_cast<Real>(totalParticles);
+        }
+
+        constexpr uint32_t numFluidLeft(InitialConditions const& ic, uint32_t totalParticles)
+        {
+            return static_cast<uint32_t>(
+                static_cast<Real>(totalParticles) * ic.densityLeft * pmacc::spearhed::computeVolume(leftFluidVol)
+                / totalWeightedFluidVolume(ic));
+        }
+
+        constexpr uint32_t numFluidRight(InitialConditions const& ic, uint32_t totalParticles)
+        {
+            return static_cast<uint32_t>(
+                static_cast<Real>(totalParticles) * ic.densityRight * pmacc::spearhed::computeVolume(rightFluidVol)
+                / totalWeightedFluidVolume(ic));
+        }
+
+        // Wall counts match adjacent fluid density => same particle spacing as the fluid,
+        // which keeps neighbour sums consistent across the fluid/wall interface.
+        constexpr uint32_t numWallLeft(InitialConditions const& ic, uint32_t totalParticles)
+        {
+            return static_cast<uint32_t>(
+                static_cast<Real>(numFluidLeft(ic, totalParticles)) * pmacc::spearhed::computeVolume(leftWallVol)
+                / pmacc::spearhed::computeVolume(leftFluidVol));
+        }
+
+        constexpr uint32_t numWallRight(InitialConditions const& ic, uint32_t totalParticles)
+        {
+            return static_cast<uint32_t>(
+                static_cast<Real>(numFluidRight(ic, totalParticles)) * pmacc::spearhed::computeVolume(rightWallVol)
+                / pmacc::spearhed::computeVolume(rightFluidVol));
+        }
+
+        // Interior
+
+        struct InteriorBlock
+        {
+            pmacc::spearhed::AABB<CS> domain{{Real{0}}, {Real{-1.0}}, {Real{1.0}}};
+
+            using Species = pmacc::spearhed::species::Default;
+
+            InitialConditions initialConditions{};
+            uint32_t totalParticles = defaultTotalParticles;
+
+            struct NumParticlesToCreate
+            {
+                DINLINE constexpr auto operator()(
+                    auto& /*worker*/,
+                    auto& particleRegion,
+                    Real densityLeft,
+                    Real densityRight,
+                    uint32_t totalParticles,
+                    Real totalWeightedVolume) const
+                {
+                    using x_t = std::tuple_element_t<0, typename CS::tags>;
+                    Real const rho = (particleRegion.volume.max[x_t{}] <= Real{0}) ? densityLeft : densityRight;
+                    Real const regionVolume = pmacc::spearhed::computeVolume(particleRegion.volume);
+                    return static_cast<uint32_t>(
+                        static_cast<Real>(totalParticles) * rho * regionVolume / totalWeightedVolume);
+                }
+            };
+
+            auto numParticlesToCreateArgs() const
+            {
+                return std::make_tuple(
+                    initialConditions.densityLeft,
+                    initialConditions.densityRight,
+                    totalParticles,
+                    totalWeightedFluidVolume(initialConditions));
+            }
+
+            struct PlaceParticle
+            {
+                DINLINE constexpr void operator()(
+                    auto const& worker,
+                    auto& particle,
+                    auto const& particleRegion,
+                    uint32_t globalParticleIdx,
+                    uint32_t numCellsLeft,
+                    uint32_t numCellsRight,
+                    Real pmass,
+                    Real densityLeft,
+                    Real densityRight,
+                    Real pressureLeft,
+                    Real pressureRight) const
+                {
+                    using x_t = std::tuple_element_t<0, typename CS::tags>;
+                    auto const& aabb = particleRegion.volume;
+                    bool const isLeft = (aabb.max[x_t{}] <= Real{0});
+
+                    Real const rho = isLeft ? densityLeft : densityRight;
+                    Real const P = isLeft ? pressureLeft : pressureRight;
+                    uint32_t const numCells = isLeft ? numCellsLeft : numCellsRight;
+
+                    pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, numCells);
+
+                    pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
+
+                    particle[mass] = pmass;
+                    particle[smoothingLength] = h0;
+                    particle[density] = rho;
+                    particle[internalEnergy] = P / ((gamma_eos - Real{1}) * rho);
+                }
+            };
+
+            auto placeParticleArgs() const
+            {
+                return std::make_tuple(
+                    pmacc::spearhed::computeSCNumCells(numFluidLeft(initialConditions, totalParticles), leftFluidVol),
+                    pmacc::spearhed::computeSCNumCells(
+                        numFluidRight(initialConditions, totalParticles),
+                        rightFluidVol),
+                    particleMass(initialConditions, totalParticles),
+                    initialConditions.densityLeft,
+                    initialConditions.densityRight,
+                    initialConditions.pressureLeft,
+                    initialConditions.pressureRight);
+            }
+
+            template<typename>
+            void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
+            {
+                out.push_back(leftFluidVol);
+                out.push_back(rightFluidVol);
+            }
+        };
+
+        // Boundary (frozen walls)
+
+        struct BoundaryBlock
+        {
+            pmacc::spearhed::AABB<CS> domain{{Real{0}}, {Real{-1.0} - wallThickness}, {Real{1.0} + wallThickness}};
+
+            using Species = pmacc::spearhed::species::Boundary;
+
+            InitialConditions initialConditions{};
+            uint32_t totalParticles = defaultTotalParticles;
+
+            struct NumParticlesToCreate
+            {
+                DINLINE constexpr auto operator()(
+                    auto& /*worker*/,
+                    auto& particleRegion,
+                    uint32_t numLeft,
+                    uint32_t numRight) const
+                {
+                    using x_t = std::tuple_element_t<0, typename CS::tags>;
+                    return (particleRegion.volume.max[x_t{}] <= Real{0}) ? numLeft : numRight;
+                }
+            };
+
+            auto numParticlesToCreateArgs() const
+            {
+                return std::make_tuple(
+                    numWallLeft(initialConditions, totalParticles),
+                    numWallRight(initialConditions, totalParticles));
+            }
+
+            struct PlaceParticle
+            {
+                DINLINE constexpr void operator()(
+                    auto const& worker,
+                    auto& particle,
+                    auto const& particleRegion,
+                    uint32_t globalParticleIdx,
+                    uint32_t numCellsLeft,
+                    uint32_t numCellsRight,
+                    Real pmass,
+                    Real densityLeft,
+                    Real densityRight,
+                    Real pressureLeft,
+                    Real pressureRight) const
+                {
+                    using x_t = std::tuple_element_t<0, typename CS::tags>;
+                    auto const& aabb = particleRegion.volume;
+                    bool const isLeft = (aabb.max[x_t{}] <= Real{0});
+
+                    Real const rho = isLeft ? densityLeft : densityRight;
+                    Real const P = isLeft ? pressureLeft : pressureRight;
+                    uint32_t const numCells = isLeft ? numCellsLeft : numCellsRight;
+
+                    pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, numCells);
+
+                    pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
+
+                    particle[mass] = pmass;
+                    particle[smoothingLength] = h0;
+                    particle[density] = rho;
+                    particle[internalEnergy] = P / ((gamma_eos - Real{1}) * rho);
+                }
+            };
+
+            auto placeParticleArgs() const
+            {
+                return std::make_tuple(
+                    pmacc::spearhed::computeSCNumCells(numWallLeft(initialConditions, totalParticles), leftWallVol),
+                    pmacc::spearhed::computeSCNumCells(numWallRight(initialConditions, totalParticles), rightWallVol),
+                    particleMass(initialConditions, totalParticles),
+                    initialConditions.densityLeft,
+                    initialConditions.densityRight,
+                    initialConditions.pressureLeft,
+                    initialConditions.pressureRight);
+            }
+
+            template<typename>
+            void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
+            {
+                out.push_back(leftWallVol);
+                out.push_back(rightWallVol);
+            }
+        };
+    } // namespace sod
+
+    struct SodShockTube
+    {
+        // Full domain spans fluid + walls, used for diagnostic printing only.
+        pmacc::spearhed::AABB<CS> domain{
+            {Real{0}},
+            {Real{-1.0} - sod::wallThickness},
+            {Real{1.0} + sod::wallThickness}};
+
+        sod::InitialConditions initialConditions{};
+        uint32_t totalParticles = sod::defaultTotalParticles;
+
+        sod::InteriorBlock interior{.initialConditions = initialConditions, .totalParticles = totalParticles};
+        sod::BoundaryBlock boundary{.initialConditions = initialConditions, .totalParticles = totalParticles};
 
         auto blocks() const
         {
-            return std::tie(*this);
+            return std::tie(interior, boundary);
         }
 
-        struct NumParticlesToCreate
-        {
-            // Number of particles to create per particle region.
-            // N_i = totalParticles * (rho_i * V_i) / sum_j(rho_j * V_j)
-            constexpr auto operator()(
-                auto& worker,
-                auto& particleRegion,
-                float densityLeft,
-                float densityRight,
-                uint32_t totalParticles,
-                float totalWeightedVolume) const
-            {
-                // Region 0 = left, region 1 = right (insertion order in setupRegions)
-                float const density = (worker.blockDomIdx() == 0) ? densityLeft : densityRight;
+        KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-                float regionVolume = pmacc::spearhed::computeVolume(particleRegion.volume);
-
-                return static_cast<uint32_t>(
-                    static_cast<float>(totalParticles) * density * regionVolume / totalWeightedVolume);
-            }
-        };
-
-        auto numParticlesToCreateArgs() const
-        {
-            return std::make_tuple(
-                initialConditions.densityLeft,
-                initialConditions.densityRight,
-                totalParticles,
-                totalWeightedVolume);
-        }
-
-        struct PlaceParticle
-        {
-            DINLINE constexpr void operator()(
-                [[maybe_unused]] auto const& worker,
-                auto& particle,
-                auto const& particleRegion,
-                [[maybe_unused]] uint32_t globalParticleIdx) const
-            {
-                auto const& aabb = particleRegion.volume;
-                pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
-            }
-        };
-
-        auto placeParticleArgs() const
-        {
-            return std::make_tuple();
-        }
-
-        // Region 0 = left, region 1 = right; NumParticlesToCreate keys off this order.
-        template<typename>
-        void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
-        {
-            out.push_back(leftVolume);
-            out.push_back(rightVolume);
-        }
+        // Sod validation needs density and internal energy in addition to id/position/mass/velocity
+        // so a Python post-processor can reconstruct pressure via P = (gamma - 1) * rho * u.
+        using OutputParticleRecord = ll::Record<
+            spearhed::tags::idField,
+            spearhed::output::positionField<CS>,
+            spearhed::tags::massField<Real>,
+            spearhed::tags::velField<CS>,
+            spearhed::tags::densityField<Real>,
+            spearhed::tags::internalEnergyField<Real>>;
     };
 
     using Setup = SodShockTube;
