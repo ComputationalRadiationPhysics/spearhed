@@ -257,8 +257,15 @@ namespace pmacc::spearhed
 
                         if(r2 < radius2)
                         {
-                            Axis const invR = pmacc::math::rsqrt(r2);
-                            Axis const r = r2 * invR;
+                            Axis invR{0};
+                            Axis r{0};
+
+                            if(r2 > Axis{0}) [[likely]]
+                            {
+                                invR = pmacc::math::rsqrt(r2);
+                                r = r2 * invR;
+                            }
+
                             bool const isSelf = isSelfFrame && (j == mySlot);
                             auto nbView = nbCache[j];
                             PairContext<CS> const ctx{rVec, r2, r, invR, isSelf};

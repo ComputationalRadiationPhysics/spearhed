@@ -35,9 +35,9 @@ namespace spearhed
     {
         void operator()(uint32_t currentStep) const
         {
-            pmacc::spearhed::forEachSpeciesBufWithRole(
+            pmacc::spearhed::forEachSpeciesBufWithPred(
                 allSpecies,
-                pmacc::spearhed::roles::movable,
+                pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Movable>,
                 [&](auto& prBuf)
                 {
                     using S = typename std::remove_reference_t<decltype(prBuf)>::Species;

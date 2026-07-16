@@ -49,6 +49,7 @@ namespace pmacc::spearhed
         auto create(size_t capacity)
         {
             buffer = pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>(pmacc::DataSpace<DIM1>(capacity), false);
+            size = 0;
             ++topologyVersion;
         }
 
@@ -56,6 +57,7 @@ namespace pmacc::spearhed
         // Remember to send buf to device before use
         auto pushBack(ParticleRegionType const& pr)
         {
+            PMACC_ASSERT(size < buffer->getHostBuffer().getDataSpace().productOfComponents());
             buffer->getHostBuffer().getDataBox()[size++] = pr;
             ++topologyVersion;
         }
@@ -91,9 +93,10 @@ namespace pmacc::spearhed
     };
 
     /**
-     * @brief Invokes @p fn(prBuf) for every species carrying role @p R that the DataConnector holds a buffer for.
+     * @brief Invokes @p fn(prBuf) for every species accepted by predicate @p p that the DataConnector
+     *        holds a buffer for.
      *
-     * Wraps the recurring "walk species by role, fetch each ParticleRegionBuffer from the
+     * Wraps the recurring "walk species by predicate, fetch each ParticleRegionBuffer from the
      * DataConnector" idiom. The region type is read straight off @p registry (the simulation's species
      * vector, which pairs the species list with the ParticleRegion their buffers use), so callers no
      * longer pass it. Registered species the active setup never created have no entry in the
@@ -101,16 +104,18 @@ namespace pmacc::spearhed
      *
      * @param  registry The simulation's species vector (see SpeciesRegistry), passed as a concrete object;
      *                  supplies both the species list walked here and the per-species PRType template.
-     * @param  role     Role the species must carry, passed as a concrete object (e.g. roles::movable).
+     * @param  p        Composable predicate value callable on a species tag (e.g.
+     *                  pred::withRole<roles::Movable>); it must be stateless because forEachSpeciesIf
+     *                  re-forms it from its type for consteval evaluation.
      * @param  fn       Functor invoked as fn(ParticleRegionBuffer<Registry::PRType<Species>>&).
      */
-    template<SpeciesRegistryTag Registry, RoleTag R, typename Fn>
-    void forEachSpeciesBufWithRole(Registry /*registry*/, R /*role*/, Fn&& fn, auto&&... args)
+    template<SpeciesRegistryTag Registry, pred::Predicate P, typename Fn>
+    void forEachSpeciesBufWithPred(Registry /*registry*/, P p, Fn&& fn, auto&&... args)
     {
         auto& dc = pmacc::Environment<>::get().DataConnector();
 
         forEachSpeciesIf<typename Registry::List>(
-            pred::withRole<R>,
+            p,
             [&](auto species)
             {
                 using Species = decltype(species);
@@ -154,27 +159,30 @@ namespace pmacc::spearhed
     } // namespace detail
 
     /**
-     * @brief Invokes @p fn(bufs&...) once with every present ParticleRegionBuffer whose species carries role @p R.
+     * @brief Invokes @p fn(bufs&...) once with every present ParticleRegionBuffer whose species is
+     *        accepted by predicate @p p.
      *
-     * Unlike forEachSpeciesBufWithRole (one call per buffer), this gathers all present buffers and makes a
+     * Unlike forEachSpeciesBufWithPred (one call per buffer), this gathers all present buffers and makes a
      * single call with them as a pack -- suited to variadic consumers such as CalculateNeighbourRegions,
      * which must see every source together to build a single neighbour bundle. The region type is read
      * straight off @p registry, so callers no longer pass it.
      *
      * Species the active setup never created have no entry in the DataConnector and are dropped from the
      * pack. Because presence is a runtime property while the pack is fixed at compile time, the present
-     * subset is materialised by recursing over the role-filtered species list, branching once per species
-     * on hasId.
+     * subset is materialised by recursing over the predicate-filtered species list, branching once per
+     * species on hasId.
      *
      * @param  registry The simulation's species vector (see SpeciesRegistry), passed as a concrete object;
      *                  supplies both the species list filtered here and the per-species PRType template.
-     * @param  role     Role the species must carry, passed as a concrete object (e.g. roles::source).
+     * @param  p        Composable predicate value callable on a species tag (e.g.
+     *                  pred::withRole<roles::Source>); it must be stateless, as it is re-formed from its
+     *                  type to filter the species list at compile time.
      * @param  fn       Functor invoked as fn(ParticleRegionBuffer<Registry::PRType<Species>>&...).
      */
-    template<SpeciesRegistryTag Registry, RoleTag R, typename Fn>
-    void withSpeciesBufsWithRole(Registry registry, R /*role*/, Fn&& fn)
+    template<SpeciesRegistryTag Registry, pred::Predicate P, typename Fn>
+    void withSpeciesBufsWithPred(Registry registry, P /*p*/, Fn&& fn)
     {
-        using Sources = SpeciesWithRole<R, typename Registry::List>;
+        using Sources = SpeciesWithPred<P, typename Registry::List>;
         detail::withPresentPRBufs(registry, Sources{}, std::forward<Fn>(fn));
     }
 

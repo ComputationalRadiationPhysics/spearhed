@@ -194,7 +194,7 @@ namespace pmacc::spearhed
         {
             return [this]<std::size_t... Is>(std::index_sequence<Is...>)
             {
-                return NeighbourBundle<false, std::tuple_element_t<Is, std::tuple<Entries...>>...>{
+                return NeighbourBundle<false, std::tuple_element_t<Is, std::tuple<Entries const...>>...>{
                     std::tuple{std::cref(detail::deref(std::get<Is>(entries)))...}};
             }(detail::FilteredIndices<Pred, Entries...>{});
         }

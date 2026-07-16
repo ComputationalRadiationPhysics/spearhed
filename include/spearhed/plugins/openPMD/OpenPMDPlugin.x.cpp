@@ -83,9 +83,9 @@ namespace spearhed
 
             // Serialise every present species carrying the OpenPMDOutput role, rather than a hardcoded
             // species. Species the active setup never created are skipped automatically.
-            pmacc::spearhed::forEachSpeciesBufWithRole(
+            pmacc::spearhed::forEachSpeciesBufWithPred(
                 allSpecies,
-                pmacc::spearhed::roles::openPMDOutput,
+                pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::OpenPMDOutput>,
                 [&](auto& prBuf)
                 {
                     llama_lite::DynSoA<output::OutputParticleRecord> hostParticles;

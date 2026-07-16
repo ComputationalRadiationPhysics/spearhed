@@ -55,8 +55,8 @@ namespace spearhed
         ParticleRegion<pmacc::spearhed::AABB<CS>, FrameTypeFor<S>, typename DeviceHeap::AllocatorHandle>;
 
     /** The simulation's species vector: every species (pmacc::spearhed::species::AllTypes) paired with
-     *  the per-species PRType template.  Role-driven buffer helpers (forEachSpeciesBufWithRole,
-     *  withSpeciesBufsWithRole) compute the correct ParticleRegionBuffer type for each species. */
+     *  the per-species PRType template.  Predicate-driven buffer helpers (forEachSpeciesBufWithPred,
+     *  withSpeciesBufsWithPred) compute the correct ParticleRegionBuffer type for each species. */
     using AllSpecies = pmacc::spearhed::SpeciesRegistry<PRTypeFor, pmacc::spearhed::species::AllTypes>;
 
     /** Concrete instance of the species registry, for the value-based role helpers. */

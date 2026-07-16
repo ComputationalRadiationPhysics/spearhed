@@ -48,7 +48,6 @@ namespace pmacc::spearhed
         struct FindNeighbourRegionsFunctor
         {
             static constexpr unsigned int kMaxThreads = 64;
-            unsigned int totalPairs = 0; // only meaningful in Write mode (bounds assertion)
 
             DINLINE void operator()(
                 auto const& worker,
@@ -115,10 +114,10 @@ namespace pmacc::spearhed
                     if(threadIdx == 0)
                     {
                         PMACC_DEVICE_ASSERT_MSG(
-                            s_writePtr <= regionOffsetsBox[blockIdx] + totalPairs,
-                            "NeighbourRegion write overflow: block %u allocated %u pairs",
+                            s_writePtr <= regionOffsetsBox[blockIdx + 1],
+                            "NeighbourRegion write overflow: block index %u wrote to region %u or beyond",
                             blockIdx,
-                            totalPairs);
+                            regionOffsetsBox[blockIdx + 1]);
                     }
                 }
             }
@@ -165,7 +164,6 @@ namespace pmacc::spearhed
             if(totalPairs > 0)
             {
                 auto writeKernel = detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{};
-                writeKernel.totalPairs = totalPairs;
                 PMACC_LOCKSTEP_KERNEL(writeKernel)
                     .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
                         target.getDeviceDataBox(),

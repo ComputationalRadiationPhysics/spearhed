@@ -167,8 +167,9 @@ namespace pmacc::spearhed
      * @tparam T_PRTypeFor  Unary template alias: T_PRTypeFor<Species> -> ParticleRegion<...>
      * @tparam T_SpeciesList species_list<...> of every registered species.
      *
-     * Role-driven buffer helpers (forEachSpeciesBufWithRole, withSpeciesBufsWithRole) take a SpeciesRegistry
-     * and compute the correct ParticleRegionBuffer type for each species via T_PRTypeFor<Species>.
+     * Predicate-driven buffer helpers (forEachSpeciesBufWithPred, withSpeciesBufsWithPred) take a
+     * SpeciesRegistry and compute the correct ParticleRegionBuffer type for each species via
+     * T_PRTypeFor<Species>.
      */
     template<template<typename> typename T_PRTypeFor, typename T_SpeciesList>
     struct SpeciesRegistry
@@ -178,7 +179,7 @@ namespace pmacc::spearhed
         using List = T_SpeciesList;
     };
 
-    /** A species registry is any tag exposing a species List; the role-driven buffer helpers take one
+    /** A species registry is any tag exposing a species List; the predicate-driven buffer helpers take one
      *  as a concrete object (e.g. an `inline constexpr` SpeciesRegistry instance). */
     template<typename T>
     concept SpeciesRegistryTag = requires { typename T::List; };
@@ -291,21 +292,21 @@ namespace pmacc::spearhed
 
     namespace detail
     {
-        template<typename R, typename List>
-        struct FilterByRole;
+        template<typename P, typename List>
+        struct FilterByPred;
 
-        template<typename R, typename... S>
-        struct FilterByRole<R, std::tuple<S...>>
+        template<typename P, typename... S>
+        struct FilterByPred<P, std::tuple<S...>>
         {
             using type = decltype(std::tuple_cat(
-                std::declval<std::conditional_t<hasRole(S{}, R{}), std::tuple<S>, std::tuple<>>>()...));
+                std::declval<std::conditional_t<pred::eval<S>(P{}), std::tuple<S>, std::tuple<>>>()...));
         };
     } // namespace detail
 
-    /** The subset of @p List (default: every registered species type) whose species carry role @p R,
+    /** The subset of @p List (default: every registered species type) accepted by predicate @p P,
      *  as a std::tuple of species tags. Empty tuple if none qualify. The type-level counterpart of
-     *  forEachSpeciesWithRole, for code that must materialise the matching species as a pack. */
-    template<typename R, typename List>
-    using SpeciesWithRole = typename detail::FilterByRole<R, List>::type;
+     *  forEachSpeciesIf, for code that must materialise the matching species as a pack. */
+    template<typename P, typename List>
+    using SpeciesWithPred = typename detail::FilterByPred<P, List>::type;
 
 } // namespace pmacc::spearhed

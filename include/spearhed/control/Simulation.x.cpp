@@ -143,9 +143,9 @@ namespace spearhed
 
         // Every present species that contributes to neighbour sums is a source; the boundary wall is
         // included automatically when the setup created it, with no hardcoded species list.
-        pmacc::spearhed::withSpeciesBufsWithRole(
+        pmacc::spearhed::withSpeciesBufsWithPred(
             allSpecies,
-            pmacc::spearhed::roles::source,
+            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
             [&](auto&... sources)
             {
                 auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
@@ -161,9 +161,9 @@ namespace spearhed
 
         // Euler update: v += dvdt*dt, u += dudt*dt, on every species advanced in time. The forces
         // computed above persist on the device buffers, so this runs as a separate phase.
-        pmacc::spearhed::forEachSpeciesBufWithRole(
+        pmacc::spearhed::forEachSpeciesBufWithPred(
             allSpecies,
-            pmacc::spearhed::roles::thermodynamic,
+            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Thermodynamic>,
             [&](auto& buf)
             {
                 pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);
