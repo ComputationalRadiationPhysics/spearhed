@@ -54,9 +54,11 @@ struct HierarchySumKernel
 {
     DINLINE void operator()(auto const& worker, auto view, auto sumBox) const
     {
+        // DeviceHeapAccess{} instead of the deviceHeap instance: odr-using the namespace-scope
+        // constexpr variable from device code is ill-formed under nvcc.
         sp::forEach(
             sp::levels::frame,
-            sp::deviceHeap,
+            sp::DeviceHeapAccess{},
             view,
             [&](auto frame)
             {
@@ -72,6 +74,29 @@ struct HierarchySumKernel
                             ::alpaka::hierarchy::Blocks{});
                     });
             });
+    }
+};
+
+// Named functors instead of lambdas for the launchForEach bodies below: a plain lambda defined in
+// host test code is a __host__ callable, which nvcc refuses to call from the device-side kernel.
+struct AtomicSumParticleIds
+{
+    DINLINE constexpr void operator()(auto const& worker, auto particle, auto sumBox) const
+    {
+        alpaka::atomicAdd(
+            worker.getAcc(),
+            &sumBox(0),
+            static_cast<T_Sum>(particle[spearhed::particleId]),
+            ::alpaka::hierarchy::Blocks{});
+    }
+};
+
+struct CountFrameOnce
+{
+    DINLINE constexpr void operator()(auto const& worker, auto /*frameView*/, auto countBox) const
+    {
+        pmacc::lockstep::makeMaster(worker)(
+            [&]() { alpaka::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::hierarchy::Blocks{}); });
     }
 };
 
@@ -170,14 +195,7 @@ TEST_CASE_METHOD(
         sp::launchForEach(
             sp::levels::particle,
             *prBuf,
-            [](auto const& worker, auto particle, auto sumBox) constexpr
-            {
-                alpaka::atomicAdd(
-                    worker.getAcc(),
-                    &sumBox(0),
-                    static_cast<T_Sum>(particle[spearhed::particleId]),
-                    ::alpaka::hierarchy::Blocks{});
-            },
+            AtomicSumParticleIds{},
             sumBuffer.getDeviceBuffer().getDataBox());
         pmacc::eventSystem::waitForAllTasks();
 
@@ -196,12 +214,7 @@ TEST_CASE_METHOD(
             sp::forEachConfig(sp::contiguous, sp::fixedGrid<8>),
             sp::levels::frame,
             *prBuf,
-            [](auto const& worker, auto /*frameView*/, auto countBox) constexpr
-            {
-                pmacc::lockstep::makeMaster(worker)(
-                    [&]()
-                    { alpaka::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::hierarchy::Blocks{}); });
-            },
+            CountFrameOnce{},
             frameCount.getDeviceBuffer().getDataBox());
         pmacc::eventSystem::waitForAllTasks();
 

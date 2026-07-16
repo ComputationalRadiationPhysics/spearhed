@@ -41,33 +41,34 @@ namespace pmacc::spearhed
         Orthonormal
     };
 
-    template<typename CS>
+    template<typename T_CS>
     concept CoordinateSystem = requires {
         // type in which the coordinates are stored
-        typename CS::T_Axis;
-        typename CS::tags;
-        { CS::dimension } -> std::convertible_to<std::size_t>;
-        { CS::metricKind } -> std::convertible_to<MetricKind>;
+        typename T_CS::T_Axis;
+        typename T_CS::tags;
+        { T_CS::dimension } -> std::convertible_to<std::size_t>;
+        { T_CS::metricKind } -> std::convertible_to<MetricKind>;
     };
 
     // Compile time mapping from Index to Tag type
-    template<CoordinateSystem CS, std::size_t I>
-    requires(I < std::tuple_size_v<typename CS::tags>)
-    using tag_of = std::tuple_element_t<I, typename CS::tags>;
+    template<CoordinateSystem T_CS, std::size_t I>
+    requires(I < std::tuple_size_v<typename T_CS::tags>)
+    using tag_of = std::tuple_element_t<I, typename T_CS::tags>;
 
     // Compile time mapping from Tag to Index using a generalized helper
-    template<CoordinateSystem CS, typename T>
+    template<CoordinateSystem T_CS, typename T>
     [[nodiscard]] consteval std::size_t index_of() noexcept
     {
         constexpr auto find_index = []<std::size_t... Is>(std::index_sequence<Is...>)
         {
             std::size_t match = static_cast<std::size_t>(-1);
             [[maybe_unused]] bool _
-                = ((std::same_as<T, std::tuple_element_t<Is, typename CS::tags>> ? (match = Is, true) : false) || ...);
+                = ((std::same_as<T, std::tuple_element_t<Is, typename T_CS::tags>> ? (match = Is, true) : false)
+                   || ...);
             return match;
         };
 
-        constexpr std::size_t idx = find_index(std::make_index_sequence<std::tuple_size_v<typename CS::tags>>{});
+        constexpr std::size_t idx = find_index(std::make_index_sequence<std::tuple_size_v<typename T_CS::tags>>{});
         static_assert(idx != static_cast<std::size_t>(-1), "Tag not found in coordinate system.");
 
         return idx;
@@ -82,46 +83,46 @@ namespace pmacc::spearhed
         }(std::make_integer_sequence<decltype(Start), End - Start>{});
     }
 
-    template<CoordinateSystem CS, typename F>
+    template<CoordinateSystem T_CS, typename F>
     constexpr void for_each_index(F&& f) noexcept
     {
-        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
         { (f(std::integral_constant<std::size_t, Is>{}), ...); }(std::make_index_sequence<N>{});
     }
 
-    template<CoordinateSystem CS, typename F>
+    template<CoordinateSystem T_CS, typename F>
     constexpr void for_each_enum_tag(F&& f) noexcept
     {
-        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
         {
-            (f(std::integral_constant<std::size_t, Is>{}, pmacc::spearhed::tag_of<CS, Is>{}), ...);
+            (f(std::integral_constant<std::size_t, Is>{}, pmacc::spearhed::tag_of<T_CS, Is>{}), ...);
         }(std::make_index_sequence<N>{});
     }
 
-    template<CoordinateSystem CS, typename F>
+    template<CoordinateSystem T_CS, typename F>
     constexpr void for_each_tag(F&& f) noexcept
     {
-        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { (f(pmacc::spearhed::tag_of<CS, Is>{}), ...); }(std::make_index_sequence<N>{});
+        { (f(pmacc::spearhed::tag_of<T_CS, Is>{}), ...); }(std::make_index_sequence<N>{});
     }
 
-    template<CoordinateSystem CS, typename F>
+    template<CoordinateSystem T_CS, typename F>
     constexpr bool all_of_tag(F&& f) noexcept
     {
-        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         return [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { return (f(pmacc::spearhed::tag_of<CS, Is>{}) && ...); }(std::make_index_sequence<N>{});
+        { return (f(pmacc::spearhed::tag_of<T_CS, Is>{}) && ...); }(std::make_index_sequence<N>{});
     }
 
-    template<CoordinateSystem CS, typename F>
+    template<CoordinateSystem T_CS, typename F>
     constexpr bool any_of_tag(F&& f) noexcept
     {
-        constexpr std::size_t N = std::tuple_size_v<typename CS::tags>;
+        constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         return [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { return (f(pmacc::spearhed::tag_of<CS, Is>{}) || ...); }(std::make_index_sequence<N>{});
+        { return (f(pmacc::spearhed::tag_of<T_CS, Is>{}) || ...); }(std::make_index_sequence<N>{});
     }
 
 

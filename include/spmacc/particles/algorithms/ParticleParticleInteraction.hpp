@@ -152,8 +152,46 @@ namespace pmacc::spearhed
         }
 
         /**
+         * @brief Bundles SMEM caches to reduce auto-param count on interactWithNeighbourFrame
+         *        (nvcc EDG front-end ICEs at >=11 auto params -- check_name_hiding_by_template_parameters).
+         */
+        template<typename PC, typename NC>
+        struct SmemCaches
+        {
+            PC& posCache;
+            NC& nbCache;
+        };
+
+        /**
+         * @brief Bundles per-neighbour-frame geometry parameters.
+         */
+        template<typename OV, typename NV, typename NFP, typename R2>
+        struct NeighbourFrameCtx
+        {
+            OV ownVolume;
+            NV neighbourVolume;
+            NFP neighbourFramePtr;
+            R2 radius2;
+        };
+
+        /**
+         * @brief Bundles own-particle per-slot register variables.
+         */
+        template<typename ORV, typename OWRV, typename OAV, typename VV, typename PV>
+        struct OwnRegisterBlock
+        {
+            ORV& ownRelVar;
+            OWRV& ownReadsVar;
+            OAV& ownAccVar;
+            VV& validVar;
+            PV& prepVar;
+        };
+
+        /**
          * @brief Interact every live own particle against one neighbour frame.
          *
+         * Parameters are bundled into SmemCaches / NeighbourFrameCtx / OwnRegisterBlock to stay
+         * under EDG's 10-auto-param threshold (>=11 triggers ICE in check_name_hiding_by_template_parameters).
          * Two cooperative phases, each closed by a barrier so the shared caches can be reused for
          * the next frame (there is no serial compaction pass):
          *   1. Staging: each worker stages its OWN slot @c s directly at cache index @c s -- no
@@ -171,62 +209,55 @@ namespace pmacc::spearhed
          *      mySlot is the worker's own slot (staging is 1:1, so the own particle sits at its own
          *      index on the self frame). All accumulation lands in the register accumulator.
          *
-         * @tparam frameSize             Number of slots per frame (compile-time loop bound).
-         * @tparam ValidParticlePredicate Live-particle predicate.
-         * @tparam HasPrepare            Whether the functor exposes prepare().
+         * @tparam TFrameSize  Number of slots per frame (compile-time loop bound).
+         * @tparam VP          Valid particle predicate.
+         * @tparam HP          Whether the functor has/exposes prepare().
          */
-        template<uint32_t frameSize, typename ValidParticlePredicate, bool HasPrepare>
+        template<uint32_t TFrameSize, typename VP, bool HP>
         DINLINE void interactWithNeighbourFrame(
             auto const& worker,
             auto const& forEachSlot,
-            auto& posCache,
-            auto& nbCache,
-            auto const& ownVolume,
-            auto neighbourFramePtr,
-            auto const& neighbourVolume,
+            auto& smem,
+            auto frameCtx,
             bool isSelfFrame,
-            auto radius2,
             auto& fn,
-            auto& ownRelVar,
-            auto& ownReadsVar,
-            auto& ownAccVar,
-            auto& validVar,
-            auto& prepVar,
+            auto& regs,
             auto&... args)
         {
-            using CS = typename std::remove_cvref_t<decltype(ownVolume)>::Vec::CS;
+            using CS = typename std::remove_cvref_t<decltype(frameCtx.ownVolume)>::Vec::CS;
             using Axis = typename CS::T_Axis;
+            using DistVec = Vec<CS, ValueStorage<CS>>;
             using FnType = std::remove_cvref_t<decltype(fn)>;
             constexpr bool hasStage = HasStageHook<FnType>;
 
             // Phase 1: cooperatively stage neighbours (one slot per worker, no compaction)
             // Origin offset baked into every staged position so the inner loop skips getPosition().
-            Vec<CS, ValueStorage<CS>> const originShift = neighbourVolume.origin - ownVolume.origin;
+            DistVec const originShift = frameCtx.neighbourVolume.origin - frameCtx.ownVolume.origin;
             // Large finite sentinel: sentinel*sentinel overflows to +inf so the cull rejects it.
             constexpr Axis sentinel = std::numeric_limits<Axis>::max() / Axis{4};
             forEachSlot(
                 [&](pmacc::lockstep::Idx const idx)
                 {
                     uint32_t const slot = idx;
-                    auto nParticle = neighbourFramePtr[slot];
-                    if(ValidParticlePredicate{}(nParticle))
+                    auto nParticle = frameCtx.neighbourFramePtr[slot];
+                    if(VP{}(nParticle))
                     {
                         // Functor-facing neighbour attributes: derived StagedRecord or raw sub-record.
                         if constexpr(hasStage)
-                            fn.stage(nParticle, nbCache[slot]);
+                            fn.stage(nParticle, smem.nbCache[slot]);
                         else
-                            nbCache[slot].deepCopyFrom(nParticle);
+                            smem.nbCache[slot].deepCopyFrom(nParticle);
                         // Pre-shifted geometry: shiftedPos = rel_j + (origin_neigh - origin_own).
                         auto const relView = nParticle[tags::relativePos].get();
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
-                            { posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
+                            { smem.posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
                     }
                     else
                     {
                         // Dead slot: sentinel position; nbCache[slot] left garbage (never read).
                         pmacc::spearhed::for_each_tag<CS>([&](auto tag)
-                                                          { posCache[slot][tags::relativePos][tag] = sentinel; });
+                                                          { smem.posCache[slot][tags::relativePos][tag] = sentinel; });
                     }
                 });
             worker.sync();
@@ -235,27 +266,27 @@ namespace pmacc::spearhed
             forEachSlot(
                 [&](pmacc::lockstep::Idx const idx)
                 {
-                    if(!validVar[idx])
+                    if(!regs.validVar[idx])
                         return;
 
                     uint32_t const mySlot = idx;
-                    auto const& ownRel = ownRelVar[idx];
-                    auto ownReadsView = ownReadsVar[idx][uint32_t{0}];
-                    auto ownAccView = ownAccVar[idx][uint32_t{0}];
+                    auto const& ownRel = regs.ownRelVar[idx];
+                    auto ownReadsView = regs.ownReadsVar[idx][uint32_t{0}];
+                    auto ownAccView = regs.ownAccVar[idx][uint32_t{0}];
 
-                    for(uint32_t j = 0; j < frameSize; ++j)
+                    for(uint32_t j = 0; j < TFrameSize; ++j)
                     {
-                        Vec<CS, ValueStorage<CS>> rVec;
+                        DistVec rVec;
                         Axis r2{0};
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
                             {
-                                Axis const d = ownRel[tag] - posCache[j][tags::relativePos][tag];
+                                Axis const d = ownRel[tag] - smem.posCache[j][tags::relativePos][tag];
                                 rVec[tag] = d;
                                 r2 += d * d;
                             });
 
-                        if(r2 < radius2)
+                        if(r2 < frameCtx.radius2)
                         {
                             Axis invR{0};
                             Axis r{0};
@@ -267,11 +298,11 @@ namespace pmacc::spearhed
                             }
 
                             bool const isSelf = isSelfFrame && (j == mySlot);
-                            auto nbView = nbCache[j];
+                            auto nbView = smem.nbCache[j];
                             PairContext<CS> const ctx{rVec, r2, r, invR, isSelf};
 
-                            if constexpr(HasPrepare)
-                                fn(worker, ownReadsView, prepVar[idx], nbView, ctx, ownAccView, args...);
+                            if constexpr(HP)
+                                fn(worker, ownReadsView, regs.prepVar[idx], nbView, ctx, ownAccView, args...);
                             else
                                 fn(worker, ownReadsView, nbView, ctx, ownAccView, args...);
                         }
@@ -412,22 +443,18 @@ namespace pmacc::spearhed
                             = (static_cast<void const*>(ownFramePtr.operator->())
                                == static_cast<void const*>(neighbourFramePtr.operator->()));
 
+                        auto regBlock = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
+                        auto smemCaches = detail::SmemCaches{posCache, nbCache};
+                        auto frameCtx
+                            = detail::NeighbourFrameCtx{ownVolume, neighbourVolume, neighbourFramePtr, radius2};
                         interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
                             worker,
                             forEachSlot,
-                            posCache,
-                            nbCache,
-                            ownVolume,
-                            neighbourFramePtr,
-                            neighbourVolume,
+                            smemCaches,
+                            frameCtx,
                             isSelfFrame,
-                            radius2,
                             fn,
-                            ownRelVar,
-                            ownReadsVar,
-                            ownAccVar,
-                            validVar,
-                            prepVar,
+                            regBlock,
                             args...);
                     }
                 }
@@ -553,22 +580,22 @@ namespace pmacc::spearhed
                                     = (static_cast<void const*>(ownFramePtr.operator->())
                                        == static_cast<void const*>(neighbourFramePtr.operator->()));
 
+                                auto regBlock
+                                    = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
+                                auto smemCaches = detail::SmemCaches{posCache, nbCache};
+                                auto frameCtx = detail::NeighbourFrameCtx{
+                                    ownVolume,
+                                    neighbourVolume,
+                                    neighbourFramePtr,
+                                    radius2};
                                 interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
                                     worker,
                                     forEachSlot,
-                                    posCache,
-                                    nbCache,
-                                    ownVolume,
-                                    neighbourFramePtr,
-                                    neighbourVolume,
+                                    smemCaches,
+                                    frameCtx,
                                     isSelfFrame,
-                                    radius2,
                                     fn,
-                                    ownRelVar,
-                                    ownReadsVar,
-                                    ownAccVar,
-                                    validVar,
-                                    prepVar,
+                                    regBlock,
                                     args...);
                             }
                         }

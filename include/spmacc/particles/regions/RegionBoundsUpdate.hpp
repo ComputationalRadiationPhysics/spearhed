@@ -60,9 +60,11 @@ namespace pmacc::spearhed
                 // the lockstep combinator (same distribution as the previous hand-rolled walk).
                 VolumeType localBounds;
 
+                // DeviceHeapAccess{} instead of the deviceHeap instance: odr-using the
+                // namespace-scope constexpr variable from device code is ill-formed under nvcc.
                 forEach(
                     levels::frame,
-                    deviceHeap,
+                    DeviceHeapAccess{},
                     makeRegionView(region),
                     [&](auto frame)
                     {

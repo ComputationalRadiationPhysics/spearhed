@@ -163,7 +163,9 @@ namespace pmacc::spearhed
             [&](uint32_t const slot)
             {
                 auto particle = frame[slot];
-                if(pred::occupied(particle))
+                // Construct the predicate: odr-using the namespace-scope constexpr instance
+                // (pred::occupied) from device code is ill-formed under nvcc.
+                if(pred::Occupied{}(particle))
                     body(particle);
             });
     }

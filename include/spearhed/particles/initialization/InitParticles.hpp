@@ -386,17 +386,17 @@ namespace spearhed
             {
                 auto idProvider = dc.get<pmacc::IdProvider>("globalId");
 
-                PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                        slicedBox,
-                        numRegionsI,
-                        framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                        idProvider->getDeviceGenerator(),
-                        placeParticle,
-                        argsForPlaceParticle);
+                auto event = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
+                                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
+                                     slicedBox,
+                                     numRegionsI,
+                                     framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                                     idProvider->getDeviceGenerator(),
+                                     placeParticle,
+                                     argsForPlaceParticle);
 
                 // wait because otherwise kernel args (framesPerParticleRegion) go out of scope
-                pmacc::eventSystem::waitForAllTasks();
+                event.waitForFinished();
             }
         }
     };

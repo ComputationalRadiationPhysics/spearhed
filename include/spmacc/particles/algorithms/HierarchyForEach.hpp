@@ -111,7 +111,7 @@ namespace pmacc::spearhed
     {
         static constexpr bool isDevice = true;
 
-        HDINLINE auto& frames(auto& frameList) const
+        constexpr auto& frames(auto& frameList) const
         {
             return frameList; // native begin()/end()
         }
@@ -125,7 +125,7 @@ namespace pmacc::spearhed
 
         int64_t heapOffset;
 
-        auto frames(auto& frameList) const
+        constexpr auto frames(auto& frameList) const
         {
             return frameList.hostIterable(heapOffset); // host-only
         }
@@ -238,12 +238,14 @@ namespace pmacc::spearhed
 
     // Frame -> particles (leaf; live slots only)
     template<typename T_FramePtr>
-    HDINLINE void forEachChild(HeapAccess auto const& /*access*/, FrameView<T_FramePtr> frame, auto body)
+    HDINLINE constexpr void forEachChild(HeapAccess auto const& /*access*/, FrameView<T_FramePtr> frame, auto body)
     {
         for(uint32_t slot = 0; slot < FrameView<T_FramePtr>::frameSize; ++slot)
         {
             auto particle = frame[slot];
-            if(pred::occupied(particle))
+            // Construct the predicate: odr-using the namespace-scope constexpr instance
+            // (pred::occupied) from device code is ill-formed under nvcc.
+            if(pred::Occupied{}(particle))
                 body(particle);
         }
     }
@@ -255,8 +257,11 @@ namespace pmacc::spearhed
     }
 
     // Region -> frames (pointer chasing via the heap access)
+    // HostHeapAccess::frames() is __host__-only (deliberately unqualified); suppress the
+    // nvcc "calling __host__ from __host__ __device__" false positive for this overload.
+    PMACC_NO_NVCC_HDWARNING
     template<typename T_Region>
-    HDINLINE void forEachChild(HeapAccess auto const& access, RegionView<T_Region> region, auto body)
+    HDINLINE constexpr void forEachChild(HeapAccess auto const& access, RegionView<T_Region> region, auto body)
     {
         for(auto& frame : access.frames(region.frameList()))
             body(FrameView{memory::FramePointer{&frame}});
@@ -270,7 +275,10 @@ namespace pmacc::spearhed
 
     // Species -> regions (plain index loop)
     template<typename T_RegionBox>
-    HDINLINE void forEachChild(HeapAccess auto const& /*access*/, SpeciesView<T_RegionBox> species, auto body)
+    HDINLINE constexpr void forEachChild(
+        HeapAccess auto const& /*access*/,
+        SpeciesView<T_RegionBox> species,
+        auto body)
     {
         for(int r = 0; r < species.numRegions; ++r)
             body(species.region(r));
@@ -284,7 +292,10 @@ namespace pmacc::spearhed
 
     // MultiSpecies -> species (compile-time fold over the pmacc tuple)
     template<typename... T_Species>
-    HDINLINE void forEachChild(HeapAccess auto const& /*access*/, MultiSpeciesView<T_Species...> multi, auto body)
+    HDINLINE constexpr void forEachChild(
+        HeapAccess auto const& /*access*/,
+        MultiSpeciesView<T_Species...> multi,
+        auto body)
     {
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
         { (body(pmacc::memory::tuple::get<Is>(multi.species)), ...); }(std::index_sequence_for<T_Species...>{});
@@ -314,7 +325,7 @@ namespace pmacc::spearhed
      * @param body   Invoked as body(element) for each element at @p target.
      */
     template<typename T_Target>
-    HDINLINE void forEach(T_Target target, HeapAccess auto const& access, auto view, auto body)
+    HDINLINE constexpr void forEach(T_Target target, HeapAccess auto const& access, auto view, auto body)
     {
         using ChildLevel = decltype(childLevel(view));
         static_assert(T_Target::rank <= ChildLevel::rank, "forEach target level is not contained in the view");
