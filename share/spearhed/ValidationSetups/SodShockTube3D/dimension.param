@@ -24,14 +24,14 @@
 
 #include <pmacc/dimensions/Definition.hpp>
 
-#define SIM_DIM 1
+#define SIM_DIM 3
 
 namespace spearhed
 {
     using Real = float;
 
     using T_Dim = pmacc::spearhed::T_Dim;
-    constexpr T_Dim simDim = DIM1;
+    constexpr T_Dim simDim = DIM3;
     using CS = pmacc::spearhed::Cartesian<Real, simDim>;
 
     using T_dt = float;

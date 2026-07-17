@@ -186,11 +186,23 @@ def load_snapshot_openpmd(path_pattern, step):
         s.flush()
         return arr
 
+    def try_load_component(record, comp):
+        """Return component array or None if the record/component is absent (1D runs)."""
+        try:
+            rc = fluid[record][comp]
+            arr = rc.load_chunk()
+            s.flush()
+            return arr
+        except Exception:
+            return None
+
     x = load_component("position", "x")
     vx = load_component("velocity", "x")
+    vy = try_load_component("velocity", "y")
+    vz = try_load_component("velocity", "z")
     rho = load_scalar("mass_density")
     u = load_scalar("specific_internal_energy")
-    return x, vx, rho, u
+    return x, vx, vy, vz, rho, u
 
 
 # Main
@@ -213,7 +225,7 @@ def main():
         sys.exit("openpmd_api not available. Activate the pixi environment first.")
 
     print(f"Loading step {args.step} (t = {t_end:.3f}) from {pattern}")
-    x, vx, rho, u = load_snapshot_openpmd(pattern, args.step)
+    x, vx, vy, vz, rho, u = load_snapshot_openpmd(pattern, args.step)
     print(f"  Loaded {len(x)} particles")
 
     # Pressure
@@ -276,6 +288,17 @@ def main():
     print(f"  velocity x       L1 = {l1_vx:.4f}")
     print(f"  pressure         L1 = {l1_p:.4f}")
     print(f"  internal energy  L1 = {l1_u:.4f}")
+
+    # Transverse symmetry diagnostics (2D / 3D only)
+    if vy is not None:
+        print("\nTransverse symmetry (vs exact 0):")
+        print(f"  max|v_y| = {np.max(np.abs(vy)):.6f}")
+        print(f"  L1(v_y)  = {np.mean(np.abs(vy)):.6f}")
+    if vz is not None:
+        if vy is None:
+            print("\nTransverse symmetry (vs exact 0):")
+        print(f"  max|v_z| = {np.max(np.abs(vz)):.6f}")
+        print(f"  L1(v_z)  = {np.mean(np.abs(vz)):.6f}")
 
     # Plot
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))

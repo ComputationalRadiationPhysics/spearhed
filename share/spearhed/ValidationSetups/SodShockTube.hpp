@@ -38,156 +38,349 @@ namespace spearhed
 {
     namespace sod
     {
-        // Wall thickness must cover one kernel support radius so the kernel sums for
-        // fluid particles right at the end caps see a full neighbour disk.
-        // CubicSplineKernel::supportRadius = 2 => W = 2 * h0 = 0.1.
-        constexpr Real wallThickness = Real{2} * h0;
+        // AABB helper
+
+        namespace detail
+        {
+            /// Build a Vec from a per-axis array via index_sequence.
+            template<pmacc::spearhed::CoordinateSystem T_CS, std::size_t N, std::size_t... Is>
+            constexpr auto makeVec(std::array<typename T_CS::T_Axis, N> const& arr, std::index_sequence<Is...>)
+            {
+                return pmacc::spearhed::Vec<T_CS, pmacc::spearhed::ValueStorage<T_CS>>{arr[Is]...};
+            }
+
+            /// Build an AABB from full per-axis lo/hi arrays.
+            template<pmacc::spearhed::CoordinateSystem T_CS, std::size_t N>
+            constexpr auto aabbFromArrays(
+                std::array<typename T_CS::T_Axis, N> const& lo,
+                std::array<typename T_CS::T_Axis, N> const& hi)
+            {
+                static_assert(N == T_CS::dimension, "array size must match CS dimension");
+                constexpr auto Dim = T_CS::dimension;
+                return pmacc::spearhed::AABB<T_CS>{
+                    pmacc::spearhed::Point<T_CS, pmacc::spearhed::ValueStorage<T_CS>>{},
+                    makeVec<T_CS>(lo, std::make_index_sequence<Dim>{}),
+                    makeVec<T_CS>(hi, std::make_index_sequence<Dim>{}),
+                };
+            }
+        } // namespace detail
+
+        //
+        // Per-dimension constants (compile-time, no dimension-dependent types)
+        //
+
+        constexpr Real wallThickness()
+        {
+            return Real{2} * h0;
+        }
+
+        constexpr Real spacingLeft()
+        {
+#if SIM_DIM == 1
+            return Real{1.125} / Real{32000};
+#elif SIM_DIM == 2
+            return Real{0.005};
+#else
+            return Real{1} / Real{30};
+#endif
+        }
+
+        constexpr Real spacingRatio()
+        {
+#if SIM_DIM == 1
+            return Real{8};
+#elif SIM_DIM == 2
+            return Real{2.8284271f};
+#else
+            return Real{2};
+#endif
+        }
+
+        constexpr Real spacingRight()
+        {
+            return spacingLeft() * spacingRatio();
+        }
+
+        constexpr Real transverseExtent()
+        {
+#if SIM_DIM == 1
+            return Real{0};
+#elif SIM_DIM == 2
+            return Real{0.07};
+#else
+            return Real{1} / Real{3};
+#endif
+        }
 
         struct InitialConditions
         {
-            // Left state (x < 0)
             Real densityLeft = Real{1.0};
             Real pressureLeft = Real{1.0};
-            // Right state (x >= 0)
             Real densityRight = Real{0.125};
             Real pressureRight = Real{0.1};
         };
 
-        // Fluid: x is in [-1, 1], split at 0
-        constexpr pmacc::spearhed::AABB<CS> leftFluidVol{{Real{0}}, {Real{-1.0}}, {Real{0.0}}};
-        constexpr pmacc::spearhed::AABB<CS> rightFluidVol{{Real{0}}, {Real{0.0}}, {Real{1.0}}};
-
-        // Walls flank the fluid by one support radius
-        constexpr pmacc::spearhed::AABB<CS> leftWallVol{{Real{0}}, {Real{-1.0} - wallThickness}, {Real{-1.0}}};
-        constexpr pmacc::spearhed::AABB<CS> rightWallVol{{Real{0}}, {Real{1.0}}, {Real{1.0} + wallThickness}};
-
         constexpr uint32_t defaultTotalParticles = 32000u;
 
-        // Helpers shared by both blocks
+        // Shared functors
 
-        // Equal-mass distribution: mass per particle is fixed so each region's particle
-        // count is proportional to rho * V. Using float32 internally for the volume sum.
-        constexpr Real totalWeightedFluidVolume(InitialConditions const& ic)
+        struct SpacingNumParticles
         {
-            return pmacc::spearhed::computeVolume(leftFluidVol) * ic.densityLeft
-                   + pmacc::spearhed::computeVolume(rightFluidVol) * ic.densityRight;
+            DINLINE constexpr auto operator()(
+                auto const& worker,
+                auto const& particleRegion,
+                Real dxLeft,
+                Real dxRight) const
+            {
+                using x_t = std::tuple_element_t<0, typename CS::tags>;
+                Real const s = (particleRegion.volume.max[x_t{}] <= Real{0}) ? dxLeft : dxRight;
+                auto const counts = pmacc::spearhed::computeSCCellCounts(particleRegion.volume, s);
+                return pmacc::spearhed::numSCLatticeSites(counts);
+            }
+        };
+
+        struct SpacingPlaceParticle
+        {
+            DINLINE constexpr void operator()(
+                auto const& worker,
+                auto& particle,
+                auto const& particleRegion,
+                uint32_t globalParticleIdx,
+                Real dxLeft,
+                Real dxRight,
+                Real pmass,
+                Real densityLeft,
+                Real densityRight,
+                Real pressureLeft,
+                Real pressureRight) const
+            {
+                using x_t = std::tuple_element_t<0, typename CS::tags>;
+                auto const& aabb = particleRegion.volume;
+                bool const isLeft = (aabb.max[x_t{}] <= Real{0});
+
+                Real const rho = isLeft ? densityLeft : densityRight;
+                Real const P = isLeft ? pressureLeft : pressureRight;
+                Real const s = isLeft ? dxLeft : dxRight;
+
+                auto const counts = pmacc::spearhed::computeSCCellCounts(aabb, s);
+                pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, counts);
+
+                pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
+
+                particle[mass] = pmass;
+                particle[smoothingLength] = h0;
+                particle[density] = rho;
+                particle[internalEnergy] = P / ((gamma_eos - Real{1}) * rho);
+            }
+        };
+
+        // Dimension-specific AABB constructors
+
+#if SIM_DIM == 1
+
+        inline auto leftFluidVol()
+        {
+            std::array<Real, 1> lo{Real{-1}}, hi{Real{0}};
+            return detail::aabbFromArrays<CS>(lo, hi);
         }
 
-        constexpr Real particleMass(InitialConditions const& ic, uint32_t totalParticles)
+        inline auto rightFluidVol()
         {
-            return totalWeightedFluidVolume(ic) / static_cast<Real>(totalParticles);
+            std::array<Real, 1> lo{Real{0}}, hi{Real{1}};
+            return detail::aabbFromArrays<CS>(lo, hi);
         }
 
-        constexpr uint32_t numFluidLeft(InitialConditions const& ic, uint32_t totalParticles)
+        inline auto fluidDomain()
         {
-            return static_cast<uint32_t>(
-                static_cast<Real>(totalParticles) * ic.densityLeft * pmacc::spearhed::computeVolume(leftFluidVol)
-                / totalWeightedFluidVolume(ic));
+            std::array<Real, 1> lo{Real{-1}}, hi{Real{1}};
+            return detail::aabbFromArrays<CS>(lo, hi);
         }
 
-        constexpr uint32_t numFluidRight(InitialConditions const& ic, uint32_t totalParticles)
+        inline auto fullDomain()
         {
-            return static_cast<uint32_t>(
-                static_cast<Real>(totalParticles) * ic.densityRight * pmacc::spearhed::computeVolume(rightFluidVol)
-                / totalWeightedFluidVolume(ic));
+            Real const W = wallThickness();
+            std::array<Real, 1> lo{Real{-1} - W}, hi{Real{1} + W};
+            return detail::aabbFromArrays<CS>(lo, hi);
         }
 
-        // Wall counts match adjacent fluid density => same particle spacing as the fluid,
-        // which keeps neighbour sums consistent across the fluid/wall interface.
-        constexpr uint32_t numWallLeft(InitialConditions const& ic, uint32_t totalParticles)
+        inline void addWalls(std::vector<pmacc::spearhed::AABB<CS>>& out)
         {
-            return static_cast<uint32_t>(
-                static_cast<Real>(numFluidLeft(ic, totalParticles)) * pmacc::spearhed::computeVolume(leftWallVol)
-                / pmacc::spearhed::computeVolume(leftFluidVol));
+            Real const W = wallThickness();
+            out.push_back(
+                detail::aabbFromArrays<CS>(std::array<Real, 1>{Real{-1} - W}, std::array<Real, 1>{Real{-1}}));
+            out.push_back(detail::aabbFromArrays<CS>(std::array<Real, 1>{Real{1}}, std::array<Real, 1>{Real{1} + W}));
         }
 
-        constexpr uint32_t numWallRight(InitialConditions const& ic, uint32_t totalParticles)
+#elif SIM_DIM == 2
+
+        inline auto leftFluidVol()
         {
-            return static_cast<uint32_t>(
-                static_cast<Real>(numFluidRight(ic, totalParticles)) * pmacc::spearhed::computeVolume(rightWallVol)
-                / pmacc::spearhed::computeVolume(rightFluidVol));
+            Real const Ly = transverseExtent();
+            std::array<Real, 2> lo{Real{-1}, Real{0}}, hi{Real{0}, Ly};
+            return detail::aabbFromArrays<CS>(lo, hi);
         }
 
-        // Interior
+        inline auto rightFluidVol()
+        {
+            Real const Ly = transverseExtent();
+            std::array<Real, 2> lo{Real{0}, Real{0}}, hi{Real{1}, Ly};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline auto fluidDomain()
+        {
+            Real const Ly = transverseExtent();
+            std::array<Real, 2> lo{Real{-1}, Real{0}}, hi{Real{1}, Ly};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline auto fullDomain()
+        {
+            Real const W = wallThickness();
+            Real const Ly = transverseExtent();
+            std::array<Real, 2> lo{Real{-1} - W, Real{-W}}, hi{Real{1} + W, Ly + W};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline void addWalls(std::vector<pmacc::spearhed::AABB<CS>>& out)
+        {
+            Real const W = wallThickness();
+            Real const Ly = transverseExtent();
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 2>{Real{-1} - W, Real{-W}},
+                    std::array<Real, 2>{Real{-1}, Ly + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 2>{Real{1}, Real{-W}},
+                    std::array<Real, 2>{Real{1} + W, Ly + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 2>{Real{-1}, Real{-W}},
+                    std::array<Real, 2>{Real{0}, Real{0}}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 2>{Real{0}, Real{-W}},
+                    std::array<Real, 2>{Real{1}, Real{0}}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(std::array<Real, 2>{Real{-1}, Ly}, std::array<Real, 2>{Real{0}, Ly + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(std::array<Real, 2>{Real{0}, Ly}, std::array<Real, 2>{Real{1}, Ly + W}));
+        }
+
+#else // SIM_DIM == 3
+
+        inline auto leftFluidVol()
+        {
+            Real const L = transverseExtent();
+            std::array<Real, 3> lo{Real{-1}, Real{0}, Real{0}}, hi{Real{0}, L, L};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline auto rightFluidVol()
+        {
+            Real const L = transverseExtent();
+            std::array<Real, 3> lo{Real{0}, Real{0}, Real{0}}, hi{Real{1}, L, L};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline auto fluidDomain()
+        {
+            Real const L = transverseExtent();
+            std::array<Real, 3> lo{Real{-1}, Real{0}, Real{0}}, hi{Real{1}, L, L};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline auto fullDomain()
+        {
+            Real const W = wallThickness();
+            Real const L = transverseExtent();
+            std::array<Real, 3> lo{Real{-1} - W, Real{-W}, Real{-W}}, hi{Real{1} + W, L + W, L + W};
+            return detail::aabbFromArrays<CS>(lo, hi);
+        }
+
+        inline void addWalls(std::vector<pmacc::spearhed::AABB<CS>>& out)
+        {
+            Real const W = wallThickness();
+            Real const L = transverseExtent();
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{-1} - W, Real{-W}, Real{-W}},
+                    std::array<Real, 3>{Real{-1}, L + W, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{1}, Real{-W}, Real{-W}},
+                    std::array<Real, 3>{Real{1} + W, L + W, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{-1}, Real{-W}, Real{-W}},
+                    std::array<Real, 3>{Real{0}, Real{0}, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{0}, Real{-W}, Real{-W}},
+                    std::array<Real, 3>{Real{1}, Real{0}, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{-1}, L, Real{-W}},
+                    std::array<Real, 3>{Real{0}, L + W, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{0}, L, Real{-W}},
+                    std::array<Real, 3>{Real{1}, L + W, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{-1}, Real{0}, Real{-W}},
+                    std::array<Real, 3>{Real{0}, L, Real{0}}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{0}, Real{0}, Real{-W}},
+                    std::array<Real, 3>{Real{1}, L, Real{0}}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{-1}, Real{0}, L},
+                    std::array<Real, 3>{Real{0}, L, L + W}));
+            out.push_back(
+                detail::aabbFromArrays<CS>(
+                    std::array<Real, 3>{Real{0}, Real{0}, L},
+                    std::array<Real, 3>{Real{1}, L, L + W}));
+        }
+
+#endif
+
+        // Blocks
 
         struct InteriorBlock
         {
-            pmacc::spearhed::AABB<CS> domain{{Real{0}}, {Real{-1.0}}, {Real{1.0}}};
-
             using Species = pmacc::spearhed::species::Default;
+            using NumParticlesToCreate = SpacingNumParticles;
+            using PlaceParticle = SpacingPlaceParticle;
 
             InitialConditions initialConditions{};
-            uint32_t totalParticles = defaultTotalParticles;
-
-            struct NumParticlesToCreate
-            {
-                DINLINE constexpr auto operator()(
-                    auto& /*worker*/,
-                    auto& particleRegion,
-                    Real densityLeft,
-                    Real densityRight,
-                    uint32_t totalParticles,
-                    Real totalWeightedVolume) const
-                {
-                    using x_t = std::tuple_element_t<0, typename CS::tags>;
-                    Real const rho = (particleRegion.volume.max[x_t{}] <= Real{0}) ? densityLeft : densityRight;
-                    Real const regionVolume = pmacc::spearhed::computeVolume(particleRegion.volume);
-                    return static_cast<uint32_t>(
-                        static_cast<Real>(totalParticles) * rho * regionVolume / totalWeightedVolume);
-                }
-            };
+            pmacc::spearhed::AABB<CS> domain = fluidDomain();
 
             auto numParticlesToCreateArgs() const
             {
-                return std::make_tuple(
-                    initialConditions.densityLeft,
-                    initialConditions.densityRight,
-                    totalParticles,
-                    totalWeightedFluidVolume(initialConditions));
+                return std::make_tuple(spacingLeft(), spacingRight());
             }
 
-            struct PlaceParticle
+            Real particleMass() const
             {
-                DINLINE constexpr void operator()(
-                    auto const& worker,
-                    auto& particle,
-                    auto const& particleRegion,
-                    uint32_t globalParticleIdx,
-                    uint32_t numCellsLeft,
-                    uint32_t numCellsRight,
-                    Real pmass,
-                    Real densityLeft,
-                    Real densityRight,
-                    Real pressureLeft,
-                    Real pressureRight) const
-                {
-                    using x_t = std::tuple_element_t<0, typename CS::tags>;
-                    auto const& aabb = particleRegion.volume;
-                    bool const isLeft = (aabb.max[x_t{}] <= Real{0});
-
-                    Real const rho = isLeft ? densityLeft : densityRight;
-                    Real const P = isLeft ? pressureLeft : pressureRight;
-                    uint32_t const numCells = isLeft ? numCellsLeft : numCellsRight;
-
-                    pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, numCells);
-
-                    pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
-
-                    particle[mass] = pmass;
-                    particle[smoothingLength] = h0;
-                    particle[density] = rho;
-                    particle[internalEnergy] = P / ((gamma_eos - Real{1}) * rho);
-                }
-            };
+                Real const dx = spacingLeft();
+#if SIM_DIM == 1
+                return initialConditions.densityLeft * dx;
+#elif SIM_DIM == 2
+                return initialConditions.densityLeft * dx * dx;
+#else
+                return initialConditions.densityLeft * dx * dx * dx;
+#endif
+            }
 
             auto placeParticleArgs() const
             {
                 return std::make_tuple(
-                    pmacc::spearhed::computeSCNumCells(numFluidLeft(initialConditions, totalParticles), leftFluidVol),
-                    pmacc::spearhed::computeSCNumCells(
-                        numFluidRight(initialConditions, totalParticles),
-                        rightFluidVol),
-                    particleMass(initialConditions, totalParticles),
+                    spacingLeft(),
+                    spacingRight(),
+                    particleMass(),
                     initialConditions.densityLeft,
                     initialConditions.densityRight,
                     initialConditions.pressureLeft,
@@ -197,82 +390,39 @@ namespace spearhed
             template<typename>
             void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
             {
-                out.push_back(leftFluidVol);
-                out.push_back(rightFluidVol);
+                out.push_back(leftFluidVol());
+                out.push_back(rightFluidVol());
             }
         };
-
-        // Boundary (frozen walls)
 
         struct BoundaryBlock
         {
-            pmacc::spearhed::AABB<CS> domain{{Real{0}}, {Real{-1.0} - wallThickness}, {Real{1.0} + wallThickness}};
-
             using Species = pmacc::spearhed::species::Boundary;
+            using NumParticlesToCreate = SpacingNumParticles;
+            using PlaceParticle = SpacingPlaceParticle;
 
             InitialConditions initialConditions{};
-            uint32_t totalParticles = defaultTotalParticles;
-
-            struct NumParticlesToCreate
-            {
-                DINLINE constexpr auto operator()(
-                    auto& /*worker*/,
-                    auto& particleRegion,
-                    uint32_t numLeft,
-                    uint32_t numRight) const
-                {
-                    using x_t = std::tuple_element_t<0, typename CS::tags>;
-                    return (particleRegion.volume.max[x_t{}] <= Real{0}) ? numLeft : numRight;
-                }
-            };
+            pmacc::spearhed::AABB<CS> domain = fullDomain();
 
             auto numParticlesToCreateArgs() const
             {
-                return std::make_tuple(
-                    numWallLeft(initialConditions, totalParticles),
-                    numWallRight(initialConditions, totalParticles));
+                return std::make_tuple(spacingLeft(), spacingRight());
             }
-
-            struct PlaceParticle
-            {
-                DINLINE constexpr void operator()(
-                    auto const& worker,
-                    auto& particle,
-                    auto const& particleRegion,
-                    uint32_t globalParticleIdx,
-                    uint32_t numCellsLeft,
-                    uint32_t numCellsRight,
-                    Real pmass,
-                    Real densityLeft,
-                    Real densityRight,
-                    Real pressureLeft,
-                    Real pressureRight) const
-                {
-                    using x_t = std::tuple_element_t<0, typename CS::tags>;
-                    auto const& aabb = particleRegion.volume;
-                    bool const isLeft = (aabb.max[x_t{}] <= Real{0});
-
-                    Real const rho = isLeft ? densityLeft : densityRight;
-                    Real const P = isLeft ? pressureLeft : pressureRight;
-                    uint32_t const numCells = isLeft ? numCellsLeft : numCellsRight;
-
-                    pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, numCells);
-
-                    pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
-
-                    particle[mass] = pmass;
-                    particle[smoothingLength] = h0;
-                    particle[density] = rho;
-                    particle[internalEnergy] = P / ((gamma_eos - Real{1}) * rho);
-                }
-            };
 
             auto placeParticleArgs() const
             {
+                Real const dx = spacingLeft();
+#if SIM_DIM == 1
+                Real const m = initialConditions.densityLeft * dx;
+#elif SIM_DIM == 2
+                Real const m = initialConditions.densityLeft * dx * dx;
+#else
+                Real const m = initialConditions.densityLeft * dx * dx * dx;
+#endif
                 return std::make_tuple(
-                    pmacc::spearhed::computeSCNumCells(numWallLeft(initialConditions, totalParticles), leftWallVol),
-                    pmacc::spearhed::computeSCNumCells(numWallRight(initialConditions, totalParticles), rightWallVol),
-                    particleMass(initialConditions, totalParticles),
+                    spacingLeft(),
+                    spacingRight(),
+                    m,
                     initialConditions.densityLeft,
                     initialConditions.densityRight,
                     initialConditions.pressureLeft,
@@ -282,25 +432,20 @@ namespace spearhed
             template<typename>
             void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
             {
-                out.push_back(leftWallVol);
-                out.push_back(rightWallVol);
+                addWalls(out);
             }
         };
+
     } // namespace sod
 
     struct SodShockTube
     {
-        // Full domain spans fluid + walls, used for diagnostic printing only.
-        pmacc::spearhed::AABB<CS> domain{
-            {Real{0}},
-            {Real{-1.0} - sod::wallThickness},
-            {Real{1.0} + sod::wallThickness}};
+        pmacc::spearhed::AABB<CS> domain = sod::fullDomain();
 
         sod::InitialConditions initialConditions{};
-        uint32_t totalParticles = sod::defaultTotalParticles;
 
-        sod::InteriorBlock interior{.initialConditions = initialConditions, .totalParticles = totalParticles};
-        sod::BoundaryBlock boundary{.initialConditions = initialConditions, .totalParticles = totalParticles};
+        sod::InteriorBlock interior{.initialConditions = initialConditions};
+        sod::BoundaryBlock boundary{.initialConditions = initialConditions};
 
         auto blocks() const
         {
@@ -309,8 +454,6 @@ namespace spearhed
 
         KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-        // Sod validation needs density and internal energy in addition to id/position/mass/velocity
-        // so a Python post-processor can reconstruct pressure via P = (gamma - 1) * rho * u.
         using OutputParticleRecord = ll::Record<
             spearhed::tags::idField,
             spearhed::output::positionField<CS>,
