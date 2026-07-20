@@ -21,10 +21,9 @@
 
 #include "spearhed/param.hpp"
 #include "spmacc/Frame.hpp"
-#include "spmacc/ListPointer.hpp"
-#include "spmacc/meta/ComponentList.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/meta/Pair.hpp>
 #include <pmacc/meta/conversion/MakeSeq.hpp>
@@ -32,11 +31,8 @@
 
 namespace spearhed
 {
-    /** linked list pointer */
-    using LinkedListPointer = pmacc::spearhed::meta::ComponentList<pmacc::spearhed::NextPtr>;
-
-    /* extent particle description with pointer to a frame*/
-    using FrameDescription = decltype(particleDesc.replaceFrameExtensionSeq<LinkedListPointer>());
+    /* extend particle description with pointer to a frame*/
+    using FrameDescription = std::remove_const_t<decltype(particleDesc)>;
 
     /** frame definition
      *
@@ -44,8 +40,29 @@ namespace spearhed
      */
     using FrameType = pmacc::spearhed::Frame<FrameDescription>;
 
-    using PRType = pmacc::spearhed::
-        ParticleRegion<pmacc::spearhed::AABB<CS>, spearhed::FrameType, typename DeviceHeap::AllocatorHandle>;
+    /** Per-species frame type.  The species is embedded in the ParticleDescription carried by
+     *  the frame, so FrameTypeFor<Species> produces a distinct type per species. */
+    template<typename S>
+    using FrameDescFor = std::remove_const_t<decltype(makeParticleDesc(S{}))>;
 
+    template<typename S>
+    using FrameTypeFor = pmacc::spearhed::Frame<FrameDescFor<S>>;
+
+    /** Per-species ParticleRegion type.  Species propagates from ParticleDescription -> Frame ->
+     *  ParticleRegion, so callers of ParticleRegionBuffer never name the species explicitly. */
+    template<typename S>
+    using PRTypeFor = pmacc::spearhed::
+        ParticleRegion<pmacc::spearhed::AABB<CS>, FrameTypeFor<S>, typename DeviceHeap::AllocatorHandle>;
+
+    /** The simulation's species vector: every species (pmacc::spearhed::species::AllTypes) paired with
+     *  the per-species PRType template.  Predicate-driven buffer helpers (forEachSpeciesBufWithPred,
+     *  withSpeciesBufsWithPred) compute the correct ParticleRegionBuffer type for each species. */
+    using AllSpecies = pmacc::spearhed::SpeciesRegistry<PRTypeFor, pmacc::spearhed::species::AllTypes>;
+
+    /** Concrete instance of the species registry, for the value-based role helpers. */
+    inline constexpr AllSpecies allSpecies{};
+
+    // Convenience alias for the most common PRType
+    using PRType = PRTypeFor<pmacc::spearhed::species::Default>;
 
 } // namespace spearhed

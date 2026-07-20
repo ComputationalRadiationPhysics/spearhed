@@ -47,64 +47,64 @@ TEST_CASE("One container provides correct SoA-style access and mutation", "[One]
     {
         // Test nested structural proxy
         auto pos_view = one[posO];
-        *pos_view[xO][0] = 1.0f;
-        *pos_view[yO][0] = 2.0f;
-        *pos_view[zO][0] = 3.0f;
+        pos_view[xO][0] = 1.0f;
+        pos_view[yO][0] = 2.0f;
+        pos_view[zO][0] = 3.0f;
 
         // Test indexed proxy
-        *one[0u][massO] = 42.0;
+        one[0u][massO] = 42.0;
 
-        CHECK(*one[posO][xO][0] == Catch::Approx(1.0f));
-        CHECK(*one[posO][yO][0] == Catch::Approx(2.0f));
-        CHECK(*one[posO][zO][0] == Catch::Approx(3.0f));
+        CHECK(one[posO][xO][0] == Catch::Approx(1.0f));
+        CHECK(one[posO][yO][0] == Catch::Approx(2.0f));
+        CHECK(one[posO][zO][0] == Catch::Approx(3.0f));
 
         // Ensure index proxy writes map to the base view
         auto const& cone = one;
-        CHECK(*cone[massO][0] == Catch::Approx(42.0));
+        CHECK(cone[massO][0] == Catch::Approx(42.0));
 
-        // View to span fallback
-        auto mass_span = one[massO].getSpan();
+        // A terminal leaf access resolves straight to the column span.
+        auto mass_span = one[massO];
         REQUIRE(mass_span.size() == 1u);
     }
 
     SECTION("Multi-tag views correctly project fields")
     {
         auto pv = one.view(posO, velO);
-        *pv[0u][posO][xO] = 5.5f;
+        pv[0u][posO][xO] = 5.5f;
 
-        CHECK(*one[posO][xO][0] == Catch::Approx(5.5f));
+        CHECK(one[posO][xO][0] == Catch::Approx(5.5f));
     }
 
     SECTION("Assignment from ViewIndexed deep-copies all leaf fields")
     {
         ll::One<ParticleOne> src;
-        *src[0u][posO][xO] = 1.0f;
-        *src[0u][posO][yO] = 2.0f;
-        *src[0u][posO][zO] = 3.0f;
-        *src[0u][massO] = 42.0;
+        src[0u][posO][xO] = 1.0f;
+        src[0u][posO][yO] = 2.0f;
+        src[0u][posO][zO] = 3.0f;
+        src[0u][massO] = 42.0;
 
         one = src[0u];
 
-        CHECK(*one[0u][posO][xO] == Catch::Approx(1.0f));
-        CHECK(*one[0u][posO][yO] == Catch::Approx(2.0f));
-        CHECK(*one[0u][posO][zO] == Catch::Approx(3.0f));
-        CHECK(*one[0u][massO] == Catch::Approx(42.0));
+        CHECK(one[0u][posO][xO] == Catch::Approx(1.0f));
+        CHECK(one[0u][posO][yO] == Catch::Approx(2.0f));
+        CHECK(one[0u][posO][zO] == Catch::Approx(3.0f));
+        CHECK(one[0u][massO] == Catch::Approx(42.0));
 
-        *one[0u][massO] = 51;
+        one[0u][massO] = 51;
 
-        CHECK(*src[0u][massO] == Catch::Approx(42.0));
-        CHECK(*one[0u][massO] == Catch::Approx(51.0));
+        CHECK(src[0u][massO] == Catch::Approx(42.0));
+        CHECK(one[0u][massO] == Catch::Approx(51.0));
     }
 
     SECTION("Construction from ViewIndexed deep-copies all leaf fields")
     {
         ll::One<ParticleOne> src;
-        *src[0u][posO][xO] = 1.0f;
-        *src[0u][massO] = 99.0;
+        src[0u][posO][xO] = 1.0f;
+        src[0u][massO] = 99.0;
 
         ll::One<ParticleOne> dest(src[0u]);
 
-        CHECK(*dest[0u][posO][xO] == Catch::Approx(1.0f));
-        CHECK(*dest[0u][massO] == Catch::Approx(99.0));
+        CHECK(dest[0u][posO][xO] == Catch::Approx(1.0f));
+        CHECK(dest[0u][massO] == Catch::Approx(99.0));
     }
 }

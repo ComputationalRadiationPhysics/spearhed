@@ -25,11 +25,11 @@ namespace spearhed
 {
     // Pairwise interaction radius used for the AABB neighbour search.
     // Until variable smoothing length is implemented, this also serves as the per-particle h.
-    constexpr Real h0 = Real{0.05};
+    constexpr Real h0 = Real{0.05f};
 
     // Adiabatic index for the ideal-gas equation of state.
     constexpr Real gamma_eos = Real{5} / Real{3};
 
     // CFL safety factor used by the adaptive timestep.
-    constexpr Real cflFactor = Real{0.3};
+    constexpr Real cflFactor = Real{0.3f};
 } // namespace spearhed

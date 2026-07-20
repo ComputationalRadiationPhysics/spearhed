@@ -19,7 +19,9 @@ namespace llama_lite
      * This function only requires that nested record levels are navigable via
      * tuple::get<idx>. It is entirely agnostic to the type of the leaf node,
      * working seamlessly across SoA (std::array leaves), DynSoA (std::vector
-     * leaves), and One (scalar leaves).
+     * leaves), and One (scalar leaves). It is the low-level navigator that
+     * storages expose through getLeaf(); resolve() (below) is the view-level
+     * entry point layered on top of it.
      *
      * @tparam RA IsRecordAccess - the tag path to resolve
      * @tparam CurrentRecord  the Record type at the current recursion level

@@ -31,15 +31,24 @@
 
 #include <cstdint>
 #include <tuple>
+#include <vector>
 
 namespace spearhed
 {
     // Default setup. Override at CMake configure time with -DSPEARHED_SETUP_FILE=/path/to/MySetup.hpp
     struct DefaultSetup
     {
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
+
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         uint32_t totalParticles = 1000u;
+
+        auto blocks() const
+        {
+            return std::tie(*this);
+        }
 
         struct NumParticlesToCreate
         {
@@ -64,8 +73,7 @@ namespace spearhed
             {
                 auto const& aabb = particleRegion.volume;
                 pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag)
-                    { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * CS::T_Axis{0.5}; });
+                    [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * CS::T_Axis{0.5}; });
             }
         };
 
@@ -76,16 +84,10 @@ namespace spearhed
 
         KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
 
-        void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
         {
-            prBuf.create(1);
-
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
-
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<CS>{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}});
         }
     };
 

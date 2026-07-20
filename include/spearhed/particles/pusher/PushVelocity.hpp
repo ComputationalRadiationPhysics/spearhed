@@ -23,17 +23,21 @@
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
 namespace spearhed
 {
+    /** Euler-integrate velocity into position: r += v * dt.
+     *  Species-agnostic; the compiler checks relativePos and vel exist at the access site. */
+    template<pmacc::spearhed::SpeciesTag S>
     struct PushVelocity
     {
-        HDINLINE constexpr void operator()(auto worker, ParticleView<relativePos, vel> view, T_dt delt) const
+        HDINLINE constexpr void operator()(auto worker, ParticleView<S, relativePos, vel> view, T_dt delt) const
         {
-            pmacc::spearhed::for_each_tag<CS>([=](auto tag) { *view[relativePos][tag] += *view[vel][tag] * delt; });
+            pmacc::spearhed::for_each_tag<CS>([=](auto tag) { view[relativePos][tag] += view[vel][tag] * delt; });
         }
     };
 

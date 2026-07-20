@@ -21,12 +21,18 @@
 
 #pragma once
 
+#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <pmacc/dataManagement/DataConnector.hpp>
 #include <pmacc/dataManagement/ISimulationData.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
+#include <cstdint>
 #include <optional>
+#include <tuple>
+#include <utility>
 
 namespace pmacc::spearhed
 {
@@ -34,6 +40,7 @@ namespace pmacc::spearhed
     struct ParticleRegionBuffer : ISimulationData
     {
         using ParticleRegionType = T_ParticleRegion;
+        using Species = typename T_ParticleRegion::Species;
 
         // replaces the old buffer with a new one with the given size
         // Does not communicate this to the GPU yet
@@ -42,13 +49,17 @@ namespace pmacc::spearhed
         auto create(size_t capacity)
         {
             buffer = pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>(pmacc::DataSpace<DIM1>(capacity), false);
+            size = 0;
+            ++topologyVersion;
         }
 
         // Copies the particle region to the host buffer
         // Remember to send buf to device before use
         auto pushBack(ParticleRegionType const& pr)
         {
+            PMACC_ASSERT(size < buffer->getHostBuffer().getDataSpace().productOfComponents());
             buffer->getHostBuffer().getDataBox()[size++] = pr;
+            ++topologyVersion;
         }
 
         auto getDeviceDataBox()
@@ -63,11 +74,116 @@ namespace pmacc::spearhed
 
         SimulationDataId getUniqueId() override
         {
-            return "PRBuf";
+            return prBufId<Species>();
         }
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;
         int size = 0;
+
+        /**
+         * @brief Monotonically increasing counter of frame-list topology mutations.
+         *
+         * Bumped whenever the set or ordering of frames owned by this buffer can change: frame
+         * allocation/free, region add/remove. FrameIndexBuffer (see FrameIndex.hpp) compares its
+         * builtVersion against this counter to detect staleness without relying on callers to track
+         * it by hand. Host code that launches a device kernel which mutates frame-list topology
+         * (e.g. allocates or frees frames) must increment this after the launch.
+         */
+        uint64_t topologyVersion = 0;
     };
+
+    /**
+     * @brief Invokes @p fn(prBuf) for every species accepted by predicate @p p that the DataConnector
+     *        holds a buffer for.
+     *
+     * Wraps the recurring "walk species by predicate, fetch each ParticleRegionBuffer from the
+     * DataConnector" idiom. The region type is read straight off @p registry (the simulation's species
+     * vector, which pairs the species list with the ParticleRegion their buffers use), so callers no
+     * longer pass it. Registered species the active setup never created have no entry in the
+     * DataConnector and are silently skipped, so callers need not guard with hasId themselves.
+     *
+     * @param  registry The simulation's species vector (see SpeciesRegistry), passed as a concrete object;
+     *                  supplies both the species list walked here and the per-species PRType template.
+     * @param  p        Composable predicate value callable on a species tag (e.g.
+     *                  pred::withRole<roles::Movable>); it must be stateless because forEachSpeciesIf
+     *                  re-forms it from its type for consteval evaluation.
+     * @param  fn       Functor invoked as fn(ParticleRegionBuffer<Registry::PRType<Species>>&).
+     */
+    template<SpeciesRegistryTag Registry, pred::Predicate P, typename Fn>
+    void forEachSpeciesBufWithPred(Registry /*registry*/, P p, Fn&& fn, auto&&... args)
+    {
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+
+        forEachSpeciesIf<typename Registry::List>(
+            p,
+            [&](auto species)
+            {
+                using Species = decltype(species);
+                using PRType = typename Registry::template PRType<Species>;
+                auto const id = prBufId(species);
+                if(!dc.hasId(id))
+                    return;
+                fn(*dc.get<ParticleRegionBuffer<PRType>>(id), std::forward<LL_TYPEOF(args)>(args)...);
+            });
+    }
+
+    namespace detail
+    {
+        // Base case: no species left to consider; call fn with the buffers gathered so far.
+        template<SpeciesRegistryTag Registry, typename Fn, typename... Present>
+        void withPresentPRBufs(Registry /*registry*/, std::tuple<> /*remaining*/, Fn&& fn, Present&... present)
+        {
+            fn(present...);
+        }
+
+        // Recursive case: prepend head's buffer to the pack iff the DataConnector holds it, then recurse.
+        template<SpeciesRegistryTag Registry, typename Head, typename... Tail, typename Fn, typename... Present>
+        void withPresentPRBufs(
+            Registry registry,
+            std::tuple<Head, Tail...> /*remaining*/,
+            Fn&& fn,
+            Present&... present)
+        {
+            auto const id = prBufId(Head{});
+            auto& dc = pmacc::Environment<>::get().DataConnector();
+            if(dc.hasId(id))
+            {
+                using PRType = typename Registry::template PRType<Head>;
+                using PRBuf = ParticleRegionBuffer<PRType>;
+                auto& buf = *dc.get<PRBuf>(id);
+                withPresentPRBufs(registry, std::tuple<Tail...>{}, fn, present..., buf);
+            }
+            else
+                withPresentPRBufs(registry, std::tuple<Tail...>{}, fn, present...);
+        }
+    } // namespace detail
+
+    /**
+     * @brief Invokes @p fn(bufs&...) once with every present ParticleRegionBuffer whose species is
+     *        accepted by predicate @p p.
+     *
+     * Unlike forEachSpeciesBufWithPred (one call per buffer), this gathers all present buffers and makes a
+     * single call with them as a pack -- suited to variadic consumers such as CalculateNeighbourRegions,
+     * which must see every source together to build a single neighbour bundle. The region type is read
+     * straight off @p registry, so callers no longer pass it.
+     *
+     * Species the active setup never created have no entry in the DataConnector and are dropped from the
+     * pack. Because presence is a runtime property while the pack is fixed at compile time, the present
+     * subset is materialised by recursing over the predicate-filtered species list, branching once per
+     * species on hasId.
+     *
+     * @param  registry The simulation's species vector (see SpeciesRegistry), passed as a concrete object;
+     *                  supplies both the species list filtered here and the per-species PRType template.
+     * @param  p        Composable predicate value callable on a species tag (e.g.
+     *                  pred::withRole<roles::Source>); it must be stateless, as it is re-formed from its
+     *                  type to filter the species list at compile time.
+     * @param  fn       Functor invoked as fn(ParticleRegionBuffer<Registry::PRType<Species>>&...).
+     */
+    template<SpeciesRegistryTag Registry, pred::Predicate P, typename Fn>
+    void withSpeciesBufsWithPred(Registry registry, P /*p*/, Fn&& fn)
+    {
+        using Sources = SpeciesWithPred<P, typename Registry::List>;
+        detail::withPresentPRBufs(registry, Sources{}, std::forward<Fn>(fn));
+    }
 
 } // namespace pmacc::spearhed

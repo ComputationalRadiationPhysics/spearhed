@@ -32,10 +32,11 @@
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
+#include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -76,13 +77,21 @@ namespace
     constexpr spearhed::Real TEST_RHO = spearhed::Real{1.0};
     constexpr spearhed::Real TEST_U = spearhed::Real{1.0};
     // Separation between the two particles; must be < 2*TEST_H
-    constexpr spearhed::Real TEST_D = spearhed::Real{0.4};
+    constexpr spearhed::Real TEST_D = spearhed::Real{0.4f};
 
     struct InitMomEnergyTestSetup
     {
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
+
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         static constexpr uint32_t N = 2u;
+
+        auto blocks() const
+        {
+            return std::tie(*this);
+        }
 
         struct NumParticlesToCreate
         {
@@ -113,23 +122,22 @@ namespace
                 constexpr spearhed::Real half_d = TEST_D * spearhed::Real{0.5};
                 bool const isLeft = (globalParticleIdx % 2u == 0u);
 
-                *particle[relativePos][x] = isLeft ? -half_d : half_d;
-                *particle[relativePos][y] = spearhed::Real{0};
-                *particle[relativePos][z] = spearhed::Real{0};
+                particle[relativePos][x] = isLeft ? -half_d : half_d;
+                particle[relativePos][y] = spearhed::Real{0};
+                particle[relativePos][z] = spearhed::Real{0};
 
-                *particle[mass] = TEST_MASS;
-                *particle[smoothingLength] = TEST_H;
-                *particle[density] = TEST_RHO;
-                *particle[internalEnergy] = TEST_U;
+                particle[mass] = TEST_MASS;
+                particle[smoothingLength] = TEST_H;
+                particle[density] = TEST_RHO;
+                particle[internalEnergy] = TEST_U;
 
                 // Both particles at rest
-                pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                            { *particle[vel][tag] = spearhed::Real{0}; });
+                pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag) { particle[vel][tag] = spearhed::Real{0}; });
 
                 // Accumulators start at zero
                 pmacc::spearhed::for_each_tag<spearhed::CS>([&](auto tag)
-                                                            { *particle[dvdt][tag] = spearhed::Real{0}; });
-                *particle[dudt] = spearhed::Real{0};
+                                                            { particle[dvdt][tag] = spearhed::Real{0}; });
+                particle[dudt] = spearhed::Real{0};
             }
         };
 
@@ -140,15 +148,10 @@ namespace
             return std::make_tuple();
         }
 
-        template<typename PRBuf, typename DeviceHeapT>
-        void setupRegions(PRBuf& prBuf, DeviceHeapT const& deviceHeap) const
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
         {
-            using PRType = typename PRBuf::ParticleRegionType;
-            prBuf.create(1);
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-            auto region = PRType{deviceHeapHandle, {{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}}};
-            prBuf.pushBack(region);
-            prBuf.buffer->hostToDevice();
+            out.push_back(pmacc::spearhed::AABB<spearhed::CS>{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}});
         }
     };
 
@@ -160,30 +163,41 @@ TEST_CASE_METHOD(
     "[sph][momentum][energy]")
 {
     auto setup = InitMomEnergyTestSetup{};
-    setup.setupRegions(*prBuf, *deviceHeap);
+    spearhed::InitRegions{}(*deviceHeap, setup);
     spearhed::InitParticles{}(setup);
 
     // All-to-all neighbour graph (single region)
     constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<int, 1> neighbourRegions(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<int, 1> regionOffsets(numRegions + 1);
+    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(numRegions * numRegions);
+    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
     neighbourRegions.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[1] = 1;
     neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
 
+    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+    auto bundle = pmacc::spearhed::makeNeighbourBundle(
+        pmacc::spearhed::NeighbourEntry<PRBufType>{
+            prBuf.get(),
+            std::move(neighbourRegions),
+            std::move(regionOffsets)});
+
     std::visit(
         [&](auto kernel)
         {
             using K = std::decay_t<decltype(kernel)>;
 
-            pmacc::spearhed::InteractParticles{}(
+            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            using PRType = spearhed::PRType;
+            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+            pmacc::spearhed::interact(
+                sources,
                 *prBuf,
-                neighbourRegions,
-                regionOffsets,
+                index,
                 static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::HydroInteraction<K>{spearhed::gamma_eos});
+                spearhed::HydroInteraction<K>{spearhed::gamma_eos})
+                .waitForFinished();
 
             prBuf->buffer->deviceToHost();
             int64_t const heapOffset = spearhed::syncHeapToHost();
@@ -195,32 +209,31 @@ TEST_CASE_METHOD(
             //   dvdt_x = m * 2 * P/rho^2 * dWdr(d, h)   (negative value since dWdr < 0)
             spearhed::Real const P = spearhed::pressure(spearhed::gamma_eos, TEST_RHO, TEST_U);
             spearhed::Real const dw = K::dWdr(TEST_D, TEST_H);
-            spearhed::Real const expected_left
-                = TEST_MASS * static_cast<spearhed::CS::T_Axis>(K::supportRadius) * P / (TEST_RHO * TEST_RHO) * dw;
+            spearhed::Real const expected_left = TEST_MASS * 2 * P / (TEST_RHO * TEST_RHO) * dw;
             uint32_t checkedCount = 0;
             for(auto& frame : frameList.hostIterable(heapOffset))
             {
                 for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
                 {
                     auto particle = frame[slot];
-                    if(*particle[pmacc::spearhed::tags::multiMask])
+                    if(particle[pmacc::spearhed::tags::multiMask])
                     {
                         using namespace spearhed::tags;
                         using namespace pmacc::spearhed::tags;
 
                         // dudt must be zero (both particles at rest)
-                        REQUIRE(static_cast<double>(*particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
 
                         // y and z components of dvdt must be zero
-                        REQUIRE(static_cast<double>(*particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
-                        REQUIRE(static_cast<double>(*particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
+                        REQUIRE(static_cast<double>(particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
 
                         // x component: sign depends on which side of x=0 the particle is on
-                        spearhed::Real const abs_x = *particle[relativePos][x];
+                        spearhed::Real const abs_x = particle[relativePos][x];
                         bool const isLeft = (abs_x < spearhed::Real{0});
                         spearhed::Real const expected_x = isLeft ? expected_left : -expected_left;
                         REQUIRE(
-                            static_cast<double>(*particle[dvdt][x])
+                            static_cast<double>(particle[dvdt][x])
                             == Catch::Approx(static_cast<double>(expected_x)).epsilon(1e-4));
 
                         ++checkedCount;

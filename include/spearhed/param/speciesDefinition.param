@@ -30,24 +30,73 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
+#include "spmacc/ListPointer.hpp"
 #include "spmacc/ParticleDescription.hpp"
+#include "spmacc/meta/ComponentList.hpp"
+#include "spmacc/meta/String.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
-
-#include <pmacc/meta/String.hpp>
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <cstdint>
 #include <type_traits>
 
 #include <llamaLite/Record.hpp>
 
+// species definitions
+//
+// Each species is a tag struct assigned a set of roles.  The collection of all
+// species lives here (species::AllTypes and species::all) so that adding a new
+// species is a single-site change.
+
+namespace pmacc::spearhed::species
+{
+    /** Default interior fluid species: integrated in time, a source for neighbour sums, and carries the
+     *  Interior role to distinguish it from boundary species. */
+    struct Default
+    {
+        static constexpr meta::FixedString name{"Default"};
+        using Roles
+            = role_set<roles::Interior, roles::Movable, roles::Source, roles::Thermodynamic, roles::OpenPMDOutput>;
+    };
+
+    /** Wall/boundary fluid: frozen in place but still a source for neighbour sums. */
+    struct Boundary
+    {
+        static constexpr meta::FixedString name{"Boundary"};
+        using Roles = role_set<roles::Frozen, roles::Source, roles::Thermodynamic>;
+    };
+
+    /** Tracer particle: moved by the flow but does not contribute to neighbour sums.
+     *  Carries only kinematic fields (position, velocity, mass, id). */
+    struct Tracer
+    {
+        static constexpr meta::FixedString name{"Tracer"};
+        using Roles = role_set<roles::Movable>;
+    };
+
+    /** List of every species tag in the simulation.  forEachSpecies (type-based) walks this. */
+    using AllTypes = species_list<Default, Boundary, Tracer>;
+
+    // constexpr instances for value-based use
+    inline constexpr Default default_{};
+    inline constexpr Boundary boundary_{};
+    inline constexpr Tracer tracer_{};
+
+    /** Compile-time collection of all species as a tuple of constexpr instances.
+     *  Value-based forEachSpecies iterates over this by default. */
+    inline constexpr auto all = std::tuple{default_, boundary_, tracer_};
+} // namespace pmacc::spearhed::species
+
 namespace spearhed
 {
     using namespace tags;
 
-    constexpr auto particleDesc = pmacc::spearhed::createParticleDescription(
-        PMACC_CSTRING("fluid"){},
-        std::integral_constant<uint32_t, numFrameSlots>{},
-        ll::Record<
+    namespace
+    {
+        /** Full SPH particle record: kinematics (position, velocity, mass) plus
+         *  thermodynamic fields (density, smoothing length, internal energy) and
+         *  their time-derivative accumulators (dvdt, dudt).  Used by fluid species. */
+        constexpr auto fluidRec = ll::Record<
             idField,
             MultiMaskField,
             relativePosField<CS>,
@@ -57,5 +106,46 @@ namespace spearhed
             smoothingLengthField<Real>,
             internalEnergyField<Real>,
             dvdtField<CS>,
-            dudtField<Real>>{});
+            dudtField<Real>>{};
+
+        /** Minimal kinematic record: position, velocity, mass, and id only.
+         *  No SPH-accummulation fields.  Used by tracer-like species. */
+        constexpr auto tracerRec
+            = ll::Record<idField, MultiMaskField, relativePosField<CS>, massField<Real>, velField<CS>>{};
+    } // namespace
+
+    /** Frame extension linking particles into a linked list. */
+    using LinkedListPointer = pmacc::spearhed::meta::ComponentList<pmacc::spearhed::NextPtr>;
+
+    /** Particle description for a @p species, passed as a concrete object.  Each species gets its own
+     *  compile-time ParticleDescription; the particle record is selected per species so that different
+     *  species can carry different attribute sets.  The species type flows through Frame ->
+     *  ParticleRegion -> ParticleRegionBuffer so callers never name it twice.
+     *
+     *  Adding a new species with its own record: branch on its type in the helper below and add
+     *  its record in the anonymous namespace above. */
+    namespace detail
+    {
+        template<pmacc::spearhed::SpeciesTag S>
+        constexpr auto recordFor()
+        {
+            using namespace pmacc::spearhed::species;
+            if constexpr(std::same_as<S, Default> || std::same_as<S, Boundary>)
+                return fluidRec;
+            else if constexpr(std::same_as<S, Tracer>)
+                return tracerRec;
+        }
+    } // namespace detail
+
+    constexpr auto makeParticleDesc(pmacc::spearhed::SpeciesTag auto species)
+    {
+        return pmacc::spearhed::createParticleDescription(
+            species,
+            std::integral_constant<uint32_t, numFrameSlots>{},
+            detail::recordFor<std::remove_cvref_t<decltype(species)>>(),
+            std::type_identity<LinkedListPointer>{});
+    }
+
+    /** Convenience: particle description for the Default species. */
+    constexpr auto particleDesc = makeParticleDesc(pmacc::spearhed::species::default_);
 } // namespace spearhed

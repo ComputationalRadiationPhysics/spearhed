@@ -22,10 +22,15 @@
 #pragma once
 
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
+#include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include "spmacc/particles/regions/NeighbourEntry.hpp"
 
+#include <pmacc/dimensions/Definition.hpp>
+#include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <cstdint>
+#include <utility>
 
 namespace pmacc::spearhed
 {
@@ -39,106 +44,141 @@ namespace pmacc::spearhed
             Write
         };
 
-        /**
-         * Functor to find neighbouring volumes.
-         * @tparam OpMode is count, only counts the number of neighbours, else the neighbour ids are written
-         * into the neighbourRegionsBox
-         */
         template<OpMode mode>
         struct FindNeighbourRegionsFunctor
         {
-            // TODO Consider iterating otherIdx = blockIdx + 1; otherIdx < numRegions. The tradeoff is that populating
-            // the neighbours bidirectionally requires atomicAdd for the offsets and writing, but halves the arithmetic
-            // bounds-checking cost.
+            static constexpr unsigned int kMaxThreads = 64;
+
             DINLINE void operator()(
                 auto const& worker,
-                auto prDeviceBox,
-                int numRegions,
+                auto targetPRDeviceBox,
+                int numTargetRegions,
+                auto sourcePRDeviceBox,
+                int numSourceRegions,
                 auto regionOffsetsBox,
                 auto neighbourRegionsBox,
                 auto smoothingLength) const
             {
                 auto const blockIdx = worker.blockDomIdx();
-                if(blockIdx >= numRegions)
+                if(blockIdx >= numTargetRegions)
                     return;
 
-                auto onlyMaster = pmacc::lockstep::makeMaster(worker);
-                onlyMaster(
-                    [&]()
+                auto const threadIdx = worker.workerIdx();
+                auto const numWorkers = worker.numWorkers();
+
+                auto const& region = targetPRDeviceBox[blockIdx];
+                auto const searchVolume = region.volume.expand(smoothingLength);
+
+                if constexpr(mode == OpMode::Count)
+                {
+                    unsigned int localCount = 0;
+                    for(int otherIdx = threadIdx; otherIdx < numSourceRegions; otherIdx += numWorkers)
                     {
-                        auto const& region = prDeviceBox[blockIdx];
-                        auto const searchVolume = region.volume.expand(smoothingLength);
+                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
+                            localCount++;
+                    }
 
-                        unsigned int count = 0;
-                        // Brute force check against all other volumes
-                        // Use a BVH/Grid here instead of a linear loop
-                        for(int otherIdx = 0; otherIdx < numRegions; ++otherIdx)
-                        {
-                            if(intersects(searchVolume, prDeviceBox[otherIdx].volume))
-                            {
-                                if constexpr(mode == OpMode::Write)
-                                {
-                                    // In populate mode, we start writing at our pre-scanned offset
-                                    unsigned int writePtr = regionOffsetsBox[blockIdx];
-                                    neighbourRegionsBox[writePtr + count] = static_cast<unsigned int>(otherIdx);
-                                }
-                                count++;
-                            }
-                        }
+                    PMACC_SMEM(worker, s_counts, unsigned int[kMaxThreads]);
+                    s_counts[threadIdx] = localCount;
+                    worker.sync();
 
-                        // If in counting mode, store the count in the offset array. Do the scan on host
-                        if constexpr(mode == OpMode::Count)
+                    for(unsigned int s = numWorkers / 2; s > 0; s >>= 1)
+                    {
+                        if(threadIdx < s)
+                            s_counts[threadIdx] += s_counts[threadIdx + s];
+                        worker.sync();
+                    }
+
+                    if(threadIdx == 0)
+                        regionOffsetsBox[blockIdx + 1] = s_counts[0];
+                }
+                else
+                {
+                    PMACC_SMEM(worker, s_writePtr, unsigned int);
+                    if(threadIdx == 0)
+                        s_writePtr = regionOffsetsBox[blockIdx];
+                    worker.sync();
+
+                    for(int otherIdx = threadIdx; otherIdx < numSourceRegions; otherIdx += numWorkers)
+                    {
+                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
                         {
-                            regionOffsetsBox[blockIdx + 1] = count;
+                            unsigned int pos
+                                = alpaka::atomicAdd(worker.getAcc(), &s_writePtr, 1u, ::alpaka::hierarchy::Threads{});
+                            neighbourRegionsBox[pos] = static_cast<unsigned int>(otherIdx);
                         }
-                    });
+                    }
+
+                    worker.sync();
+
+                    if(threadIdx == 0)
+                    {
+                        PMACC_DEVICE_ASSERT_MSG(
+                            s_writePtr <= regionOffsetsBox[blockIdx + 1],
+                            "NeighbourRegion write overflow: block index %u wrote to region %u or beyond",
+                            blockIdx,
+                            regionOffsetsBox[blockIdx + 1]);
+                    }
+                }
             }
         };
     } // namespace detail
 
-    // returns mapping of regions to their neighbours {neighbourRegions, regionOffsets}
-    // regionOffsets is an exclusive scan and neighbourRegions holds the list of neighbours
-    // regionOffsets[myRegionIdx] and regionOffsets[myRegionIdx+1] defines the way to index into neighbourRegions of
-    // myRegionIdx
-    struct CalculateNeighbourRegions
+    /**
+     * @brief Compute neighbour-region lists for every source and return an owning bundle.
+     *
+     * @param target  The target ParticleRegionBuffer.
+     * @param h       Smoothing length (scalar) expanding each region's AABB.
+     * @param sources One or more source ParticleRegionBuffer objects.
+     * @return NeighbourBundle<true, NeighbourEntry<Sources>...>
+     */
+    template<typename Target, typename SmoothingLength, typename... Sources>
+    auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources)
     {
-        auto operator()(auto& prBuf, auto smoothingLength)
+        int const numTargetRegions = target.size;
+        static constexpr uint32_t threadsPerBlock = 32;
+
+        auto computeOneEntry = [&](auto& sourcePRBuf)
         {
-            auto numRegions = prBuf.size;
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numRegions + 1}};
+            using SrcType = std::remove_reference_t<decltype(sourcePRBuf)>;
+            int const numSourceRegions = sourcePRBuf.size;
+
+            pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numTargetRegions + 1}};
             regionOffsets.getHostBuffer().setValue(0);
             regionOffsets.hostToDevice();
 
-            static constexpr uint32_t threadsPerBlock = 32;
-
-            // Count neighbours per volume
-            // We reuse the regionOffsets array to store temporary counts
             PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
-                    prBuf.getDeviceDataBox(),
-                    numRegions,
+                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                    target.getDeviceDataBox(),
+                    numTargetRegions,
+                    sourcePRBuf.getDeviceDataBox(),
+                    numSourceRegions,
                     regionOffsets.getDeviceBuffer().getDataBox(),
                     nullptr,
-                    smoothingLength);
+                    h);
 
-            uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numRegions + 1);
+            uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numTargetRegions + 1);
 
             pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
 
-            // Populate the neighbour IDs
             if(totalPairs > 0)
             {
-                PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{})
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegions))(
-                        prBuf.getDeviceDataBox(),
-                        numRegions,
+                auto writeKernel = detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{};
+                PMACC_LOCKSTEP_KERNEL(writeKernel)
+                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                        target.getDeviceDataBox(),
+                        numTargetRegions,
+                        sourcePRBuf.getDeviceDataBox(),
+                        numSourceRegions,
                         regionOffsets.getDeviceBuffer().getDataBox(),
                         neighbourRegions.getDeviceBuffer().getDataBox(),
-                        smoothingLength);
+                        h);
             }
 
-            return std::pair{std::move(neighbourRegions), std::move(regionOffsets)};
-        }
-    };
+            return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
+        };
+
+        return makeNeighbourBundle(computeOneEntry(sources)...);
+    }
 
 } // namespace pmacc::spearhed

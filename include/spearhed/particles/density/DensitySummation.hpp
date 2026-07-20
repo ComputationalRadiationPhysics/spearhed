@@ -24,9 +24,10 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/algorithms/InteractionContext.hpp"
-#include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 
@@ -40,30 +41,35 @@ namespace spearhed
      * Accumulates the neighbour contribution into ownParticle's density:
      *   rho_i += m_j * W(r, h_i)
      *
-     * r and is_self are provided by InteractParticles; self-contribution
-     * is seeded by DensityInitSelf before the pairwise pass.
+     * r and isSelf are provided in the PairContext; the self-contribution is seeded by
+     * DensityInitSelf before the pairwise pass and resumed by the framework accumulator.
+     *   - neighbourReads: only the neighbour mass m_j (h comes from the own side).
+     *   - ownReads:       the own smoothing length h_i.
+     *   - ownAccumulate:  the density accumulator rho_i.
      */
     template<SphKernel KernelT>
     struct AccumulateDensity
     {
-        using RequiredSharedTags = ll::TagList<tags::mass, tags::smoothingLength>;
-        using RequiredOwnTags = ll::TagList<tags::smoothingLength, tags::density>;
+        static constexpr auto neighbourReads = ll::makeSet(tags::mass);
+        static constexpr auto ownReads = ll::makeSet(tags::smoothingLength);
+        static constexpr auto ownAccumulate = ll::makeSet(tags::density);
 
         HDINLINE constexpr void operator()(
             auto& /*worker*/,
-            auto& ownParticle,
-            auto& neighbourParticle,
-            pmacc::spearhed::InteractionContext<CS> const& ctx) const
+            auto const& ownRead,
+            auto const& nb,
+            pmacc::spearhed::PairContext<CS> const& ctx,
+            auto& acc) const
         {
             using namespace spearhed::tags;
 
-            if(ctx.is_self) [[unlikely]]
+            if(ctx.isSelf) [[unlikely]]
                 return;
 
-            typename CS::T_Axis const h = *ownParticle[smoothingLength];
-            typename CS::T_Axis const m_j = *neighbourParticle[mass];
+            typename CS::T_Axis const h = ownRead[smoothingLength];
+            typename CS::T_Axis const m_j = nb[mass];
 
-            *ownParticle[density] += m_j * KernelT::W(ctx.r(), h);
+            acc[density] += m_j * KernelT::W(ctx.r, h);
         }
     };
 
@@ -80,10 +86,10 @@ namespace spearhed
         {
             using namespace spearhed::tags;
 
-            typename CS::T_Axis const h = *particle[smoothingLength];
-            typename CS::T_Axis const m_i = *particle[mass];
+            typename CS::T_Axis const h = particle[smoothingLength];
+            typename CS::T_Axis const m_i = particle[mass];
 
-            *particle[density] = m_i * KernelT::W(typename CS::T_Axis{0}, h);
+            particle[density] = m_i * KernelT::W(typename CS::T_Axis{0}, h);
         }
     };
 
@@ -92,20 +98,46 @@ namespace spearhed
      *
      * Seeds each particle with its self-contribution, then accumulates
      * neighbour contributions via the pairwise pass.
+     *
+     * @tparam KernelT    SPH smoothing kernel.
      */
     template<SphKernel KernelT>
     struct UpdateDensity
     {
-        void operator()(auto& prBuf, auto const& neighbourRegions, auto const& regionOffsets, typename CS::T_Axis h0)
-            const
+        /** Requires a caller-built FrameIndexBuffer for the target, which can be cached across passes
+         *  and timesteps while the frame-list topology is unchanged. The same index also drives the
+         *  self-init launch below, so no separate index build/scan is paid for that pass either.
+         *
+         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
+         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
+        [[nodiscard]] pmacc::EventTask operator()(
+            pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
+            auto& target,
+            auto& index,
+            typename CS::T_Axis h0) const
         {
-            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, DensityInitSelf<KernelT>{});
-            pmacc::spearhed::InteractParticles{}(
-                prBuf,
-                neighbourRegions,
-                regionOffsets,
-                static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
-                AccumulateDensity<KernelT>{});
+            // PMacc transaction ordering runs this zero/self-init kernel before the interaction
+            // kernels enqueued by interact() below on the device queue, so no host wait is needed
+            // between them -- only the caller's eventual wait on the combined event.
+            auto zeroDone = pmacc::spearhed::launchForEach(
+                pmacc::spearhed::levels::particle,
+                target,
+                index,
+                DensityInitSelf<KernelT>{});
+
+            // Combine both launches rather than returning interact()'s event alone: interact()
+            // short-circuits to an already-finished empty event when there are no source regions
+            // (numSources == 0), and then this self-init is the only real work -- it must still be
+            // represented in the returned event. When both launches are live they share the compute
+            // stream, so the combine is host-side bookkeeping with no added cross-stream sync.
+            auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            return zeroDone
+                   + pmacc::spearhed::interact(
+                       sources,
+                       target,
+                       index,
+                       static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                       AccumulateDensity<KernelT>{});
         }
     };
 

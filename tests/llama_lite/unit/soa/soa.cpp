@@ -30,7 +30,7 @@ using Particle = ll::Record<
 using TSoA = ll::SoA<Particle, 512>;
 
 template<auto... TagInstances>
-using ParticleView = ll::ViewIndexed<TSoA, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
+using ParticleView = ll::ViewIndexed<TSoA, ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>;
 
 template<>
 struct ll::traits::AsType<ll::Field<posi_t, Posi>>
@@ -52,33 +52,33 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
     SECTION("Scalar Field Access (Mass)")
     {
         // Write access
-        *(particles_soa[mass][0]) = 10.5;
+        (particles_soa[mass][0]) = 10.5;
 
         // Read verification
-        CHECK(*(particles_soa[mass][0]) == Catch::Approx(10.5));
+        CHECK((particles_soa[mass][0]) == Catch::Approx(10.5));
     }
 
     SECTION("Structured View Access (Position)")
     {
         auto pos_view = particles_soa[posi];
 
-        // Set value at index 2 via component view
-        *pos_view[2][tags::x] = 10.5f;
+        // Set value at index 2 via component view: drilling to the leaf x yields the reference.
+        pos_view[2][tags::x] = 10.5f;
 
         // Verify commutativity of indexing and member access
-        CHECK(*pos_view[tags::x][2] == Catch::Approx(10.5f));
-        CHECK(*pos_view[2][tags::x] == Catch::Approx(10.5f));
+        CHECK(pos_view[tags::x][2] == Catch::Approx(10.5f));
+        CHECK(pos_view[2][tags::x] == Catch::Approx(10.5f));
 
         // Create a view fixed to index 0
         auto posZero = pos_view[0];
-        *posZero[tags::x] = 10.8f;
+        posZero[tags::x] = 10.8f;
 
         // Verify index 2 is unaffected
-        CHECK(*pos_view[2][tags::x] == Catch::Approx(10.5f));
+        CHECK(pos_view[2][tags::x] == Catch::Approx(10.5f));
 
         // Verify index 0 is updated
-        CHECK(*posZero[tags::x] == Catch::Approx(10.8f));
-        CHECK(*pos_view[tags::x][0] == Catch::Approx(10.8f));
+        CHECK(posZero[tags::x] == Catch::Approx(10.8f));
+        CHECK(pos_view[tags::x][0] == Catch::Approx(10.8f));
 
         SECTION("Spearhed Point Abstraction")
         {
@@ -91,7 +91,7 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
             // Verify reflected changes in Point interface
             CHECK(point[tags::x] == Catch::Approx(10.11f));
             // Verify reflected changes in underlying SoA
-            CHECK(*pos_view[tags::x][0] == Catch::Approx(10.11f));
+            CHECK(pos_view[tags::x][0] == Catch::Approx(10.11f));
         }
     }
 
@@ -102,9 +102,9 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
 
         // Write to nested component
-        *nestedPos2_view[tags::x] = 42.0f;
+        nestedPos2_view[tags::x] = 42.0f;
 
-        CHECK(*nestedPos2_view[tags::x] == Catch::Approx(42.0f));
+        CHECK(nestedPos2_view[tags::x] == Catch::Approx(42.0f));
     }
 
     SECTION("Multi Tag View")
@@ -113,8 +113,8 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
         auto nestedPos1_pos_idxView = nestedPos1_pos_view[2];
         auto nestedPos1_idxView = nestedPos1_pos_idxView[nestedPos1];
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
-        *nestedPos2_view[tags::x] = 42.0f;
+        nestedPos2_view[tags::x] = 42.0f;
 
-        CHECK(*nestedPos2_view[tags::x] == Catch::Approx(42.0f));
+        CHECK(nestedPos2_view[tags::x] == Catch::Approx(42.0f));
     }
 }

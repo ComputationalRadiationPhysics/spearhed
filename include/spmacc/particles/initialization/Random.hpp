@@ -98,7 +98,7 @@ namespace pmacc::spearhed
             Rng rng(&state);
 
             for_each_tag<CS>([&](auto tag)
-                             { *particle[tags::relativePos][tag] = dist(rng(worker), aabb.min[tag], aabb.max[tag]); });
+                             { particle[tags::relativePos][tag] = dist(rng(worker), aabb.min[tag], aabb.max[tag]); });
         }
     };
 

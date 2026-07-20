@@ -22,6 +22,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/alpakaHelper/acc.hpp>
 #include <pmacc/particles/IdProvider.hpp>
@@ -47,6 +48,7 @@ namespace spearhed::test
         }
 
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
+        // Default species buffer
         std::shared_ptr<pmacc::spearhed::ParticleRegionBuffer<PRType>> prBuf;
 
         SpearhedParticleFixture()
@@ -76,7 +78,7 @@ namespace spearhed::test
 
             dc.template get<pmacc::IdProvider>("globalId")->reset();
 
-            // Particle Region Buffer Setup
+            // Default species Particle Region Buffer
             prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();
             dc.share(prBuf);
         }
@@ -86,5 +88,41 @@ namespace spearhed::test
             auto& dc = pmacc::Environment<DIM>::get().DataConnector();
             dc.clean();
         }
+
+        // Returns the PRBuf for the given species.
+        // Default: returns the always-present prBuf.
+        // Boundary: lazily creates and registers a Boundary PRBuf on first call.
+        template<typename Species>
+        auto& prBufFor()
+        {
+            if constexpr(std::same_as<Species, pmacc::spearhed::species::Default>)
+            {
+                return prBuf;
+            }
+            else if constexpr(std::same_as<Species, pmacc::spearhed::species::Boundary>)
+            {
+                if(!boundaryPRBuf)
+                {
+                    using BoundaryBuf
+                        = pmacc::spearhed::ParticleRegionBuffer<PRTypeFor<pmacc::spearhed::species::Boundary>>;
+                    auto& dc = pmacc::Environment<DIM>::get().DataConnector();
+                    auto const id = pmacc::spearhed::prBufId(pmacc::spearhed::species::boundary_);
+                    // Reuse a buffer InitRegions already created+shared; otherwise make one here.
+                    if(dc.hasId(id))
+                        boundaryPRBuf = dc.template get<BoundaryBuf>(id);
+                    else
+                    {
+                        boundaryPRBuf = std::make_shared<BoundaryBuf>();
+                        dc.share(boundaryPRBuf);
+                    }
+                }
+                return boundaryPRBuf;
+            }
+        }
+
+    private:
+        // Boundary buffer - created lazily via prBufFor<species::Boundary>().
+        std::shared_ptr<pmacc::spearhed::ParticleRegionBuffer<PRTypeFor<pmacc::spearhed::species::Boundary>>>
+            boundaryPRBuf{nullptr};
     };
 } // namespace spearhed::test

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "spmacc/particles/Predicate.hpp"
 #include "spmacc/particles/traits.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -38,10 +39,25 @@ namespace pmacc::spearhed
     template<>
     struct InitValue<tags::MultiMaskField>
     {
-        HDINLINE constexpr void operator()(auto multiMaskView, uint8_t val) const
+        HDINLINE constexpr void operator()(auto&& multiMaskView, uint8_t val) const
         {
-            *multiMaskView = val;
+            multiMaskView = val;
         }
     };
+
+    namespace pred
+    {
+        /** Predicate: the slot holds a live particle (multiMask set). The ubiquitous liveness check --
+         *  algorithms skip every slot this rejects. Compose with && || ! like any other predicate. */
+        struct Occupied : PredicateBase
+        {
+            HDINLINE constexpr bool operator()(auto const& particle) const
+            {
+                return static_cast<bool>(particle[tags::multiMask]);
+            }
+        };
+
+        inline constexpr Occupied occupied{};
+    } // namespace pred
 
 } // namespace pmacc::spearhed

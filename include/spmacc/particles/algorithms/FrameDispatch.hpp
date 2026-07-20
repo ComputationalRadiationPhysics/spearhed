@@ -21,16 +21,29 @@
 
 #pragma once
 
+#include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
+#include <pmacc/eventSystem/events/EventTask.hpp>
+#include <pmacc/eventSystem/tasks/TaskKernel.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
 
 #include <cstdint>
+
+/*
+ * Building blocks for dispatching GPU blocks across a ParticleRegionBuffer's frames.
+ *
+ * This file holds: the frame-count-per-region kernel (used to build a FrameIndexBuffer, see
+ * FrameIndex.hpp) and the host-side inclusive-scan helper it shares with InitParticles.hpp's own
+ * scan-based dispatch, the host-side grid-sizing policies (OneBlockPerFrame / FixedGrid), and the
+ * single indexed launcher launchForEachFrameInBlockIndexed, which dispatches from a prebuilt
+ * FrameIndexBuffer instead of scanning frame counts on every call. See LaunchForEach.hpp for the
+ * higher-level entry points built on top of the indexed launcher.
+ */
 
 namespace pmacc::spearhed
 {
@@ -64,45 +77,6 @@ namespace pmacc::spearhed
             }
         };
 
-        /**
-         * Result of mapping a block index to a frame within the inclusive-scan layout.
-         */
-        struct FrameLocation
-        {
-            int regionIdx;
-            // index of the frame within its region
-            int localFrameIdx;
-            int framesInRegion;
-        };
-
-        /**
-         * @brief Maps a block index to a frame location using binary search on the inclusive-scan array.
-         *
-         * @param blockIdx   Global block index (== worker.blockDomIdx() at the call site)
-         * @param scanBox    Inclusive prefix-sum of frame counts: scanBox[i] = sum of frames in regions [0, i]
-         * @param numRegions Number of regions (== length of scanBox)
-         * @return           FrameLocation with regionIdx, localFrameIdx, framesInRegion
-         */
-        DINLINE FrameLocation findFrameLocation(int blockIdx, auto const& scanBox, int numRegions)
-        {
-            // Upper-bound binary search: find smallest regionIdx s.t. scanBox[regionIdx] > blockIdx
-            int left = 0;
-            int right = numRegions;
-            while(left < right)
-            {
-                int const mid = std::midpoint(left, right);
-                if(static_cast<int>(scanBox[mid]) <= blockIdx)
-                    left = mid + 1;
-                else
-                    right = mid;
-            }
-            int const regionIdx = left;
-            int const start = (regionIdx == 0) ? 0 : static_cast<int>(scanBox[regionIdx - 1]);
-            int const end = static_cast<int>(scanBox[regionIdx]);
-            return {.regionIdx = regionIdx, .localFrameIdx = blockIdx - start, .framesInRegion = end - start};
-            ;
-        }
-
     } // namespace detail
 
     /**
@@ -127,48 +101,118 @@ namespace pmacc::spearhed
     }
 
     /**
-     * @brief Host helper that dispatches one GPU block per frame across all regions.
+     * @brief Host-side grid-sizing (launch) policies: decide how many blocks
+     *        forEachFrame launches for a given total frame count.
      *
-     * Launches CountFramesKernel to count frames per region, performs an inclusive prefix-sum
-     * on the host, then launches @p processKernel with exactly totalFrames blocks.
-     *
-     * The process kernel receives:
-     *   (worker, prDeviceBox, numRegions, framesScanBox, args...)
-     * and should call detail::findFrameLocation(worker.blockDomIdx(), framesScanBox, numRegions)
-     * to locate its assigned frame.
-     *
-     * @tparam TCountThreads   Threads per block for CountFramesKernel.
-     * @tparam TProcessThreads Threads per block for processKernel.
+     * This is the host half of an execution policy; it is orthogonal to the device-side frame
+     * Schedule (see FrameSchedule.hpp), subject to the constraint that the OneToOne schedule is
+     * only valid with OneBlockPerFrame.
      */
-    template<uint32_t TCountThreads, uint32_t TProcessThreads>
-    struct ForEachFrameInPRBuf
+
+    //! One block per frame: grid size == total frames. The only launch valid with the OneToOne
+    //! schedule; with a grid-stride or contiguous schedule the per-block loop simply runs once.
+    struct OneBlockPerFrame
     {
-        void operator()(auto& prBuf, auto processKernel, auto&&... args) const
+        static constexpr uint32_t numBlocks(uint32_t totalFrames) noexcept
         {
-            if(prBuf.size == 0)
-                return;
-
-            pmacc::HostDeviceBuffer<uint32_t, DIM1> framesPerRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-
-            PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
-                .template config<TCountThreads>(pmacc::DataSpace<DIM1>(
-                    prBuf.size))(prBuf.getDeviceDataBox(), prBuf.size, framesPerRegion.getDeviceBuffer().getDataBox());
-
-            uint32_t const totalBlocks = inclusiveScanOnHost(framesPerRegion, prBuf.size);
-
-            if(totalBlocks > 0)
-            {
-                PMACC_LOCKSTEP_KERNEL(processKernel)
-                    .template config<TProcessThreads>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                        prBuf.getDeviceDataBox(),
-                        prBuf.size,
-                        framesPerRegion.getDeviceBuffer().getDataBox(),
-                        std::forward<decltype(args)>(args)...);
-
-                // Ensure framesPerRegion stays alive until the kernel finishes
-                pmacc::eventSystem::waitForAllTasks();
-            }
+            return totalFrames;
         }
     };
+
+    //! Fixed grid of at most T_NumBlocks blocks (clamped so we never launch idle blocks). Requires
+    //! a schedule that covers multiple frames per block (GridStride or Contiguous).
+    template<uint32_t T_NumBlocks>
+    struct FixedGrid
+    {
+        static constexpr uint32_t numBlocks(uint32_t totalFrames) noexcept
+        {
+            return T_NumBlocks < totalFrames ? T_NumBlocks : totalFrames;
+        }
+    };
+
+    //! Named grid-sizing policy instances for value-based (constexpr object) configuration.
+    inline constexpr OneBlockPerFrame oneBlockPerFrame{};
+    template<uint32_t T_NumBlocks>
+    inline constexpr FixedGrid<T_NumBlocks> fixedGrid{};
+
+    /**
+     * @brief Value-based launch configuration for the indexed frame for-each.
+     *
+     * Carries the grid-sizing policy as a stateless constexpr sub-object and the process thread
+     * count -- which must be a compile-time constant for the lockstep launch -- as a static
+     * constexpr member of the type, so the whole thing survives being passed by value (recovered at
+     * the call site via decltype(cfg)::processThreads). Build one with launchConfig(...) instead of
+     * template arguments. There is no count-kernel thread count here: index (re)builds own their
+     * kernel thread count (see FrameIndexBuffer::kIndexThreads in FrameIndex.hpp).
+     */
+    template<typename T_Grid, uint32_t T_ProcessThreads = 32>
+    struct LaunchConfig
+    {
+        T_Grid grid;
+        static constexpr uint32_t processThreads = T_ProcessThreads;
+    };
+
+    /**
+     * @brief Build a LaunchConfig from a constexpr grid-sizing object.
+     *
+     * @tparam T_ProcessThreads Threads per block for the process kernel.
+     */
+    template<uint32_t T_ProcessThreads = 32>
+    constexpr auto launchConfig(auto grid)
+    {
+        return LaunchConfig<decltype(grid), T_ProcessThreads>{grid};
+    }
+
+    //! Default launch: one block per frame, 32 threads for the process kernel.
+    inline constexpr auto defaultLaunch = launchConfig(oneBlockPerFrame);
+
+    /**
+     * @brief Index-driven host for-each over frames: no per-launch count kernel and no host
+     *        inclusive scan -- the block-to-frame mapping is read straight from a prebuilt index.
+     *
+     * The caller owns a FrameIndexBuffer (see FrameIndex.hpp) rebuilt from @p prBuf's frame lists. This
+     * launcher merely sizes the grid from @p index.totalFrames and hands each block its region index and
+     * frame device pointer via the index's device boxes. The process kernel receives:
+     *   (worker, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, args...)
+     * and maps its block directly: rIdx = regionIdxBox[blockIdx]; ownFramePtr = framePtrsBox[blockIdx].
+     *
+     * This does NOT synchronise: the kernel is merely enqueued and this function returns immediately.
+     * Every device allocation reachable from the launch -- @p prBuf, @p index, and any buffer viewed
+     * by @p args -- must outlive kernel COMPLETION, not just this call (PMacc buffer destructors do
+     * not wait for in-flight kernels). The caller synchronises via the returned event at its natural
+     * sync point; see interact() in NeighbourRegions.hpp.
+     *
+     * @param launchCfg     A constexpr LaunchConfig value (only its grid-sizing policy is used here).
+     * @param prBuf         The particle region buffer (supplies the region device box + region volumes).
+     * @param index         A rebuilt FrameIndexBuffer for @p prBuf.
+     * @param processKernel The per-block kernel functor.
+     * @return EventTask for the enqueued kernel (an empty, already-finished event if totalFrames == 0).
+     *         Wait on it with waitForFinished() before destroying any buffer the kernel touches.
+     */
+    [[nodiscard]] pmacc::EventTask launchForEachFrameInBlockIndexed(
+        auto launchCfg,
+        auto& prBuf,
+        auto& index,
+        auto processKernel,
+        auto&&... args)
+    {
+        if(index.totalFrames == 0)
+            return {};
+
+        // A stale index (built against an older topology) holds dangling device frame pointers.
+        PMACC_ASSERT(index.builtVersion == prBuf.topologyVersion);
+
+        using Cfg = decltype(launchCfg);
+
+        uint32_t const gridSize = launchCfg.grid.numBlocks(index.totalFrames);
+
+        return PMACC_LOCKSTEP_KERNEL(processKernel)
+            .template config<Cfg::processThreads>(pmacc::DataSpace<DIM1>(gridSize))(
+                prBuf.getDeviceDataBox(),
+                index.framePtrsBox(),
+                index.regionIdxBox(),
+                index.totalFrames,
+                std::forward<decltype(args)>(args)...);
+    }
 
 } // namespace pmacc::spearhed

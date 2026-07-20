@@ -28,6 +28,6 @@
 namespace pmacc::spearhed
 {
     template<typename TSoA, auto... TagInstances>
-    using ParticleView = ll::ViewIndexed<TSoA, ll::to_path_t<std::remove_cvref_t<decltype(TagInstances)>>...>;
+    using ParticleView = ll::ViewIndexed<TSoA, ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>;
 
 } // namespace pmacc::spearhed

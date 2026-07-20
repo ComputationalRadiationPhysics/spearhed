@@ -36,9 +36,10 @@ namespace pmacc::spearhed
     {
         using _default_sentinel = void;
 
-        constexpr void operator()(auto fieldView) const
+        // A leaf field drills to its element reference, so assign through it directly.
+        constexpr void operator()(auto&& fieldView) const
         {
-            *fieldView = typename F::value_type{0};
+            fieldView = typename F::value_type{0};
         }
     };
 
@@ -47,9 +48,9 @@ namespace pmacc::spearhed
     {
         using _default_sentinel = void;
 
-        constexpr void operator()(auto fieldView) const
+        constexpr void operator()(auto&& fieldView) const
         {
-            *fieldView = {};
+            fieldView = {};
         }
     };
 
@@ -58,9 +59,9 @@ namespace pmacc::spearhed
     {
         using _default_sentinel = void;
 
-        constexpr void operator()(auto fieldView, F::value_type val) const
+        constexpr void operator()(auto&& fieldView, F::value_type val) const
         {
-            *fieldView = val;
+            fieldView = val;
         }
     };
 
@@ -70,10 +71,10 @@ namespace pmacc::spearhed
         using _default_sentinel = void;
 
         // Accepts any callable (lambda, function object) that returns a compatible type
-        constexpr void operator()(auto fieldView, std::invocable auto&& gen) const
+        constexpr void operator()(auto&& fieldView, std::invocable auto&& gen) const
             requires std::convertible_to<std::invoke_result_t<decltype(gen)>, typename F::value_type>
         {
-            *fieldView = gen();
+            fieldView = gen();
         }
     };
 
@@ -83,10 +84,10 @@ namespace pmacc::spearhed
         using _default_sentinel = void;
 
         // Accepts any callable (lambda, function object) that returns a compatible type
-        constexpr void operator()(auto fieldView, std::invocable auto&& gen) const
+        constexpr void operator()(auto&& fieldView, std::invocable auto&& gen) const
             requires std::convertible_to<std::invoke_result_t<decltype(gen)>, typename F::value_type>
         {
-            *fieldView = gen();
+            fieldView = gen();
         }
     };
 

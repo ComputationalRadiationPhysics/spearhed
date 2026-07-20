@@ -7,6 +7,7 @@
 #pragma once
 
 #include "llamaLite/Record.hpp"
+#include "llamaLite/Set.hpp"
 
 #include <type_traits>
 
@@ -121,5 +122,20 @@ namespace llama_lite
     template<IsRecord Rec, IsRecordAccess auto... RAs>
     using sub_record_t = typename SubRecord<Rec, RAs...>::type;
 
+    namespace detail
+    {
+        template<IsRecord Rec, typename SetT>
+        struct SubRecordFromSet;
+
+        template<IsRecord Rec, IsRecordAccess... Ts>
+        struct SubRecordFromSet<Rec, Set<Ts...>>
+        {
+            using type = sub_record_t<Rec, Ts{}...>;
+        };
+    } // namespace detail
+
+    /// Like sub_record_t, but takes the requested paths as a Set instead of a value pack.
+    template<IsRecord Rec, IsSet SetT>
+    using sub_record_from_set_t = typename detail::SubRecordFromSet<Rec, SetT>::type;
 
 } // namespace llama_lite

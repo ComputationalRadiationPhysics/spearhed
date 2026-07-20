@@ -26,11 +26,15 @@
 
 #include <cstdint>
 #include <tuple>
+#include <vector>
 
 namespace spearhed
 {
     struct SodShockTube
     {
+        // This setup fills a single species and acts as its own (only) init block.
+        using Species = pmacc::spearhed::species::Default;
+
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
         // Standard Sod shock tube initial conditions:
@@ -56,6 +60,11 @@ namespace spearhed
         // Total number of particles across all regions.
         // Each region receives a share proportional to rho * V, giving equal particle mass.
         uint32_t totalParticles = 32000u;
+
+        auto blocks() const
+        {
+            return std::tie(*this);
+        }
 
         struct NumParticlesToCreate
         {
@@ -98,7 +107,7 @@ namespace spearhed
             {
                 auto const& aabb = particleRegion.volume;
                 pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag) { *particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+                    [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
             }
         };
 
@@ -107,20 +116,12 @@ namespace spearhed
             return std::make_tuple();
         }
 
-        HINLINE void setupRegions(pmacc::spearhed::ParticleRegionBuffer<PRType>& prBuf, DeviceHeap const& deviceHeap)
-            const
+        // Region 0 = left, region 1 = right; NumParticlesToCreate keys off this order.
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
         {
-            prBuf.create(2);
-
-            auto deviceHeapHandle = deviceHeap.getAllocatorHandle();
-
-            auto leftRegion = PRType{deviceHeapHandle, leftVolume};
-            auto rightRegion = PRType{deviceHeapHandle, rightVolume};
-
-            // Add regions to the particleRegions buffer
-            prBuf.pushBack(leftRegion);
-            prBuf.pushBack(rightRegion);
-            prBuf.buffer->hostToDevice();
+            out.push_back(leftVolume);
+            out.push_back(rightVolume);
         }
     };
 

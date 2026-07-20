@@ -72,6 +72,14 @@ namespace spearhed
          */
         size_t freeDeviceMemory() const;
 
+        /** Advance the simulation by one step using a concrete SPH kernel type.
+         *
+         * Instantiated once per kernel alternative; @ref runOneStep selects the
+         * matching instantiation at runtime via std::visit over @ref kernelVariant.
+         */
+        template<typename K>
+        void stepWithKernel(uint32_t currentStep);
+
     private:
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
 

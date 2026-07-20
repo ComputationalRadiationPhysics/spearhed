@@ -9,6 +9,7 @@
 #include "llamaLite/Field.hpp"
 #include "llamaLite/Record.hpp"
 #include "llamaLite/ResolveLeaf.hpp"
+#include "llamaLite/Set.hpp"
 #include "llamaLite/Transform.hpp"
 #include "llamaLite/Tuple.hpp"
 #include "llamaLite/View.hpp"
@@ -140,10 +141,10 @@ namespace llama_lite
         using record_type = R;
 
         template<IsRecordAccess... Tags>
-        using view_type = View<DynSoA, Tags...>;
+        using view_type = View<DynSoA, access_set_t<Tags...>>;
 
         template<IsRecordAccess... Tags>
-        using indexed_view_type = ViewIndexed<DynSoA, Tags...>;
+        using indexed_view_type = ViewIndexed<DynSoA, access_set_t<Tags...>>;
 
         DynSoA() = default;
 
@@ -190,37 +191,37 @@ namespace llama_lite
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] auto view(RAs... tags)
+        [[nodiscard]] auto view(RAs... /*tags*/)
         {
-            return View<DynSoA, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<DynSoA, access_set_t<RAs...>>(*this);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] auto view(RAs... tags) const
+        [[nodiscard]] auto view(RAs... /*tags*/) const
         {
-            return View<DynSoA const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<DynSoA const, access_set_t<RAs...>>(*this);
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] auto operator[](RA tag)
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] auto operator[](RA tag) const
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         [[nodiscard]] auto operator[](uint32_t idx)
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<DynSoA, Set<>>(*this, idx);
         }
 
         [[nodiscard]] auto operator[](uint32_t idx) const
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<DynSoA const, Set<>>(*this, idx);
         }
 
     private:

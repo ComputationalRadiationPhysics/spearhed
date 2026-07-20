@@ -9,6 +9,7 @@
 #include "llamaLite/Field.hpp"
 #include "llamaLite/Record.hpp"
 #include "llamaLite/ResolveLeaf.hpp"
+#include "llamaLite/Set.hpp"
 #include "llamaLite/Transform.hpp"
 #include "llamaLite/View.hpp"
 #include "llamaLite/tag/TagPath.hpp"
@@ -53,24 +54,24 @@ namespace llama_lite
         constexpr One& operator=(One const&) = default;
         constexpr One& operator=(One&&) = default;
 
-        template<typename TSoA, typename... RAs>
-        constexpr One(ViewIndexed<TSoA, RAs...> const& view)
+        template<typename TSoA, IsAccessSet S>
+        constexpr One(ViewIndexed<TSoA, S> const& view)
         {
             (*this)[uint32_t{0}].deepCopyFrom(view);
         }
 
-        template<typename TSoA, typename... RAs>
-        constexpr One& operator=(ViewIndexed<TSoA, RAs...> const& view)
+        template<typename TSoA, IsAccessSet S>
+        constexpr One& operator=(ViewIndexed<TSoA, S> const& view)
         {
             (*this)[uint32_t{0}].deepCopyFrom(view);
             return *this;
         }
 
         template<IsRecordAccess... Tags>
-        using view_type = View<One, Tags...>;
+        using view_type = View<One, access_set_t<Tags...>>;
 
         template<IsRecordAccess... Tags>
-        using indexed_view_type = ViewIndexed<One, Tags...>;
+        using indexed_view_type = ViewIndexed<One, access_set_t<Tags...>>;
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf()
@@ -87,37 +88,37 @@ namespace llama_lite
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... tags)
+        [[nodiscard]] constexpr auto view(RAs... /*tags*/)
         {
-            return View<One, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<One, access_set_t<RAs...>>(*this);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... tags) const
+        [[nodiscard]] constexpr auto view(RAs... /*tags*/) const
         {
-            return View<One const, to_path_t<RAs>...>(*this, to_path_t<RAs>{}...);
+            return View<One const, access_set_t<RAs...>>(*this);
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto operator[](RA tag)
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto operator[](RA tag) const
         {
-            return view(tag);
+            return detail::resolveIfLeaf(view(tag));
         }
 
         [[nodiscard]] constexpr auto operator[](uint32_t idx)
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<One, Set<>>(*this, idx);
         }
 
         [[nodiscard]] constexpr auto operator[](uint32_t idx) const
         {
-            return ViewIndexed(*this, idx);
+            return ViewIndexed<One const, Set<>>(*this, idx);
         }
 
     private:

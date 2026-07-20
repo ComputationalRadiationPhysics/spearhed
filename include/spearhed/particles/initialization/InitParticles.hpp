@@ -48,8 +48,10 @@
 
 #include <concepts>
 #include <cstdint>
+#include <numeric>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 #include <unistd.h>
 
@@ -57,6 +59,48 @@ namespace spearhed
 {
     namespace init::detail
     {
+        /**
+         * Result of mapping a block index to a frame within the inclusive-scan layout.
+         */
+        struct FrameLocation
+        {
+            int regionIdx;
+            // index of the frame within its region
+            int localFrameIdx;
+            int framesInRegion;
+        };
+
+        /**
+         * @brief Maps a block index to a frame location using binary search on the inclusive-scan array.
+         *
+         * Init dispatches blocks over frames that do not exist yet (each block's kernel allocates its
+         * own frame), so at launch time there is nothing for a FrameIndexBuffer to index; this keeps
+         * the scan-based block-to-frame mapping InteractParticles/LaunchForEach no longer need. This
+         * is the only remaining user.
+         *
+         * @param blockIdx   Global block index (== worker.blockDomIdx() at the call site)
+         * @param scanBox    Inclusive prefix-sum of frame counts: scanBox[i] = sum of frames in regions [0, i]
+         * @param numRegions Number of regions (== length of scanBox)
+         * @return           FrameLocation with regionIdx, localFrameIdx, framesInRegion
+         */
+        DINLINE FrameLocation findFrameLocation(int blockIdx, auto const& scanBox, int numRegions)
+        {
+            // Upper-bound binary search: find smallest regionIdx s.t. scanBox[regionIdx] > blockIdx
+            int left = 0;
+            int right = numRegions;
+            while(left < right)
+            {
+                int const mid = std::midpoint(left, right);
+                if(static_cast<int>(scanBox[mid]) <= blockIdx)
+                    left = mid + 1;
+                else
+                    right = mid;
+            }
+            int const regionIdx = left;
+            int const start = (regionIdx == 0) ? 0 : static_cast<int>(scanBox[regionIdx - 1]);
+            int const end = static_cast<int>(scanBox[regionIdx]);
+            return {.regionIdx = regionIdx, .localFrameIdx = blockIdx - start, .framesInRegion = end - start};
+        }
 
         /** Kernel which calculates number of frames needed per particle region
          * One block per particle region
@@ -122,6 +166,7 @@ namespace spearhed
             {
                 using TFrameList = std::remove_cvref_t<decltype(particleFrameList)>;
                 using FrameType = TFrameList::FrameType;
+                using Species = typename FrameType::ParticleDescription::Species;
 
                 PMACC_SMEM(worker, framePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
 
@@ -145,7 +190,7 @@ namespace spearhed
                     {
                         auto particle = framePtr[idx];
                         // First set the multimask to make sure particles which dont exist are disabled
-                        setMultiMask(particle, idx < numParticlesToCreate ? 1 : 0);
+                        setMultiMask<Species>(particle, idx < numParticlesToCreate ? 1 : 0);
 
                         if(idx < numParticlesToCreate)
                         {
@@ -153,15 +198,9 @@ namespace spearhed
                                 typename decltype(particle)::record_type,
                                 pmacc::spearhed::InitZero,
                                 multiMask,
-                                particleId,
-                                vel>(particle);
+                                particleId>(particle);
 
                             pmacc::spearhed::Init<idField>{}(particle[particleId], worker, idGen);
-
-                            ll::iterate_only<
-                                typename decltype(particle)::record_type,
-                                pmacc::spearhed::InitValue,
-                                vel>(particle, 100.f);
 
                             pmacc::memory::tuple::apply(
                                 [&](auto&&... args)
@@ -178,7 +217,8 @@ namespace spearhed
                     });
             }
 
-            DINLINE void setMultiMask(ParticleView<multiMask> multiMaskView, uint8_t state) const
+            template<pmacc::spearhed::SpeciesTag S>
+            HDINLINE void setMultiMask(ParticleView<S, multiMask> multiMaskView, uint8_t state) const
             {
                 *multiMaskView = state;
             }
@@ -200,10 +240,7 @@ namespace spearhed
                 auto placeParticleArgsTuple) const
             {
                 auto const blockIdx = worker.blockDomIdx();
-                auto const loc = pmacc::spearhed::detail::findFrameLocation(
-                    blockIdx,
-                    framesPerParticleRegionScan,
-                    numParticleRegions);
+                auto const loc = findFrameLocation(blockIdx, framesPerParticleRegionScan, numParticleRegions);
 
                 PMACC_ASSERT(loc.localFrameIdx < loc.framesInRegion);
 
@@ -243,17 +280,69 @@ namespace spearhed
      * goes over all the ParticleRegions and then initializes them using the densities
      * uses a parallelisation strategy of having one block working per frame
      */
-    // do we do boundaries here?
     struct InitParticles
     {
-        /**
-         * @param setup setup providing NumParticlesToCreate functor and its args
-         */
+        // For each species used by the setup, fill its buffer block by block. A species may be fed by
+        // several blocks, so each block initialises only its own contiguous slice of regions using its
+        // own recipe; the slices are laid out in the same block order InitRegions used.
         template<SetupInterface TSetup>
         auto operator()(TSetup const& setup)
         {
+            pmacc::spearhed::forEachSpecies(
+                pmacc::spearhed::species::all,
+                [&](auto species) { initSpecies<std::remove_cvref_t<decltype(species)>>(setup); });
+        }
+
+    private:
+        template<typename Species, SetupInterface TSetup>
+        static void initSpecies(TSetup const& setup)
+        {
             auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
+
+            using PRBuf = pmacc::spearhed::ParticleRegionBuffer<PRTypeFor<Species>>;
+            auto const id = pmacc::spearhed::prBufId<Species>();
+            if(!dc.hasId(id))
+                return; // species not used by this setup
+            auto& prBuf = *dc.get<PRBuf>(id);
+
+            // Walk blocks in the same order as InitRegions; each block owns [regionOffset, +numRegions).
+            uint32_t regionOffset = 0;
+            std::apply(
+                [&](auto const&... block)
+                {
+                    (
+                        [&]
+                        {
+                            using Block = std::remove_cvref_t<decltype(block)>;
+                            if constexpr(blockTargets<Block, Species>)
+                            {
+                                std::vector<pmacc::spearhed::AABB<CS>> volumes;
+                                block.template addRegions<Species>(volumes);
+                                auto const numRegions = static_cast<uint32_t>(volumes.size());
+                                if(numRegions > 0)
+                                    initBlockSlice<Species>(dc, prBuf, regionOffset, numRegions, block);
+                                regionOffset += numRegions;
+                            }
+                        }(),
+                        ...);
+                },
+                setup.blocks());
+
+            // The init kernels above (CreateParticlesInFrame, via getEmptyFrame) allocated frames in
+            // prBuf's frame lists, so any existing FrameIndexBuffer built over this buffer is now
+            // stale; bump the topology version once all blocks have run so the buffer's own
+            // bookkeeping reflects the mutation.
+            ++prBuf.topologyVersion;
+        }
+
+        template<typename Species, typename Block>
+        static void initBlockSlice(
+            pmacc::DataConnector& dc,
+            auto& prBuf,
+            uint32_t regionBegin,
+            uint32_t numRegions,
+            Block const& block)
+        {
             constexpr uint32_t threadsPerBlock = 32;
 
             /**
@@ -265,26 +354,29 @@ namespace spearhed
              * - we need some natural order of particle initialization, which can be split by number of frame slots
              * so that particle init can be independent across blocks and threads
              */
+            auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(block.numParticlesToCreateArgs());
+            auto placeParticle = typename Block::PlaceParticle{};
+            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(block.placeParticleArgs());
 
-            auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(setup.numParticlesToCreateArgs());
-            auto placeParticle = typename TSetup::PlaceParticle{};
-            auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(setup.placeParticleArgs());
+            // Restrict the kernels to this block's slice by shifting the device box to its first region.
+            // Region-local indices (frame offsets, global particle idx) are unchanged by the shift.
+            auto slicedBox = prBuf.getDeviceDataBox().shift(pmacc::DataSpace<DIM1>{static_cast<int>(regionBegin)});
+            auto const numRegionsI = static_cast<int>(numRegions);
 
             // Launch a kernel to calculate num particles & num frames to create for each PR
             // Uses one block for each PR to calculate these 2 numbers.
             // TODO this is very wasteful. Use threads in a block to deal with particle regions and do a on device scan
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{prBuf.size});
-            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename TSetup::NumParticlesToCreate>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                    prBuf.getDeviceDataBox(),
-                    prBuf.size,
+            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{numRegionsI});
+            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
+                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
+                    slicedBox,
+                    numRegionsI,
                     framesPerParticleRegion.getDeviceBuffer().getDataBox(),
                     argsForNumParticles);
 
-
-            uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, prBuf.size);
+            uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, numRegionsI);
 
             // Launch a kernel to init particles.
             // Launched with max blocks and num threads per block that we can possible use.
@@ -292,20 +384,19 @@ namespace spearhed
             // to each block.
             if(totalBlocks > 0)
             {
-                pmacc::DataConnector& dc = pmacc::Environment<>::get().DataConnector();
                 auto idProvider = dc.get<pmacc::IdProvider>("globalId");
 
-                PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                        prBuf.getDeviceDataBox(),
-                        prBuf.size,
-                        framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                        idProvider->getDeviceGenerator(),
-                        placeParticle,
-                        argsForPlaceParticle);
+                auto event = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
+                                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
+                                     slicedBox,
+                                     numRegionsI,
+                                     framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                                     idProvider->getDeviceGenerator(),
+                                     placeParticle,
+                                     argsForPlaceParticle);
 
                 // wait because otherwise kernel args (framesPerParticleRegion) go out of scope
-                pmacc::eventSystem::waitForAllTasks();
+                event.waitForFinished();
             }
         }
     };

@@ -22,7 +22,9 @@
 #pragma once
 
 #include "spmacc/meta/ComponentList.hpp"
+#include "spmacc/meta/String.hpp"
 #include "spmacc/meta/TypeList.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/meta/conversion/ToSeq.hpp>
 #include <pmacc/meta/conversion/Unique.hpp>
@@ -35,17 +37,15 @@
 
 namespace pmacc::spearhed
 {
-    /** ParticleDescription defines attributes, methods and flags of a particle
+    /** ParticleDescription defines attributes etc of a particle
      *
      * This class holds no runtime data.
-     * The class holds information about the name, attributes, flags and methods of a
-     * particle.
+     * The class holds information about the name, attributes, etc of a
+     * particle. The particle name is taken from the species (@p T_Species::name).
      *
-     * @tparam T_Name name of described particle (e.g. electron, ion)
-     *                type must be a SPMACC_CSTRING
      * @tparam T_NumSlots compile time size of number of particles
      * @tparam T_ParticleRecord ll::Record with description of particle attribues
-     * @tparam T_Flags sequence or single type with identifier to add flags on a frame, must not have duplicates
+     * @tparam T_Species species tag the particle belongs to; supplies the particle name
      * @tparam T_FrameExtensionList sequence or single class with frame extensions
      *                    - a pmacc::spearhed::meta::ComponentList
      *                    - extension must be an unary template class that supports boost::mpl::apply1<>
@@ -55,38 +55,31 @@ namespace pmacc::spearhed
      *                      extension classes
      */
     template<
-        typename T_Name,
+        SpeciesTag T_Species,
         typename T_NumSlots,
         typename T_ParticleRecord,
-        typename T_Flags = pmacc::spearhed::meta::TypeList<>,
         typename T_FrameExtensionList = pmacc::spearhed::meta::ComponentList<>>
     struct ParticleDescription
     {
-        using Name = T_Name;
+        using Species = T_Species;
+        using Name = pmacc::spearhed::meta::String<T_Species::name>;
         using ParticleRecord = T_ParticleRecord;
-        using FlagsList = pmacc::spearhed::meta::ToTypeList_t<T_Flags>;
         using FrameExtensionList = T_FrameExtensionList;
         static constexpr uint32_t numSlots = T_NumSlots::value;
-
-        // Compile-time check uniqueness of attributes and flags
-        // PMACC_CASSERT_MSG(
-        //     _error_particles_must_not_have_duplicate_attributes____check_your_speciesDefinition_param_file,
-        //     isUnique<T_ParticleRecord>);
-        PMACC_CASSERT_MSG(
-            _error_particles_must_not_have_duplicate_flags____check_your_speciesDefinition_param_file,
-            pmacc::spearhed::meta::isUnique_v<FlagsList>);
-
-        template<typename NewFrameExtensionSeq>
-        consteval auto replaceFrameExtensionSeq() const
-        {
-            return ParticleDescription<T_Name, T_NumSlots, T_ParticleRecord, T_Flags, NewFrameExtensionSeq>{};
-        }
     };
 
-    template<typename T_Name, typename T_NumSlots, typename T_ParticleRecord>
-    consteval auto createParticleDescription(T_Name, T_NumSlots, T_ParticleRecord)
+    template<
+        SpeciesTag T_Species,
+        typename T_NumSlots,
+        typename T_ParticleRecord,
+        typename T_FrameExtensionList = pmacc::spearhed::meta::ComponentList<>>
+    consteval auto createParticleDescription(
+        T_Species,
+        T_NumSlots,
+        T_ParticleRecord,
+        std::type_identity<T_FrameExtensionList> = {})
     {
-        return ParticleDescription<T_Name, T_NumSlots, T_ParticleRecord>{};
+        return ParticleDescription<T_Species, T_NumSlots, T_ParticleRecord, T_FrameExtensionList>{};
     }
 
 } // namespace pmacc::spearhed

@@ -147,14 +147,6 @@ TEST_CASE("TagPath Relationships", "[TagPath][Meta]")
         STATIC_CHECK(P_AB::commonPrefixLength<P_ABC>() == 2); // TagA, TagB
         STATIC_CHECK(P_A::commonPrefixLength<P_B>() == 0);
         STATIC_CHECK(Empty::commonPrefixLength<P_ABC>() == 0);
-    }
-
-    SECTION("Common Prefix Length")
-    {
-        STATIC_CHECK(P_AB::commonPrefixLength<P_AC>() == 1); // TagA
-        STATIC_CHECK(P_AB::commonPrefixLength<P_ABC>() == 2); // TagA, TagB
-        STATIC_CHECK(P_A::commonPrefixLength<P_B>() == 0);
-        STATIC_CHECK(Empty::commonPrefixLength<P_ABC>() == 0);
         STATIC_CHECK(P_ABC::commonPrefixLength<Empty>() == 0);
     }
 }

@@ -21,20 +21,28 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/particles/pusher/PushVelocity.hpp"
-#include "spmacc/particles/algorithms/ForEachParticle.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <type_traits>
 
 namespace spearhed
 {
+    // Advance every species that moves (is integrated in time). Frozen species (walls) carry no
+    // Movable role, so they are skipped without naming a hardcoded species list.
     struct ParticlePush
     {
         void operator()(uint32_t currentStep) const
         {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& prBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>("PRBuf");
-
-            pmacc::spearhed::ForEachParticleInPRBuf{}(prBuf, PushVelocity{}, dt);
-            // forEachParticleInPR();
+            pmacc::spearhed::forEachSpeciesBufWithPred(
+                allSpecies,
+                pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Movable>,
+                [&](auto& prBuf)
+                {
+                    using S = typename std::remove_reference_t<decltype(prBuf)>::Species;
+                    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, prBuf, PushVelocity<S>{}, dt);
+                });
             // Push particles
             // PushDistance{}();
             // Update bounding boxes
