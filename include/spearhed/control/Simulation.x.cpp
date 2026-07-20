@@ -165,8 +165,8 @@ namespace spearhed
         // Frozen wall species are skipped even though they may still be Thermodynamic sources.
         pmacc::spearhed::forEachSpeciesBufWithPred(
             allSpecies,
-            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Movable>
-                && pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Thermodynamic>,
+            pmacc::spearhed::pred::
+                withAllRoles<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>,
             [&](auto& buf)
             {
                 pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);

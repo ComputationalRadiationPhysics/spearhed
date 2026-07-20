@@ -72,6 +72,16 @@ namespace pmacc::spearhed::test
 
 // Tests
 
+TEST_CASE("species predicate requires all requested roles", "[region_role]")
+{
+    using namespace pmacc::spearhed;
+    using namespace pmacc::spearhed::test;
+
+    STATIC_REQUIRE(pred::eval<SpeciesA>(pred::withAllRoles<roles::Interior, roles::Source>));
+    STATIC_REQUIRE_FALSE(pred::eval<SpeciesA>(pred::withAllRoles<roles::Interior, roles::Thermodynamic>));
+    STATIC_REQUIRE(pred::eval<SpeciesB>(pred::withAllRoles<roles::Frozen>));
+}
+
 TEST_CASE("NeighbourBundle: concept and size", "[neighbour_bundle_v2]")
 {
     using namespace pmacc::spearhed;
