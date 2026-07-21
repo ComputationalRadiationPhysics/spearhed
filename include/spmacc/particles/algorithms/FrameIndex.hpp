@@ -122,7 +122,7 @@ namespace pmacc::spearhed
      *
      * @note Callers always build the index explicitly. A caller that runs several interaction passes
      *       with no intervening frame-list mutation should build one index and share it across the
-     *       passes (see Simulation::stepWithKernel, which shares one index between the density and
+     *       passes (see Simulation::updateHydrodynamics, which shares one index between the density and
      *       hydro-force passes).
      *
      * @tparam T_PRType The ParticleRegion type stored in the buffer (supplies FrameType).

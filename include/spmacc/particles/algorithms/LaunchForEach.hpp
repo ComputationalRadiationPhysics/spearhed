@@ -176,7 +176,7 @@ namespace pmacc::spearhed
      * inclusive-scan prologue paid on every call, so routing through here is not a regression versus
      * that pre-index code path. Callers that run several passes with no intervening frame-list
      * mutation should build one FrameIndexBuffer explicitly and use the index-taking overloads above
-     * instead, to pay that cost once (see Simulation::stepWithKernel).
+     * instead, to pay that cost once (see Simulation::updateHydrodynamics).
      *
      * The index is local to this call and is destroyed at scope exit, so waiting for the launch here
      * is mandatory, not a style choice: without it, the index's device buffers -- which the

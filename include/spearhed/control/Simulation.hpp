@@ -20,7 +20,7 @@
 #pragma once
 
 #include "spearhed/param.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
+#include "spearhed/sph/SphKernel.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
@@ -72,13 +72,12 @@ namespace spearhed
          */
         size_t freeDeviceMemory() const;
 
-        /** Advance the simulation by one step using a concrete SPH kernel type.
+        /** Update density, hydrodynamic forces, and thermodynamic state.
          *
-         * Instantiated once per kernel alternative; @ref runOneStep selects the
-         * matching instantiation at runtime via std::visit over @ref kernelVariant.
+         * @tparam K Compile-time smoothing kernel selected by Setup::SmoothingKernel.
          */
-        template<typename K>
-        void stepWithKernel(uint32_t currentStep);
+        template<SphKernel K>
+        void updateHydrodynamics();
 
     private:
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
@@ -90,8 +89,6 @@ namespace spearhed
         bool showVersionOnce{false};
         uint32_t numRanksPerDevice = 1u;
         bool skipSimulation{false};
-
-        KernelVariant kernelVariant{makeKernel(KernelType::CubicSpline)};
     };
 
 } // namespace spearhed

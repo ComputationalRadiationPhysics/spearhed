@@ -22,7 +22,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/plugins/openPMD/Position.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
+#include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -85,7 +85,7 @@ namespace spearhed
             return std::make_tuple();
         }
 
-        KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
+        using SmoothingKernel = CubicSplineKernel;
 
         // Fields written by the openPMD plugin. Each top-level field becomes one openPMD record;
         // scalar fields write SCALAR components, nested-Record fields (e.g. position, velocity) write per-axis ones.
