@@ -109,143 +109,6 @@ struct StageDerivedFunc
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
-TEST_CASE_METHOD(ParticleFixture, "InteractParticles Validation", "[integration][particles][interaction]")
-{
-    constexpr int numRegions = 2;
-
-    auto setup = spearhed::EmptyNRegions<numRegions>{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
-
-    // Setup Neighbour Graph (All-to-All mapping for analytic validation)
-    int const totalNeighbours = numRegions * numRegions;
-    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
-    auto h_neighbours = neighbourRegions.getHostBuffer().data();
-
-    // Offsets point to the start of each region's neighbour list in h_neighbours.
-    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
-    auto h_offsets = regionOffsets.getHostBuffer().data();
-
-    for(int i = 0; i < numRegions; ++i)
-    {
-        h_offsets[i] = static_cast<unsigned int>(i * numRegions);
-        for(int j = 0; j < numRegions; ++j)
-        {
-            h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
-        }
-    }
-    // Set the final boundary offset
-    h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
-
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
-
-    using T_Count = uint64_t;
-    pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
-    countBuffer.getHostBuffer().setValue(0);
-    countBuffer.hostToDevice();
-
-    auto d_count = countBuffer.getDeviceBuffer().getDataBox();
-
-    // Use an excessively large interaction radius so the distance check always passes
-    constexpr double interactionRadius = 1e9;
-
-    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(
-        pmacc::spearhed::NeighbourEntry<PRBufType>{
-            prBuf.get(),
-            std::move(neighbourRegions),
-            std::move(regionOffsets)});
-
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-    pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-    pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
-        .waitForFinished();
-
-    countBuffer.deviceToHost();
-    T_Count const h_count = countBuffer.getHostBuffer().data()[0];
-
-    // Calculate expected interactions analytically based on InitParticles logic
-    uint64_t totalParticles = 0;
-    for(uint64_t i = 0; i < numRegions; ++i)
-    {
-        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
-    }
-
-    // Expected valid interactions: all particles interact with all other particles exactly once.
-    // Self-interactions are excluded by the is_self flag. P(N, 2) = N * (N - 1)
-    uint64_t const expectedInteractions = totalParticles * (totalParticles - 1);
-
-    INFO("Total Particles: " << totalParticles);
-    INFO("Actual Interactions (Device): " << h_count);
-    INFO("Expected Interactions: " << expectedInteractions);
-
-    REQUIRE(h_count == expectedInteractions);
-}
-
-TEST_CASE_METHOD(ParticleFixture, "InteractParticles stage() hook", "[integration][particles][interaction]")
-{
-    constexpr int numRegions = 2;
-
-    auto setup = spearhed::EmptyNRegions<numRegions>{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
-
-    // All-to-all neighbour graph, identical to the counting test.
-    int const totalNeighbours = numRegions * numRegions;
-    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
-    auto h_neighbours = neighbourRegions.getHostBuffer().data();
-    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
-    auto h_offsets = regionOffsets.getHostBuffer().data();
-    for(int i = 0; i < numRegions; ++i)
-    {
-        h_offsets[i] = static_cast<unsigned int>(i * numRegions);
-        for(int j = 0; j < numRegions; ++j)
-            h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
-    }
-    h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
-
-    using T_Sum = uint64_t;
-    pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
-    sumBuffer.getHostBuffer().setValue(0);
-    sumBuffer.hostToDevice();
-    auto d_sum = sumBuffer.getDeviceBuffer().getDataBox();
-
-    constexpr double interactionRadius = 1e9;
-
-    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(
-        pmacc::spearhed::NeighbourEntry<PRBufType>{
-            prBuf.get(),
-            std::move(neighbourRegions),
-            std::move(regionOffsets)});
-
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-    pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-    pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, StageDerivedFunc{}, d_sum).waitForFinished();
-
-    sumBuffer.deviceToHost();
-    T_Sum const h_sum = sumBuffer.getHostBuffer().data()[0];
-
-    // InitParticles assigns particle ids 0..N-1 across all regions (see HierarchyForEach). Each own
-    // particle interacts once with every other particle, so with derivedId_j = id_j + 1 the total is
-    //   sum_{i != j} (id_j + 1) = (N - 1) * (sum_j id_j + N),  sum_j id_j = N(N-1)/2.
-    uint64_t totalParticles = 0;
-    for(uint64_t i = 0; i < numRegions; ++i)
-        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
-
-    uint64_t const sumIds = totalParticles * (totalParticles - 1) / 2;
-    uint64_t const expectedSum = (totalParticles - 1) * (sumIds + totalParticles);
-
-    INFO("Total Particles: " << totalParticles);
-    INFO("Actual staged sum (Device): " << h_sum);
-    INFO("Expected staged sum: " << expectedSum);
-
-    REQUIRE(h_sum == expectedSum);
-}
-
 /**
  * Helper: build an all-to-all NeighbourEntry for @p prBuf with @p numRegions regions.
  * Every target region neighbours every source region, useful for analytic validation.
@@ -273,174 +136,310 @@ auto makeAllToAllEntry(auto* prBuf, int numRegions)
     return pmacc::spearhed::NeighbourEntry<PRBufType>{prBuf, std::move(neighbourRegions), std::move(regionOffsets)};
 }
 
-/**
- * Multi-entry bundle -> exercises UnifiedFrameInteractionKernel (size >= 2 branch).
- * Two identical all-to-all entries double the per-pair contributions, proving the
- * unified kernel correctly folds multiple sources in a single launch.
- */
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "InteractParticles multi-entry bundle (unified path)",
-    "[integration][particles][interaction]")
+TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration][particles][interaction]")
 {
-    constexpr int numRegions = 2;
+    SECTION("InteractParticles Validation")
+    {
+        constexpr int numRegions = 2;
 
-    auto setup = spearhed::EmptyNRegions<numRegions>{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
 
-    // Two independent entries, both all-to-all.
-    auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
-    auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
+        // Setup Neighbour Graph (All-to-All mapping for analytic validation)
+        int const totalNeighbours = numRegions * numRegions;
+        pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
+        auto h_neighbours = neighbourRegions.getHostBuffer().data();
 
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
-    // Verify bundle arity triggers the unified path.
-    STATIC_REQUIRE(decltype(bundle)::size() == 2);
+        // Offsets point to the start of each region's neighbour list in h_neighbours.
+        pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
+        auto h_offsets = regionOffsets.getHostBuffer().data();
 
-    using T_Count = uint64_t;
-    pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
-    countBuffer.getHostBuffer().setValue(0);
-    countBuffer.hostToDevice();
-    auto d_count = countBuffer.getDeviceBuffer().getDataBox();
+        for(int i = 0; i < numRegions; ++i)
+        {
+            h_offsets[i] = static_cast<unsigned int>(i * numRegions);
+            for(int j = 0; j < numRegions; ++j)
+            {
+                h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
+            }
+        }
+        // Set the final boundary offset
+        h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
 
-    constexpr double interactionRadius = 1e9;
+        neighbourRegions.hostToDevice();
+        regionOffsets.hostToDevice();
 
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-    pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-    pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
-        .waitForFinished();
+        using T_Count = uint64_t;
+        pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0);
+        countBuffer.hostToDevice();
 
-    countBuffer.deviceToHost();
-    T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+        auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
-    uint64_t totalParticles = 0;
-    for(uint64_t i = 0; i < numRegions; ++i)
-        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+        // Use an excessively large interaction radius so the distance check always passes
+        constexpr double interactionRadius = 1e9;
 
-    // Each non-self pair is counted twice (once per source entry).
-    uint64_t const singleEntryExpected = totalParticles * (totalParticles - 1);
-    uint64_t const expectedInteractions = 2 * singleEntryExpected;
+        using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)});
 
-    INFO("Total Particles: " << totalParticles);
-    INFO("Actual Interactions (Device): " << h_count);
-    INFO("Expected Interactions (2x single-entry): " << expectedInteractions);
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
+            .waitForFinished();
 
-    REQUIRE(h_count == expectedInteractions);
-}
+        countBuffer.deviceToHost();
+        T_Count const h_count = countBuffer.getHostBuffer().data()[0];
 
-/**
- * Explicit perSource policy on a multi-entry bundle -> forces FrameInteractionKernel
- * launches instead of the unified path. The result is the same (2x single-entry count),
- * but the dispatch path is different.
- */
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "InteractParticles explicit perSource policy",
-    "[integration][particles][interaction]")
-{
-    constexpr int numRegions = 2;
+        // Calculate expected interactions analytically based on InitParticles logic
+        uint64_t totalParticles = 0;
+        for(uint64_t i = 0; i < numRegions; ++i)
+        {
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+        }
 
-    auto setup = spearhed::EmptyNRegions<numRegions>{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
+        // Expected valid interactions: all particles interact with all other particles exactly once.
+        // Self-interactions are excluded by the is_self flag. P(N, 2) = N * (N - 1)
+        uint64_t const expectedInteractions = totalParticles * (totalParticles - 1);
 
-    auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
-    auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
+        INFO("Total Particles: " << totalParticles);
+        INFO("Actual Interactions (Device): " << h_count);
+        INFO("Expected Interactions: " << expectedInteractions);
 
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
+        REQUIRE(h_count == expectedInteractions);
+    }
 
-    using T_Count = uint64_t;
-    pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
-    countBuffer.getHostBuffer().setValue(0);
-    countBuffer.hostToDevice();
-    auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
-    constexpr double interactionRadius = 1e9;
+    SECTION("InteractParticles stage() hook")
+    {
+        constexpr int numRegions = 2;
 
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-    pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
 
-    // Force per-source launches even though bundle size == 2.
-    pmacc::spearhed::interact(
-        pmacc::spearhed::perSource,
-        sources,
-        *prBuf,
-        index,
-        interactionRadius,
-        InteractionCountFunc{},
-        d_count)
-        .waitForFinished();
+        // All-to-all neighbour graph, identical to the counting test.
+        int const totalNeighbours = numRegions * numRegions;
+        pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
+        auto h_neighbours = neighbourRegions.getHostBuffer().data();
+        pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
+        auto h_offsets = regionOffsets.getHostBuffer().data();
+        for(int i = 0; i < numRegions; ++i)
+        {
+            h_offsets[i] = static_cast<unsigned int>(i * numRegions);
+            for(int j = 0; j < numRegions; ++j)
+                h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
+        }
+        h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
+        neighbourRegions.hostToDevice();
+        regionOffsets.hostToDevice();
 
-    countBuffer.deviceToHost();
-    T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+        using T_Sum = uint64_t;
+        pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
+        sumBuffer.getHostBuffer().setValue(0);
+        sumBuffer.hostToDevice();
+        auto d_sum = sumBuffer.getDeviceBuffer().getDataBox();
 
-    uint64_t totalParticles = 0;
-    for(uint64_t i = 0; i < numRegions; ++i)
-        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+        constexpr double interactionRadius = 1e9;
 
-    uint64_t const expectedInteractions = 2 * totalParticles * (totalParticles - 1);
+        using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)});
 
-    INFO("Total Particles: " << totalParticles);
-    INFO("Actual Interactions (Device): " << h_count);
-    INFO("Expected Interactions: " << expectedInteractions);
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, StageDerivedFunc{}, d_sum)
+            .waitForFinished();
 
-    REQUIRE(h_count == expectedInteractions);
-}
+        sumBuffer.deviceToHost();
+        T_Sum const h_sum = sumBuffer.getHostBuffer().data()[0];
 
-/**
- * Explicit unified policy on a single-entry bundle -> forces UnifiedFrameInteractionKernel
- * even though automatic dispatch would pick FrameInteractionKernel. The result must match
- * the automatic single-entry path.
- */
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "InteractParticles explicit unified policy on single entry",
-    "[integration][particles][interaction]")
-{
-    constexpr int numRegions = 2;
+        // InitParticles assigns particle ids 0..N-1 across all regions (see HierarchyForEach). Each own
+        // particle interacts once with every other particle, so with derivedId_j = id_j + 1 the total is
+        //   sum_{i != j} (id_j + 1) = (N - 1) * (sum_j id_j + N),  sum_j id_j = N(N-1)/2.
+        uint64_t totalParticles = 0;
+        for(uint64_t i = 0; i < numRegions; ++i)
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1);
 
-    auto setup = spearhed::EmptyNRegions<numRegions>{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
+        uint64_t const sumIds = totalParticles * (totalParticles - 1) / 2;
+        uint64_t const expectedSum = (totalParticles - 1) * (sumIds + totalParticles);
 
-    auto entry = makeAllToAllEntry(prBuf.get(), numRegions);
+        INFO("Total Particles: " << totalParticles);
+        INFO("Actual staged sum (Device): " << h_sum);
+        INFO("Expected staged sum: " << expectedSum);
 
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entry));
+        REQUIRE(h_sum == expectedSum);
+    }
 
-    using T_Count = uint64_t;
-    pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
-    countBuffer.getHostBuffer().setValue(0);
-    countBuffer.hostToDevice();
-    auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
-    constexpr double interactionRadius = 1e9;
+    /**
+     * Multi-entry bundle -> exercises UnifiedFrameInteractionKernel (size >= 2 branch).
+     * Two identical all-to-all entries double the per-pair contributions, proving the
+     * unified kernel correctly folds multiple sources in a single launch.
+     */
+    SECTION("InteractParticles multi-entry bundle (unified path)")
+    {
+        constexpr int numRegions = 2;
 
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-    pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
 
-    // Force unified kernel even though bundle size == 1.
-    pmacc::spearhed::interact(
-        pmacc::spearhed::unified,
-        sources,
-        *prBuf,
-        index,
-        interactionRadius,
-        InteractionCountFunc{},
-        d_count)
-        .waitForFinished();
+        // Two independent entries, both all-to-all.
+        auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
+        auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
 
-    countBuffer.deviceToHost();
-    T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
+        // Verify bundle arity triggers the unified path.
+        STATIC_REQUIRE(decltype(bundle)::size() == 2);
 
-    uint64_t totalParticles = 0;
-    for(uint64_t i = 0; i < numRegions; ++i)
-        totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+        using T_Count = uint64_t;
+        pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0);
+        countBuffer.hostToDevice();
+        auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
-    uint64_t const expectedInteractions = totalParticles * (totalParticles - 1);
+        constexpr double interactionRadius = 1e9;
 
-    INFO("Total Particles: " << totalParticles);
-    INFO("Actual Interactions (Device): " << h_count);
-    INFO("Expected Interactions: " << expectedInteractions);
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
+            .waitForFinished();
 
-    REQUIRE(h_count == expectedInteractions);
+        countBuffer.deviceToHost();
+        T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+
+        uint64_t totalParticles = 0;
+        for(uint64_t i = 0; i < numRegions; ++i)
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+
+        // Each non-self pair is counted twice (once per source entry).
+        uint64_t const singleEntryExpected = totalParticles * (totalParticles - 1);
+        uint64_t const expectedInteractions = 2 * singleEntryExpected;
+
+        INFO("Total Particles: " << totalParticles);
+        INFO("Actual Interactions (Device): " << h_count);
+        INFO("Expected Interactions (2x single-entry): " << expectedInteractions);
+
+        REQUIRE(h_count == expectedInteractions);
+    }
+
+
+    /**
+     * Explicit perSource policy on a multi-entry bundle -> forces FrameInteractionKernel
+     * launches instead of the unified path. The result is the same (2x single-entry count),
+     * but the dispatch path is different.
+     */
+    SECTION("InteractParticles explicit perSource policy")
+    {
+        constexpr int numRegions = 2;
+
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
+        auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
+
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
+
+        using T_Count = uint64_t;
+        pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0);
+        countBuffer.hostToDevice();
+        auto d_count = countBuffer.getDeviceBuffer().getDataBox();
+
+        constexpr double interactionRadius = 1e9;
+
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+
+        // Force per-source launches even though bundle size == 2.
+        pmacc::spearhed::interact(
+            pmacc::spearhed::perSource,
+            sources,
+            *prBuf,
+            index,
+            interactionRadius,
+            InteractionCountFunc{},
+            d_count)
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+
+        uint64_t totalParticles = 0;
+        for(uint64_t i = 0; i < numRegions; ++i)
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+
+        uint64_t const expectedInteractions = 2 * totalParticles * (totalParticles - 1);
+
+        INFO("Total Particles: " << totalParticles);
+        INFO("Actual Interactions (Device): " << h_count);
+        INFO("Expected Interactions: " << expectedInteractions);
+
+        REQUIRE(h_count == expectedInteractions);
+    }
+
+
+    /**
+     * Explicit unified policy on a single-entry bundle -> forces UnifiedFrameInteractionKernel
+     * even though automatic dispatch would pick FrameInteractionKernel. The result must match
+     * the automatic single-entry path.
+     */
+    SECTION("InteractParticles explicit unified policy on single entry")
+    {
+        constexpr int numRegions = 2;
+
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        auto entry = makeAllToAllEntry(prBuf.get(), numRegions);
+
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entry));
+
+        using T_Count = uint64_t;
+        pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0);
+        countBuffer.hostToDevice();
+        auto d_count = countBuffer.getDeviceBuffer().getDataBox();
+
+        constexpr double interactionRadius = 1e9;
+
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+
+        // Force unified kernel even though bundle size == 1.
+        pmacc::spearhed::interact(
+            pmacc::spearhed::unified,
+            sources,
+            *prBuf,
+            index,
+            interactionRadius,
+            InteractionCountFunc{},
+            d_count)
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        T_Count const h_count = countBuffer.getHostBuffer().data()[0];
+
+        uint64_t totalParticles = 0;
+        for(uint64_t i = 0; i < numRegions; ++i)
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1);
+
+        uint64_t const expectedInteractions = totalParticles * (totalParticles - 1);
+
+        INFO("Total Particles: " << totalParticles);
+        INFO("Actual Interactions (Device): " << h_count);
+        INFO("Expected Interactions: " << expectedInteractions);
+
+        REQUIRE(h_count == expectedInteractions);
+    }
 }

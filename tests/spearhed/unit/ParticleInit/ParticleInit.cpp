@@ -118,31 +118,6 @@ TEST_CASE("SC spacing counts tolerate roundoff at an integral x ratio", "[partic
     REQUIRE(pmacc::spearhed::computeSCCellCounts(fractionalDomain, 1.0f)[0] == 14u);
 }
 
-TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid", "[integration][particles][sc]")
-{
-    auto setup = SCLatticeSetup{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-
-    spearhed::InitParticles{}(setup);
-
-    // Accumulate x, y, z position sums across all particles
-    pmacc::HostDeviceBuffer<float, 1> posSumBuf(3u);
-    posSumBuf.getHostBuffer().setValue(0.0f);
-    posSumBuf.hostToDevice();
-
-    auto posSum = posSumBuf.getDeviceBuffer().getDataBox();
-    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SumPositions{}, posSum);
-
-    posSumBuf.deviceToHost();
-    auto hostData = posSumBuf.getHostBuffer().getDataBox();
-
-    // 2x2x2 SC grid in [0,1]^3: positions at 0.25 and 0.75 on each axis, 4 particles each.
-    // sum per axis = 4 * 0.25 + 4 * 0.75 = 1.0 + 3.0 = 4.0 (exact in float)
-    REQUIRE(hostData(0) == 4.0f);
-    REQUIRE(hostData(1) == 4.0f);
-    REQUIRE(hostData(2) == 4.0f);
-}
-
 /**
  * Test setup that places particles within a unit cube.
  */
@@ -206,39 +181,27 @@ struct CountOutOfBounds
     }
 };
 
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "Random placement keeps all particles within AABB",
-    "[integration][particles][random]")
-{
-    auto setup = RandomSetup{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-
-    spearhed::InitParticles{}(setup);
-
-    pmacc::HostDeviceBuffer<uint32_t, 1> outOfBoundsBuf(1u);
-    outOfBoundsBuf.getHostBuffer().setValue(0u);
-    outOfBoundsBuf.hostToDevice();
-
-    auto outOfBoundsCount = outOfBoundsBuf.getDeviceBuffer().getDataBox();
-    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, CountOutOfBounds{}, outOfBoundsCount);
-
-    outOfBoundsBuf.deviceToHost();
-    REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);
-}
-
 /**
- * Counts particles outside a specified AABB and also counts total particles.
- * Used to verify particle placement respects region bounds.
+ * Counts particles at each expected site of the spacing-driven SC lattice.
  */
-struct CountAndBoundsInAABB
+struct CountExpectedSCLatticePositions
 {
-    HDINLINE constexpr void operator()(auto& worker, auto& particle, auto obCount, auto totalCount) const
+    HDINLINE constexpr void operator()(auto& worker, auto& particle, auto positionCounts, auto totalCount) const
     {
         using namespace pmacc::spearhed::tags;
-        if(particle[relativePos][x] < 0.0f || particle[relativePos][x] >= 3.0f || particle[relativePos][y] < 0.0f
-           || particle[relativePos][y] >= 1.0f || particle[relativePos][z] < 0.0f || particle[relativePos][z] >= 0.5f)
-            alpaka::atomicAdd(worker.getAcc(), &obCount(0), 1u, ::alpaka::hierarchy::Blocks{});
+        auto const py = particle[relativePos][y];
+        auto const pz = particle[relativePos][z];
+
+        if(py == 0.5f && pz == 0.25f)
+        {
+            auto const px = particle[relativePos][x];
+            if(px == 0.5f)
+                alpaka::atomicAdd(worker.getAcc(), &positionCounts(0), 1u, ::alpaka::hierarchy::Blocks{});
+            else if(px == 1.5f)
+                alpaka::atomicAdd(worker.getAcc(), &positionCounts(1), 1u, ::alpaka::hierarchy::Blocks{});
+            else if(px == 2.5f)
+                alpaka::atomicAdd(worker.getAcc(), &positionCounts(2), 1u, ::alpaka::hierarchy::Blocks{});
+        }
         alpaka::atomicAdd(worker.getAcc(), &totalCount(0), 1u, ::alpaka::hierarchy::Blocks{});
     }
 };
@@ -308,44 +271,93 @@ struct SCLatticeSpacingSetup
 
 TEST_CASE_METHOD(
     ParticleFixture,
-    "SC lattice with spacing-driven counts places unique positions in non-cubic AABB",
-    "[integration][particles][sc][spacing]")
+    "Particle initialization validation",
+    "[integration][particles][sc][random][spacing]")
 {
-    auto setup = SCLatticeSpacingSetup{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
+    SECTION("SC lattice places 8 particles in 2x2x2 grid")
+    {
+        auto setup = SCLatticeSetup{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
 
-    // Verify the helpers give the expected product on the host
-    auto const counts = setup.countsArray();
-    auto const expectedParticles = pmacc::spearhed::numSCLatticeSites(counts);
-    // For domain [0,3]x[0,1]x[0,0.5] and spacing=1.0:
-    //   n_x = trunc(3/1) = 3, n_y = cast(1.0+0.5=1.5) -> 1,
-    //   n_z = cast(0.5+0.5=1.0) -> 1 -> total = 3 particles
-    REQUIRE(expectedParticles == 3u);
+        spearhed::InitParticles{}(setup);
 
-    spearhed::InitParticles{}(setup);
+        // Accumulate x, y, z position sums across all particles
+        pmacc::HostDeviceBuffer<float, 1> posSumBuf(3u);
+        posSumBuf.getHostBuffer().setValue(0.0f);
+        posSumBuf.hostToDevice();
 
-    // Position uniqueness follows from
-    // count == prod(n) and the mixed-radix being bijective on [0, prod(n)).
+        auto posSum = posSumBuf.getDeviceBuffer().getDataBox();
+        pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SumPositions{}, posSum);
 
-    // Count particles and check bounds
-    pmacc::HostDeviceBuffer<uint32_t, 1> outOfBoundsBuf(1u);
-    outOfBoundsBuf.getHostBuffer().setValue(0u);
-    outOfBoundsBuf.hostToDevice();
+        posSumBuf.deviceToHost();
+        auto hostData = posSumBuf.getHostBuffer().getDataBox();
 
-    pmacc::HostDeviceBuffer<uint32_t, 1> totalCountBuf(1u);
-    totalCountBuf.getHostBuffer().setValue(0u);
-    totalCountBuf.hostToDevice();
+        // 2x2x2 SC grid in [0,1]^3: positions at 0.25 and 0.75 on each axis, 4 particles each.
+        // sum per axis = 4 * 0.25 + 4 * 0.75 = 1.0 + 3.0 = 4.0 (exact in float)
+        REQUIRE(hostData(0) == 4.0f);
+        REQUIRE(hostData(1) == 4.0f);
+        REQUIRE(hostData(2) == 4.0f);
+    }
 
-    pmacc::spearhed::launchForEach(
-        pmacc::spearhed::levels::particle,
-        *prBuf,
-        CountAndBoundsInAABB{},
-        outOfBoundsBuf.getDeviceBuffer().getDataBox(),
-        totalCountBuf.getDeviceBuffer().getDataBox());
+    SECTION("Random placement keeps all particles within AABB")
+    {
+        auto setup = RandomSetup{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
 
-    totalCountBuf.deviceToHost();
-    REQUIRE(totalCountBuf.getHostBuffer().getDataBox()(0) == expectedParticles);
+        spearhed::InitParticles{}(setup);
 
-    outOfBoundsBuf.deviceToHost();
-    REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);
+        pmacc::HostDeviceBuffer<uint32_t, 1> outOfBoundsBuf(1u);
+        outOfBoundsBuf.getHostBuffer().setValue(0u);
+        outOfBoundsBuf.hostToDevice();
+
+        auto outOfBoundsCount = outOfBoundsBuf.getDeviceBuffer().getDataBox();
+        pmacc::spearhed::launchForEach(
+            pmacc::spearhed::levels::particle,
+            *prBuf,
+            CountOutOfBounds{},
+            outOfBoundsCount);
+
+        outOfBoundsBuf.deviceToHost();
+        REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);
+    }
+
+    SECTION("SC lattice with spacing-driven counts places unique positions in non-cubic AABB")
+    {
+        auto setup = SCLatticeSpacingSetup{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+
+        // Verify the helpers give the expected product on the host
+        auto const counts = setup.countsArray();
+        auto const expectedParticles = pmacc::spearhed::numSCLatticeSites(counts);
+        // For domain [0,3]x[0,1]x[0,0.5] and spacing=1.0:
+        //   n_x = trunc(3/1) = 3, n_y = cast(1.0+0.5=1.5) -> 1,
+        //   n_z = cast(0.5+0.5=1.0) -> 1 -> total = 3 particles
+        REQUIRE(expectedParticles == 3u);
+
+        spearhed::InitParticles{}(setup);
+
+        pmacc::HostDeviceBuffer<uint32_t, 1> positionCountsBuf(3u);
+        positionCountsBuf.getHostBuffer().setValue(0u);
+        positionCountsBuf.hostToDevice();
+
+        pmacc::HostDeviceBuffer<uint32_t, 1> totalCountBuf(1u);
+        totalCountBuf.getHostBuffer().setValue(0u);
+        totalCountBuf.hostToDevice();
+
+        pmacc::spearhed::launchForEach(
+            pmacc::spearhed::levels::particle,
+            *prBuf,
+            CountExpectedSCLatticePositions{},
+            positionCountsBuf.getDeviceBuffer().getDataBox(),
+            totalCountBuf.getDeviceBuffer().getDataBox());
+
+        totalCountBuf.deviceToHost();
+        REQUIRE(totalCountBuf.getHostBuffer().getDataBox()(0) == expectedParticles);
+
+        positionCountsBuf.deviceToHost();
+        auto const positionCounts = positionCountsBuf.getHostBuffer().getDataBox();
+        REQUIRE(positionCounts(0) == 1u); // (0.5, 0.5, 0.25)
+        REQUIRE(positionCounts(1) == 1u); // (1.5, 0.5, 0.25)
+        REQUIRE(positionCounts(2) == 1u); // (2.5, 0.5, 0.25)
+    }
 }
