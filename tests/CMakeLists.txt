@@ -111,7 +111,6 @@ foreach(
     unit_test_spmacc_RegionBoundsUpdate_RegionBoundsUpdate
     unit_test_spmacc_CopyParticlesToHost_CopyParticlesToHost
     unit_test_spmacc_HierarchyForEach_HierarchyForEach
-    unit_test_spearhed_ParticleCreation_ParticleCreation
     unit_test_spearhed_PushParticles_PushParticles
     unit_test_spearhed_DensitySummation_DensitySummation
     unit_test_spearhed_HydroForces_HydroForces

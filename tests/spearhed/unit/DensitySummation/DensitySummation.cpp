@@ -43,8 +43,6 @@
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/InteractParticles.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -231,155 +229,134 @@ namespace
 
 } // namespace
 
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "DensitySummation: N co-located particles each have density N*m*W(0,h)",
-    "[sph][density]")
+TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density]")
 {
-    auto setup = InitDensityTestSetup{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
-
-    // All-to-all neighbour graph (single region)
-    constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
-    neighbourRegions.getHostBuffer().data()[0] = 0;
-    regionOffsets.getHostBuffer().data()[0] = 0;
-    regionOffsets.getHostBuffer().data()[1] = 1;
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
-
-    using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle = pmacc::spearhed::makeNeighbourBundle(
-        pmacc::spearhed::NeighbourEntry<PRBufType>{
-            prBuf.get(),
-            std::move(neighbourRegions),
-            std::move(regionOffsets)});
-
-    std::visit(
-        [&](auto kernel)
-        {
-            using K = std::decay_t<decltype(kernel)>;
-            // Self-contribution first, then pairwise accumulation
-            pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-            using PRType = spearhed::PRType;
-            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
-            pmacc::spearhed::interact(
-                sources,
-                *prBuf,
-                index,
-                static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::AccumulateDensity<K>{})
-                .waitForFinished();
-        },
-        setup.kernelVariant);
-
-
-    // Read densities back to host
-    prBuf->buffer->deviceToHost();
-    int64_t const heapOffset = spearhed::syncHeapToHost();
-    auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
-    auto& frameList = hostRegions(0).particleFrameList;
-
-    spearhed::Real const expected
-        = spearhed::Real(InitDensityTestSetup::N) * TEST_MASS * spearhed::CubicSplineKernel::W(0.0f, TEST_H);
-
-    uint32_t checkedCount = 0;
-    for(auto& frame : frameList.hostIterable(heapOffset))
+    SECTION("DensitySummation: N co-located particles each have density N*m*W(0,h)")
     {
-        for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
-        {
-            auto particle = frame[slot];
-            if(particle[pmacc::spearhed::tags::multiMask])
+        auto setup = InitDensityTestSetup{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        // All-to-all neighbour graph (single region)
+        constexpr int numRegions = 1;
+        pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(numRegions * numRegions);
+        pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets(numRegions + 1);
+        neighbourRegions.getHostBuffer().data()[0] = 0;
+        regionOffsets.getHostBuffer().data()[0] = 0;
+        regionOffsets.getHostBuffer().data()[1] = 1;
+        neighbourRegions.hostToDevice();
+        regionOffsets.hostToDevice();
+
+        using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::NeighbourEntry<PRBufType>{
+                prBuf.get(),
+                std::move(neighbourRegions),
+                std::move(regionOffsets)});
+
+        std::visit(
+            [&](auto kernel)
             {
-                spearhed::Real const rho = particle[spearhed::tags::density];
-                REQUIRE(static_cast<double>(rho) == Catch::Approx(static_cast<double>(expected)).epsilon(1e-5));
-                ++checkedCount;
-            }
-        }
-    }
-    REQUIRE(checkedCount == InitDensityTestSetup::N);
-}
+                using K = std::decay_t<decltype(kernel)>;
+                pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+                spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, TEST_H).waitForFinished();
+            },
+            setup.kernelVariant);
 
-TEST_CASE_METHOD(
-    ParticleFixture,
-    "DensitySummation: 3 particles in a line have correct neighbour-dependent densities",
-    "[sph][density]")
-{
-    auto setup = InitSpacedTestSetup{};
-    spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::InitParticles{}(setup);
 
-    constexpr int numRegions = 1;
-    pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions2(numRegions * numRegions);
-    pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets2(numRegions + 1);
-    neighbourRegions2.getHostBuffer().data()[0] = 0;
-    regionOffsets2.getHostBuffer().data()[0] = 0;
-    regionOffsets2.getHostBuffer().data()[1] = 1;
-    neighbourRegions2.hostToDevice();
-    regionOffsets2.hostToDevice();
+        // Read densities back to host
+        prBuf->buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+        auto& frameList = hostRegions(0).particleFrameList;
 
-    using PRBufType2 = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
-    auto bundle2 = pmacc::spearhed::makeNeighbourBundle(
-        pmacc::spearhed::NeighbourEntry<PRBufType2>{
-            prBuf.get(),
-            std::move(neighbourRegions2),
-            std::move(regionOffsets2)});
+        spearhed::Real const expected
+            = spearhed::Real(InitDensityTestSetup::N) * TEST_MASS * spearhed::CubicSplineKernel::W(0.0f, TEST_H);
 
-    std::visit(
-        [&](auto kernel)
+        uint32_t checkedCount = 0;
+        for(auto& frame : frameList.hostIterable(heapOffset))
         {
-            using K = std::decay_t<decltype(kernel)>;
-            pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
-            auto sources = bundle2.template selectByRole<pmacc::spearhed::roles::Source>();
-            using PRType = spearhed::PRType;
-            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
-            pmacc::spearhed::interact(
-                sources,
-                *prBuf,
-                index,
-                static_cast<spearhed::CS::T_Axis>(K::supportRadius) * SPACED_H,
-                spearhed::AccumulateDensity<K>{})
-                .waitForFinished();
-
-            prBuf->buffer->deviceToHost();
-            int64_t const heapOffset = spearhed::syncHeapToHost();
-            auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
-            auto& frameList = hostRegions(0).particleFrameList;
-
-            // rho_edge: self + one neighbour at distance dx
-            spearhed::Real const rho_edge = SPACED_MASS
-                                            * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                               + spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-            // rho_mid: self + two neighbours at distance dx
-            spearhed::Real const rho_mid = SPACED_MASS
-                                           * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                              + 2 * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-
-            uint32_t countEdge = 0;
-            uint32_t countMid = 0;
-            for(auto& frame : frameList.hostIterable(heapOffset))
+            for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
             {
-                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                auto particle = frame[slot];
+                if(particle[pmacc::spearhed::tags::multiMask])
                 {
-                    auto particle = frame[slot];
-                    if(particle[pmacc::spearhed::tags::multiMask])
-                    {
-                        spearhed::Real const rho = particle[spearhed::tags::density];
-                        double const rho_d = static_cast<double>(rho);
-                        if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
-                            ++countEdge;
-                        else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
-                            ++countMid;
-                        else
-                            FAIL("Unexpected density value: " << rho_d);
-                    }
+                    spearhed::Real const rho = particle[spearhed::tags::density];
+                    REQUIRE(static_cast<double>(rho) == Catch::Approx(static_cast<double>(expected)).epsilon(1e-5));
+                    ++checkedCount;
                 }
             }
-            REQUIRE(countEdge == 2u);
-            REQUIRE(countMid == 1u);
-        },
-        setup.kernelVariant);
+        }
+        REQUIRE(checkedCount == InitDensityTestSetup::N);
+    }
+
+
+    SECTION("DensitySummation: 3 particles in a line have correct neighbour-dependent densities")
+    {
+        auto setup = InitSpacedTestSetup{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        constexpr int numRegions = 1;
+        pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions2(numRegions * numRegions);
+        pmacc::HostDeviceBuffer<unsigned int, 1> regionOffsets2(numRegions + 1);
+        neighbourRegions2.getHostBuffer().data()[0] = 0;
+        regionOffsets2.getHostBuffer().data()[0] = 0;
+        regionOffsets2.getHostBuffer().data()[1] = 1;
+        neighbourRegions2.hostToDevice();
+        regionOffsets2.hostToDevice();
+
+        using PRBufType2 = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+        auto bundle2 = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::NeighbourEntry<PRBufType2>{
+                prBuf.get(),
+                std::move(neighbourRegions2),
+                std::move(regionOffsets2)});
+
+        std::visit(
+            [&](auto kernel)
+            {
+                using K = std::decay_t<decltype(kernel)>;
+                pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+                spearhed::UpdateDensity<K>{}(bundle2, *prBuf, index, SPACED_H).waitForFinished();
+
+                prBuf->buffer->deviceToHost();
+                int64_t const heapOffset = spearhed::syncHeapToHost();
+                auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+                auto& frameList = hostRegions(0).particleFrameList;
+
+                // rho_edge: self + one neighbour at distance dx
+                spearhed::Real const rho_edge = SPACED_MASS
+                                                * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
+                                                   + spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
+                // rho_mid: self + two neighbours at distance dx
+                spearhed::Real const rho_mid = SPACED_MASS
+                                               * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
+                                                  + 2 * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
+
+                uint32_t countEdge = 0;
+                uint32_t countMid = 0;
+                for(auto& frame : frameList.hostIterable(heapOffset))
+                {
+                    for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                    {
+                        auto particle = frame[slot];
+                        if(particle[pmacc::spearhed::tags::multiMask])
+                        {
+                            spearhed::Real const rho = particle[spearhed::tags::density];
+                            double const rho_d = static_cast<double>(rho);
+                            if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
+                                ++countEdge;
+                            else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
+                                ++countMid;
+                            else
+                                FAIL("Unexpected density value: " << rho_d);
+                        }
+                    }
+                }
+                REQUIRE(countEdge == 2u);
+                REQUIRE(countMid == 1u);
+            },
+            setup.kernelVariant);
+    }
 }

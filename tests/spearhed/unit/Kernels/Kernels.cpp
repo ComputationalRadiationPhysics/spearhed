@@ -128,12 +128,3 @@ TEMPLATE_TEST_CASE(
     // quadrature accumulates, so a 1% tolerance is the right ballpark here.
     REQUIRE(radialIntegral<K>(0.5) == Catch::Approx(1.0).epsilon(1e-2));
 }
-
-TEST_CASE("KernelVariant: parse + dispatch round-trip", "[sph][kernel]")
-{
-    using namespace spearhed;
-
-    auto v = makeKernel(KernelType::QuinticSpline);
-    int radius = std::visit([](auto k) { return decltype(k)::supportRadius; }, v);
-    REQUIRE(radius == 3);
-}

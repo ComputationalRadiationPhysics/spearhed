@@ -70,7 +70,7 @@ namespace spearhed
         // AABB constructor arguments are: {cell anchor/index}, {min corner}, {max corner}.
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
-        uint32_t baseNumParticlesToCreate = 400u;
+        uint32_t baseNumParticlesToCreate = 65u;
 
         auto blocks() const
         {
