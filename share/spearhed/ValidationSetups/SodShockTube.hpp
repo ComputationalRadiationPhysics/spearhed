@@ -22,7 +22,7 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/plugins/openPMD/Position.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
+#include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spmacc/particles/initialization/SC.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
@@ -452,7 +452,7 @@ namespace spearhed
             return std::tie(interior, boundary);
         }
 
-        KernelVariant kernelVariant = makeKernel(KernelType::CubicSpline);
+        using SmoothingKernel = CubicSplineKernel;
 
         using OutputParticleRecord = ll::Record<
             spearhed::tags::idField,

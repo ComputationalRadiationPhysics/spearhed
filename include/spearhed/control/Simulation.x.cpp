@@ -131,8 +131,8 @@ namespace spearhed
             BaseType::startSimulation();
     }
 
-    template<typename K>
-    void Simulation::stepWithKernel(uint32_t /*currentStep*/)
+    template<SphKernel K>
+    void Simulation::updateHydrodynamics()
     {
         auto& dc = pmacc::Environment<>::get().DataConnector();
         // The integration target: the (single) species advanced in time and used as the bundle target.
@@ -180,10 +180,8 @@ namespace spearhed
         ParticlePush{}(currentStep);
         pmacc::spearhed::UpdateVolumes<PRType>{}();
 
-        // Single host-side visit turns the runtime kernel choice into a
-        // compile-time template parameter for the device path
-        // continues the step
-        std::visit([&](auto kernel) { stepWithKernel<decltype(kernel)>(currentStep); }, kernelVariant);
+        using SmoothingKernel = typename Setup::SmoothingKernel;
+        updateHydrodynamics<SmoothingKernel>();
     }
 
     void Simulation::init()
@@ -262,7 +260,6 @@ namespace spearhed
         // load density description from param file. How is this independent from the domain size?
         //
         auto setup = Setup{};
-        kernelVariant = setup.kernelVariant;
 
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 

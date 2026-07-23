@@ -41,7 +41,6 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/sph/CubicSplineKernel.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 
@@ -129,7 +128,7 @@ namespace
             }
         };
 
-        spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
+        using SmoothingKernel = spearhed::CubicSplineKernel;
 
         auto placeParticleArgs() const
         {
@@ -213,7 +212,7 @@ namespace
             }
         };
 
-        spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
+        using SmoothingKernel = spearhed::CubicSplineKernel;
 
         auto placeParticleArgs() const
         {
@@ -254,15 +253,9 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
                 std::move(neighbourRegions),
                 std::move(regionOffsets)});
 
-        std::visit(
-            [&](auto kernel)
-            {
-                using K = std::decay_t<decltype(kernel)>;
-                pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-                spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, TEST_H).waitForFinished();
-            },
-            setup.kernelVariant);
-
+        using K = InitDensityTestSetup::SmoothingKernel;
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, TEST_H).waitForFinished();
 
         // Read densities back to host
         prBuf->buffer->deviceToHost();
@@ -270,8 +263,7 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
         auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
         auto& frameList = hostRegions(0).particleFrameList;
 
-        spearhed::Real const expected
-            = spearhed::Real(InitDensityTestSetup::N) * TEST_MASS * spearhed::CubicSplineKernel::W(0.0f, TEST_H);
+        spearhed::Real const expected = spearhed::Real(InitDensityTestSetup::N) * TEST_MASS * K::W(0.0f, TEST_H);
 
         uint32_t checkedCount = 0;
         for(auto& frame : frameList.hostIterable(heapOffset))
@@ -313,50 +305,42 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
                 std::move(neighbourRegions2),
                 std::move(regionOffsets2)});
 
-        std::visit(
-            [&](auto kernel)
+        using K = InitSpacedTestSetup::SmoothingKernel;
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        spearhed::UpdateDensity<K>{}(bundle2, *prBuf, index, SPACED_H).waitForFinished();
+
+        prBuf->buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+        auto& frameList = hostRegions(0).particleFrameList;
+
+        // rho_edge: self + one neighbour at distance dx
+        spearhed::Real const rho_edge = SPACED_MASS * (K::W(spearhed::Real{0}, SPACED_H) + K::W(SPACED_DX, SPACED_H));
+        // rho_mid: self + two neighbours at distance dx
+        spearhed::Real const rho_mid
+            = SPACED_MASS * (K::W(spearhed::Real{0}, SPACED_H) + 2 * K::W(SPACED_DX, SPACED_H));
+
+        uint32_t countEdge = 0;
+        uint32_t countMid = 0;
+        for(auto& frame : frameList.hostIterable(heapOffset))
+        {
+            for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
             {
-                using K = std::decay_t<decltype(kernel)>;
-                pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-                spearhed::UpdateDensity<K>{}(bundle2, *prBuf, index, SPACED_H).waitForFinished();
-
-                prBuf->buffer->deviceToHost();
-                int64_t const heapOffset = spearhed::syncHeapToHost();
-                auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
-                auto& frameList = hostRegions(0).particleFrameList;
-
-                // rho_edge: self + one neighbour at distance dx
-                spearhed::Real const rho_edge = SPACED_MASS
-                                                * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                                   + spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-                // rho_mid: self + two neighbours at distance dx
-                spearhed::Real const rho_mid = SPACED_MASS
-                                               * (spearhed::CubicSplineKernel::W(spearhed::Real{0}, SPACED_H)
-                                                  + 2 * spearhed::CubicSplineKernel::W(SPACED_DX, SPACED_H));
-
-                uint32_t countEdge = 0;
-                uint32_t countMid = 0;
-                for(auto& frame : frameList.hostIterable(heapOffset))
+                auto particle = frame[slot];
+                if(particle[pmacc::spearhed::tags::multiMask])
                 {
-                    for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
-                    {
-                        auto particle = frame[slot];
-                        if(particle[pmacc::spearhed::tags::multiMask])
-                        {
-                            spearhed::Real const rho = particle[spearhed::tags::density];
-                            double const rho_d = static_cast<double>(rho);
-                            if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
-                                ++countEdge;
-                            else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
-                                ++countMid;
-                            else
-                                FAIL("Unexpected density value: " << rho_d);
-                        }
-                    }
+                    spearhed::Real const rho = particle[spearhed::tags::density];
+                    double const rho_d = static_cast<double>(rho);
+                    if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_edge))
+                        ++countEdge;
+                    else if(Catch::Approx(rho_d).epsilon(1e-5) == static_cast<double>(rho_mid))
+                        ++countMid;
+                    else
+                        FAIL("Unexpected density value: " << rho_d);
                 }
-                REQUIRE(countEdge == 2u);
-                REQUIRE(countMid == 1u);
-            },
-            setup.kernelVariant);
+            }
+        }
+        REQUIRE(countEdge == 2u);
+        REQUIRE(countMid == 1u);
     }
 }

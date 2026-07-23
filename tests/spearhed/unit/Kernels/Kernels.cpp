@@ -31,7 +31,6 @@
 
 #include "spearhed/param.hpp"
 #include "spearhed/sph/CubicSplineKernel.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
 #include "spearhed/sph/QuinticSplineKernel.hpp"
 #include "spearhed/sph/SphKernel.hpp"
 #include "spmacc/topology/Vec.hpp"

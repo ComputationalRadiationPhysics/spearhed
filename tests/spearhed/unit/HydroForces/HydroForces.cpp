@@ -33,7 +33,7 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
-#include "spearhed/sph/KernelVariant.hpp"
+#include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
@@ -141,7 +141,7 @@ namespace
             }
         };
 
-        spearhed::KernelVariant kernelVariant = makeKernel(spearhed::KernelType::CubicSpline);
+        using SmoothingKernel = spearhed::CubicSplineKernel;
 
         auto placeParticleArgs() const
         {
@@ -183,64 +183,58 @@ TEST_CASE_METHOD(
             std::move(neighbourRegions),
             std::move(regionOffsets)});
 
-    std::visit(
-        [&](auto kernel)
+    using K = InitMomEnergyTestSetup::SmoothingKernel;
+    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+    using PRType = spearhed::PRType;
+    pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
+    pmacc::spearhed::interact(
+        sources,
+        *prBuf,
+        index,
+        static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
+        spearhed::HydroInteraction<K>{spearhed::gamma_eos})
+        .waitForFinished();
+
+    prBuf->buffer->deviceToHost();
+    int64_t const heapOffset = spearhed::syncHeapToHost();
+    auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+    auto& frameList = hostRegions(0).particleFrameList;
+
+    // Analytic expected dvdt_x for the left particle:
+    //   P = (gamma - 1) * rho * u
+    //   dvdt_x = m * 2 * P/rho^2 * dWdr(d, h)   (negative value since dWdr < 0)
+    spearhed::Real const P = spearhed::pressure(spearhed::gamma_eos, TEST_RHO, TEST_U);
+    spearhed::Real const dw = K::dWdr(TEST_D, TEST_H);
+    spearhed::Real const expected_left = TEST_MASS * 2 * P / (TEST_RHO * TEST_RHO) * dw;
+    uint32_t checkedCount = 0;
+    for(auto& frame : frameList.hostIterable(heapOffset))
+    {
+        for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
         {
-            using K = std::decay_t<decltype(kernel)>;
-
-            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
-            using PRType = spearhed::PRType;
-            pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
-            pmacc::spearhed::interact(
-                sources,
-                *prBuf,
-                index,
-                static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-                spearhed::HydroInteraction<K>{spearhed::gamma_eos})
-                .waitForFinished();
-
-            prBuf->buffer->deviceToHost();
-            int64_t const heapOffset = spearhed::syncHeapToHost();
-            auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
-            auto& frameList = hostRegions(0).particleFrameList;
-
-            // Analytic expected dvdt_x for the left particle:
-            //   P = (gamma - 1) * rho * u
-            //   dvdt_x = m * 2 * P/rho^2 * dWdr(d, h)   (negative value since dWdr < 0)
-            spearhed::Real const P = spearhed::pressure(spearhed::gamma_eos, TEST_RHO, TEST_U);
-            spearhed::Real const dw = K::dWdr(TEST_D, TEST_H);
-            spearhed::Real const expected_left = TEST_MASS * 2 * P / (TEST_RHO * TEST_RHO) * dw;
-            uint32_t checkedCount = 0;
-            for(auto& frame : frameList.hostIterable(heapOffset))
+            auto particle = frame[slot];
+            if(particle[pmacc::spearhed::tags::multiMask])
             {
-                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
-                {
-                    auto particle = frame[slot];
-                    if(particle[pmacc::spearhed::tags::multiMask])
-                    {
-                        using namespace spearhed::tags;
-                        using namespace pmacc::spearhed::tags;
+                using namespace spearhed::tags;
+                using namespace pmacc::spearhed::tags;
 
-                        // dudt must be zero (both particles at rest)
-                        REQUIRE(static_cast<double>(particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
+                // dudt must be zero (both particles at rest)
+                REQUIRE(static_cast<double>(particle[dudt]) == Catch::Approx(0.0).margin(1e-6));
 
-                        // y and z components of dvdt must be zero
-                        REQUIRE(static_cast<double>(particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
-                        REQUIRE(static_cast<double>(particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
+                // y and z components of dvdt must be zero
+                REQUIRE(static_cast<double>(particle[dvdt][y]) == Catch::Approx(0.0).margin(1e-6));
+                REQUIRE(static_cast<double>(particle[dvdt][z]) == Catch::Approx(0.0).margin(1e-6));
 
-                        // x component: sign depends on which side of x=0 the particle is on
-                        spearhed::Real const abs_x = particle[relativePos][x];
-                        bool const isLeft = (abs_x < spearhed::Real{0});
-                        spearhed::Real const expected_x = isLeft ? expected_left : -expected_left;
-                        REQUIRE(
-                            static_cast<double>(particle[dvdt][x])
-                            == Catch::Approx(static_cast<double>(expected_x)).epsilon(1e-4));
+                // x component: sign depends on which side of x=0 the particle is on
+                spearhed::Real const abs_x = particle[relativePos][x];
+                bool const isLeft = (abs_x < spearhed::Real{0});
+                spearhed::Real const expected_x = isLeft ? expected_left : -expected_left;
+                REQUIRE(
+                    static_cast<double>(particle[dvdt][x])
+                    == Catch::Approx(static_cast<double>(expected_x)).epsilon(1e-4));
 
-                        ++checkedCount;
-                    }
-                }
+                ++checkedCount;
             }
-            REQUIRE(checkedCount == InitMomEnergyTestSetup::N);
-        },
-        setup.kernelVariant);
+        }
+    }
+    REQUIRE(checkedCount == InitMomEnergyTestSetup::N);
 }
