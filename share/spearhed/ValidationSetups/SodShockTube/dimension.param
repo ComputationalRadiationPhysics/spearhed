@@ -17,20 +17,23 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spearhed/plugins/openPMD/OpenPMDOutput.hpp"
+#pragma once
 
-#ifdef SPEARHED_ENABLE_OPENPMD
+#include "spmacc/topology/Cartesian.hpp"
+#include "spmacc/topology/CoordinateSystem.hpp"
 
-namespace spearhed::output
+#include <pmacc/dimensions/Definition.hpp>
+
+#define SIM_DIM 1
+
+namespace spearhed
 {
-    OpenPMDOutput::OpenPMDOutput(std::string const& filepath) : series_(filepath, openPMD::Access::CREATE)
-    {
-        series_.setAuthor("spearhed");
-        series_.setSoftware("spearhed");
-    }
+    using Real = float;
 
-    OpenPMDOutput::~OpenPMDOutput() = default;
+    using T_Dim = pmacc::spearhed::T_Dim;
+    constexpr T_Dim simDim = DIM1;
+    using CS = pmacc::spearhed::Cartesian<Real, simDim>;
 
-} // namespace spearhed::output
-
-#endif // SPEARHED_ENABLE_OPENPMD
+    using T_dt = float;
+    constexpr T_dt dt = T_dt{0.001};
+} // namespace spearhed

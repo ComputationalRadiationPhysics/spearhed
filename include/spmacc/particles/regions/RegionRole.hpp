@@ -230,6 +230,22 @@ namespace pmacc::spearhed
         template<RoleTag R>
         inline constexpr HasRole<R> withRole{};
 
+        /** Predicate value: species carries every role in @p R. */
+        template<RoleTag... R>
+        requires(sizeof...(R) > 0u)
+        struct HasAllRoles : PredicateBase
+        {
+            HDINLINE constexpr bool operator()(SpeciesTag auto species) const
+            {
+                using Species = decltype(species);
+                return (detail::InRoleSet<R, RolesOf<Species>>::value && ...);
+            }
+        };
+
+        /** Value form: `pred::withAllRoles<roles::Movable, roles::Thermodynamic>`. */
+        template<RoleTag... R>
+        inline constexpr HasAllRoles<R...> withAllRoles{};
+
         /** Predicate: entry's species is exactly S.  For use with NeighbourBundle::select<>(). */
         template<SpeciesTag S>
         struct IsSpecies

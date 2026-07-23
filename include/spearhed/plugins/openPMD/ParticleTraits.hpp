@@ -19,10 +19,12 @@
 
 #pragma once
 
+#include "spearhed/particles/attributes/Density.hpp"
 #include "spearhed/particles/attributes/Id.hpp"
+#include "spearhed/particles/attributes/InternalEnergy.hpp"
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spearhed/plugins/openPMD/OutputParticleRecord.hpp"
+#include "spearhed/plugins/openPMD/Position.hpp"
 
 #include <array>
 #include <string_view>
@@ -73,6 +75,24 @@ namespace spearhed::output
         static constexpr std::string_view record = "velocity";
         // SI: metres per second
         static constexpr std::array<double, 7> unitDimension = {1, 0, -1, 0, 0, 0, 0};
+        static constexpr double unitSI = 1.0;
+    };
+
+    template<>
+    struct OpenPMDTrait<spearhed::tags::density_t>
+    {
+        static constexpr std::string_view record = "mass_density";
+        // SI: kg / m^3
+        static constexpr std::array<double, 7> unitDimension = {-3, 1, 0, 0, 0, 0, 0};
+        static constexpr double unitSI = 1.0;
+    };
+
+    template<>
+    struct OpenPMDTrait<spearhed::tags::internalEnergy_t>
+    {
+        static constexpr std::string_view record = "specific_internal_energy";
+        // SI: J / kg = m^2 / s^2
+        static constexpr std::array<double, 7> unitDimension = {2, 0, -2, 0, 0, 0, 0};
         static constexpr double unitSI = 1.0;
     };
 

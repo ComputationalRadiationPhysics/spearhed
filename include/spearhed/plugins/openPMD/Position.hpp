@@ -20,9 +20,6 @@
 #pragma once
 
 #include "spearhed/param/dimension.param"
-#include "spearhed/particles/attributes/Id.hpp"
-#include "spearhed/particles/attributes/Mass.hpp"
-#include "spearhed/particles/attributes/Velocity.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
 #include "spmacc/particles/attributes/Cartesian.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
@@ -40,15 +37,6 @@ namespace spearhed::output
 
     template<pmacc::spearhed::CoordinateSystem CS>
     using positionField = ll::Field<position_t, pmacc::spearhed::CartesianRecord<CS>>;
-
-    /**
-     * Output record for particle serialisation.
-     */
-    using OutputParticleRecord = ll::Record<
-        spearhed::tags::idField,
-        positionField<spearhed::CS>,
-        spearhed::tags::massField<spearhed::Real>,
-        spearhed::tags::velField<spearhed::CS>>;
 
 } // namespace spearhed::output
 

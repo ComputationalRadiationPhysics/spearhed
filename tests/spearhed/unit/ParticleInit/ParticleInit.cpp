@@ -72,14 +72,14 @@ struct SCLatticeSetup
 
     auto numParticlesToCreateArgs() const
     {
-        return std::make_tuple(pmacc::spearhed::computeSCTotalParticles(numParticles, domain));
+        return std::make_tuple(numParticles);
     }
 
     using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
 
     auto placeParticleArgs() const
     {
-        return std::make_tuple(pmacc::spearhed::computeSCCellCounts(numParticles, domain));
+        return std::make_tuple(pmacc::spearhed::computeSCNumCells(numParticles, domain));
     }
 
     template<typename>
@@ -104,6 +104,19 @@ struct SumPositions
 };
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+TEST_CASE("SC spacing counts tolerate roundoff at an integral x ratio", "[particles][sc][spacing]")
+{
+    pmacc::spearhed::AABB<spearhed::CS> const unitDomain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
+
+    // This is the spacing used by the 3D Sod setup. In float arithmetic the
+    // quotient can be 14.999999 rather than the mathematically exact 15.
+    float const sodRightSpacing = 2.0f * (1.0f / 30.0f);
+    REQUIRE(pmacc::spearhed::computeSCCellCounts(unitDomain, sodRightSpacing)[0] == 15u);
+
+    pmacc::spearhed::AABB<spearhed::CS> const fractionalDomain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {14.75f, 1.0f, 1.0f}};
+    REQUIRE(pmacc::spearhed::computeSCCellCounts(fractionalDomain, 1.0f)[0] == 14u);
+}
 
 TEST_CASE_METHOD(ParticleFixture, "SC lattice places 8 particles in 2x2x2 grid", "[integration][particles][sc]")
 {
@@ -209,6 +222,129 @@ TEST_CASE_METHOD(
 
     auto outOfBoundsCount = outOfBoundsBuf.getDeviceBuffer().getDataBox();
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, CountOutOfBounds{}, outOfBoundsCount);
+
+    outOfBoundsBuf.deviceToHost();
+    REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);
+}
+
+/**
+ * Counts particles outside a specified AABB and also counts total particles.
+ * Used to verify particle placement respects region bounds.
+ */
+struct CountAndBoundsInAABB
+{
+    HDINLINE constexpr void operator()(auto& worker, auto& particle, auto obCount, auto totalCount) const
+    {
+        using namespace pmacc::spearhed::tags;
+        if(particle[relativePos][x] < 0.0f || particle[relativePos][x] >= 3.0f || particle[relativePos][y] < 0.0f
+           || particle[relativePos][y] >= 1.0f || particle[relativePos][z] < 0.0f || particle[relativePos][z] >= 0.5f)
+            alpaka::atomicAdd(worker.getAcc(), &obCount(0), 1u, ::alpaka::hierarchy::Blocks{});
+        alpaka::atomicAdd(worker.getAcc(), &totalCount(0), 1u, ::alpaka::hierarchy::Blocks{});
+    }
+};
+
+/**
+ * Spacing-driven SC lattice setup using the new array overload of SC::operator().
+ *
+ * Uses a non-cubic AABB [0,3] x [0,1] x [0,0.5] with spacing=1.0, producing
+ * per-axis counts n = [3, 1, 1] = 3 particles.  The spacing-based approach
+ * guarantees count == prod(n) so every particle gets a unique lattice site
+ * (no SC aliasing).
+ */
+struct SCLatticeSpacingSetup
+{
+    using Species = pmacc::spearhed::species::Default;
+
+    // Non-cubic AABB: x-length is 3x the others
+    pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {3.0f, 1.0f, 0.5f}};
+
+    float spacing = 1.0f;
+
+    auto blocks() const
+    {
+        return std::tie(*this);
+    }
+
+    /**
+     * Pre-compute per-axis counts on host; pass them to both the count functor
+     * and the placement functor so they stay in sync.
+     */
+    auto countsArray() const
+    {
+        return pmacc::spearhed::computeSCCellCounts(domain, spacing);
+    }
+
+    /// Number of particles = prod_i(counts[i])
+    struct NumParticlesToCreate
+    {
+        DINLINE constexpr auto operator()(
+            [[maybe_unused]] auto& worker,
+            [[maybe_unused]] auto& particleRegion,
+            std::array<uint32_t, TEST_DIM> const& n) const
+        {
+            return pmacc::spearhed::numSCLatticeSites(n);
+        }
+    };
+
+    auto numParticlesToCreateArgs() const
+    {
+        return std::make_tuple(countsArray());
+    }
+
+    /// Use SC's array overload -- picks the right operator() from the arg type
+    using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
+
+    auto placeParticleArgs() const
+    {
+        return std::make_tuple(countsArray());
+    }
+
+    template<typename>
+    void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& out) const
+    {
+        out.push_back(domain);
+    }
+};
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "SC lattice with spacing-driven counts places unique positions in non-cubic AABB",
+    "[integration][particles][sc][spacing]")
+{
+    auto setup = SCLatticeSpacingSetup{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+
+    // Verify the helpers give the expected product on the host
+    auto const counts = setup.countsArray();
+    auto const expectedParticles = pmacc::spearhed::numSCLatticeSites(counts);
+    // For domain [0,3]x[0,1]x[0,0.5] and spacing=1.0:
+    //   n_x = trunc(3/1) = 3, n_y = cast(1.0+0.5=1.5) -> 1,
+    //   n_z = cast(0.5+0.5=1.0) -> 1 -> total = 3 particles
+    REQUIRE(expectedParticles == 3u);
+
+    spearhed::InitParticles{}(setup);
+
+    // Position uniqueness follows from
+    // count == prod(n) and the mixed-radix being bijective on [0, prod(n)).
+
+    // Count particles and check bounds
+    pmacc::HostDeviceBuffer<uint32_t, 1> outOfBoundsBuf(1u);
+    outOfBoundsBuf.getHostBuffer().setValue(0u);
+    outOfBoundsBuf.hostToDevice();
+
+    pmacc::HostDeviceBuffer<uint32_t, 1> totalCountBuf(1u);
+    totalCountBuf.getHostBuffer().setValue(0u);
+    totalCountBuf.hostToDevice();
+
+    pmacc::spearhed::launchForEach(
+        pmacc::spearhed::levels::particle,
+        *prBuf,
+        CountAndBoundsInAABB{},
+        outOfBoundsBuf.getDeviceBuffer().getDataBox(),
+        totalCountBuf.getDeviceBuffer().getDataBox());
+
+    totalCountBuf.deviceToHost();
+    REQUIRE(totalCountBuf.getHostBuffer().getDataBox()(0) == expectedParticles);
 
     outOfBoundsBuf.deviceToHost();
     REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);

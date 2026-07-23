@@ -17,20 +17,15 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spearhed/plugins/openPMD/OpenPMDOutput.hpp"
+#pragma once
 
-#ifdef SPEARHED_ENABLE_OPENPMD
+#include "spearhed/param/dimension.param"
 
-namespace spearhed::output
+namespace spearhed
 {
-    OpenPMDOutput::OpenPMDOutput(std::string const& filepath) : series_(filepath, openPMD::Access::CREATE)
-    {
-        series_.setAuthor("spearhed");
-        series_.setSoftware("spearhed");
-    }
+    constexpr Real h0 = Real{0.02};
 
-    OpenPMDOutput::~OpenPMDOutput() = default;
+    constexpr Real gamma_eos = Real{1.4};
 
-} // namespace spearhed::output
-
-#endif // SPEARHED_ENABLE_OPENPMD
+    constexpr Real cflFactor = Real{0.3};
+} // namespace spearhed

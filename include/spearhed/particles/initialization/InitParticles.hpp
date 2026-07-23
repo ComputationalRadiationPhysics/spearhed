@@ -378,10 +378,6 @@ namespace spearhed
 
             uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, numRegionsI);
 
-            // Launch a kernel to init particles.
-            // Launched with max blocks and num threads per block that we can possible use.
-            // use the prefix sum of num frames for mapping blocks to PRs and use numParticles to assign exact work
-            // to each block.
             if(totalBlocks > 0)
             {
                 auto idProvider = dc.get<pmacc::IdProvider>("globalId");

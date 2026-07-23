@@ -17,20 +17,17 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spearhed/plugins/openPMD/OpenPMDOutput.hpp"
+#pragma once
 
-#ifdef SPEARHED_ENABLE_OPENPMD
+#include "spearhed/param/dimension.param"
 
-namespace spearhed::output
+namespace spearhed
 {
-    OpenPMDOutput::OpenPMDOutput(std::string const& filepath) : series_(filepath, openPMD::Access::CREATE)
-    {
-        series_.setAuthor("spearhed");
-        series_.setSoftware("spearhed");
-    }
+    constexpr Real h0 = Real{0.05};
 
-    OpenPMDOutput::~OpenPMDOutput() = default;
+    // Textbook Sod shock tube uses a diatomic-gas adiabatic index. Every reference
+    // analytical solution at t = 0.2 assumes this value, so pin it here.
+    constexpr Real gamma_eos = Real{1.4};
 
-} // namespace spearhed::output
-
-#endif // SPEARHED_ENABLE_OPENPMD
+    constexpr Real cflFactor = Real{0.3};
+} // namespace spearhed
