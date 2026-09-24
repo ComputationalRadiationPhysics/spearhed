@@ -26,6 +26,7 @@
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 #include "spmacc/topology/Cartesian.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -43,6 +44,14 @@ namespace spearhed
     {
         // This setup fills a single species and acts as its own (only) init block.
         using Species = pmacc::spearhed::species::Default;
+
+        // Every registered species belongs to exactly one decomposition group. The
+        // default keeps the current material-AABB layout shared by all species;
+        // custom setups can split, for example, movable fluid and static boundaries.
+        using DecompositionGroups = std::tuple<pmacc::spearhed::StaticMappingDecompositionGroup<
+            pmacc::spearhed::species::Default,
+            pmacc::spearhed::species::Boundary,
+            pmacc::spearhed::species::Tracer>>;
 
         pmacc::spearhed::AABB<CS> domain{{0, 0, 0}, {-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}};
 
@@ -74,9 +83,10 @@ namespace spearhed
                 auto const& particleRegion,
                 [[maybe_unused]] uint32_t globalParticleIdx) const
             {
-                auto const& aabb = particleRegion.volume;
+                auto const localMin = particleRegion.spatial.localMin();
+                auto const localMax = particleRegion.spatial.localMax();
                 pmacc::spearhed::for_each_tag<CS>(
-                    [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * CS::T_Axis{0.5}; });
+                    [&](auto tag) { particle[relativePos][tag] = (localMin[tag] + localMax[tag]) * CS::T_Axis{0.5}; });
             }
         };
 

@@ -60,51 +60,9 @@ namespace spearhed
     namespace init::detail
     {
         /**
-         * Result of mapping a block index to a frame within the inclusive-scan layout.
-         */
-        struct FrameLocation
-        {
-            int regionIdx;
-            // index of the frame within its region
-            int localFrameIdx;
-            int framesInRegion;
-        };
-
-        /**
-         * @brief Maps a block index to a frame location using binary search on the inclusive-scan array.
-         *
-         * Init dispatches blocks over frames that do not exist yet (each block's kernel allocates its
-         * own frame), so at launch time there is nothing for a FrameIndexBuffer to index; this keeps
-         * the scan-based block-to-frame mapping InteractParticles/LaunchForEach no longer need. This
-         * is the only remaining user.
-         *
-         * @param blockIdx   Global block index (== worker.blockDomIdx() at the call site)
-         * @param scanBox    Inclusive prefix-sum of frame counts: scanBox[i] = sum of frames in regions [0, i]
-         * @param numRegions Number of regions (== length of scanBox)
-         * @return           FrameLocation with regionIdx, localFrameIdx, framesInRegion
-         */
-        DINLINE FrameLocation findFrameLocation(int blockIdx, auto const& scanBox, int numRegions)
-        {
-            // Upper-bound binary search: find smallest regionIdx s.t. scanBox[regionIdx] > blockIdx
-            int left = 0;
-            int right = numRegions;
-            while(left < right)
-            {
-                int const mid = std::midpoint(left, right);
-                if(static_cast<int>(scanBox[mid]) <= blockIdx)
-                    left = mid + 1;
-                else
-                    right = mid;
-            }
-            int const regionIdx = left;
-            int const start = (regionIdx == 0) ? 0 : static_cast<int>(scanBox[regionIdx - 1]);
-            int const end = static_cast<int>(scanBox[regionIdx]);
-            return {.regionIdx = regionIdx, .localFrameIdx = blockIdx - start, .framesInRegion = end - start};
-        }
-
-        /** Kernel which calculates number of frames needed per particle region
-         * One block per particle region
-         * Results stored as inclusive prefix sum in framesPerParticleRegionScan
+         * Kernel which establishes the particle count for each region. The
+         * following creation kernel derives the number of frames directly from
+         * that count and appends them in list order.
          */
         template<typename TNumParticlesToCreate>
         struct CalculateFramesPerRegion
@@ -113,7 +71,6 @@ namespace spearhed
                 auto const& worker,
                 auto prDeviceBox,
                 int numParticleRegions,
-                auto framesPerParticleRegionBox,
                 auto numParticlesToCreateArgsTuple) const
             {
                 auto const blockIdx = worker.blockDomIdx();
@@ -134,9 +91,7 @@ namespace spearhed
                             numParticlesToCreateArgsTuple);
 
                         frameList.setNumParticles(numParticles);
-                        framesPerParticleRegionBox[blockIdx] = frameList.numFrames();
                     });
-                // TODO do scan on device
             }
         };
 
@@ -224,9 +179,17 @@ namespace spearhed
             }
         };
 
-        /** Kernel which goes over all particle regions and creates particles
-         * Each block creates a frame and fills it
-         * Kernel is independent of the number of threads and blocks it is started with
+        /**
+         * @brief Initialise all frames of one region in list order.
+         *
+         * A region owns one block for the whole operation.  This deliberately
+         * trades initialisation parallelism across frames for the storage
+         * invariant used everywhere else: every frame before the final frame is
+         * full, and the final frame contains a contiguous prefix of live slots.
+         * The former one-block-per-frame launch appended frames concurrently, so
+         * mallocMC allocation order could put the partial frame in the middle of
+         * a list.  PIConGPU repairs that situation with fillAllGaps(); we avoid
+         * creating it in the first place.
          */
         struct InitParticleRegions
         {
@@ -234,44 +197,43 @@ namespace spearhed
                 auto const& worker,
                 auto prDeviceBox,
                 int numParticleRegions,
-                auto framesPerParticleRegionScan,
                 pmacc::IdGenerator idGen,
                 auto placeParticle,
                 auto placeParticleArgsTuple) const
             {
-                auto const blockIdx = worker.blockDomIdx();
-                auto const loc = findFrameLocation(blockIdx, framesPerParticleRegionScan, numParticleRegions);
+                auto const regionIdx = worker.blockDomIdx();
+                if(regionIdx >= numParticleRegions)
+                    return;
 
-                PMACC_ASSERT(loc.localFrameIdx < loc.framesInRegion);
-
-                auto& particleRegion = prDeviceBox[loc.regionIdx];
-
+                auto& particleRegion = prDeviceBox[regionIdx];
                 auto& frameList = particleRegion.particleFrameList;
+                using FrameType = typename std::remove_cvref_t<decltype(frameList)>::FrameType;
+                constexpr uint32_t frameSize = FrameType::frameSize;
 
-                constexpr uint32_t frameSize = std::remove_cvref_t<decltype(frameList)>::FrameType::frameSize;
+                uint32_t const numFrames = frameList.numFrames();
+                if(numFrames == 0u)
+                    return;
 
-                // Distribute particles across the frames assigned to this region
-                // Calculate how many particles this block should create
-                // frame is full unless it is the last one
-                // If this is the last frame for the region, adjust particle count
+                uint32_t const particlesInLastFrame = frameList.getSizeLastFrame();
+                PMACC_ASSERT(particlesInLastFrame != 0u);
 
-                // precondition: this is non zero. Should be guaranteed when calculating the scan
-                uint32_t particlesInLastFrame = frameList.getSizeLastFrame();
-                PMACC_ASSERT(particlesInLastFrame != 0);
-
-                uint32_t const particlesInThisFrame
-                    = (loc.localFrameIdx == loc.framesInRegion - 1) ? particlesInLastFrame : frameSize;
-
-                // Create particles in this frame
-                detail::CreateParticlesInFrame{}(
-                    worker,
-                    frameList,
-                    particleRegion,
-                    particlesInThisFrame,
-                    static_cast<uint32_t>(loc.localFrameIdx),
-                    idGen,
-                    placeParticle,
-                    placeParticleArgsTuple);
+                for(uint32_t frameOffset = 0u; frameOffset < numFrames; ++frameOffset)
+                {
+                    uint32_t const particlesInThisFrame
+                        = (frameOffset + 1u == numFrames) ? particlesInLastFrame : frameSize;
+                    detail::CreateParticlesInFrame{}(
+                        worker,
+                        frameList,
+                        particleRegion,
+                        particlesInThisFrame,
+                        frameOffset,
+                        idGen,
+                        placeParticle,
+                        placeParticleArgsTuple);
+                    // CreateParticlesInFrame reuses one shared frame pointer. Ensure every
+                    // slot write completed before the master retargets it for the next frame.
+                    worker.sync();
+                }
             }
         };
     } // namespace init::detail
@@ -300,7 +262,7 @@ namespace spearhed
             auto& dc = pmacc::Environment<>::get().DataConnector();
 
             using PRBuf = pmacc::spearhed::ParticleRegionBuffer<PRTypeFor<Species>>;
-            auto const id = pmacc::spearhed::prBufId<Species>();
+            auto const id = pmacc::spearhed::prBufId(Species{});
             if(!dc.hasId(id))
                 return; // species not used by this setup
             auto& prBuf = *dc.get<PRBuf>(id);
@@ -346,13 +308,9 @@ namespace spearhed
             constexpr uint32_t threadsPerBlock = 32;
 
             /**
-             * for each particle system we want to assign as many blocks as it needs for its work
-             *
-             * - calculate number of particles to be created for each system. Based on the density functors etc
-             * - calculate number of blocks needed for each system from the numParticles and frame size
-             * - do a scan, and create a mapping from blocks to frame idx
-             * - we need some natural order of particle initialization, which can be split by number of frame slots
-             * so that particle init can be independent across blocks and threads
+             * Count particles per region first.  The creation kernel then owns one
+             * block per region and appends that region's frames serially, preserving
+             * the packed-frame invariant without a later compaction pass.
              */
             auto argsForNumParticles = pmacc::memory::tuple::fromStlTuple(block.numParticlesToCreateArgs());
             auto placeParticle = typename Block::PlaceParticle{};
@@ -363,37 +321,23 @@ namespace spearhed
             auto slicedBox = prBuf.getDeviceDataBox().shift(pmacc::DataSpace<DIM1>{static_cast<int>(regionBegin)});
             auto const numRegionsI = static_cast<int>(numRegions);
 
-            // Launch a kernel to calculate num particles & num frames to create for each PR
-            // Uses one block for each PR to calculate these 2 numbers.
-            // TODO this is very wasteful. Use threads in a block to deal with particle regions and do a on device scan
-            // Stores the num Frames in a scan/ prefix sum
-            // stores the num particles in a frame list
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{numRegionsI});
+            // One block per region establishes its total particle count. Frame allocation and
+            // placement are transaction-ordered behind this launch.
             PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
-                    slicedBox,
-                    numRegionsI,
-                    framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                    argsForNumParticles);
+                .template config<threadsPerBlock>(
+                    pmacc::DataSpace<DIM1>(numRegionsI))(slicedBox, numRegionsI, argsForNumParticles);
 
-            uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, numRegionsI);
+            auto idProvider = dc.get<pmacc::IdProvider>("globalId");
 
-            if(totalBlocks > 0)
-            {
-                auto idProvider = dc.get<pmacc::IdProvider>("globalId");
+            auto event = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
+                             .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
+                                 slicedBox,
+                                 numRegionsI,
+                                 idProvider->getDeviceGenerator(),
+                                 placeParticle,
+                                 argsForPlaceParticle);
 
-                auto event = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                                     slicedBox,
-                                     numRegionsI,
-                                     framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                                     idProvider->getDeviceGenerator(),
-                                     placeParticle,
-                                     argsForPlaceParticle);
-
-                // wait because otherwise kernel args (framesPerParticleRegion) go out of scope
-                event.waitForFinished();
-            }
+            event.waitForFinished();
         }
     };
 

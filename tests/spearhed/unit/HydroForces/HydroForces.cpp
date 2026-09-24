@@ -184,7 +184,7 @@ TEST_CASE_METHOD(
             std::move(regionOffsets)});
 
     using K = InitMomEnergyTestSetup::SmoothingKernel;
-    auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+    auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
     using PRType = spearhed::PRType;
     pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
     pmacc::spearhed::interact(

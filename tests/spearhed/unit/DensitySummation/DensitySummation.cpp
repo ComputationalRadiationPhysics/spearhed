@@ -65,7 +65,7 @@ namespace
     constexpr spearhed::Real TEST_MASS = spearhed::Real{1.0};
 
     /**
-     * Initialises each particle: place all at AABB centre, set mass and smoothingLength.
+     * Initialises each particle at the centre of chart-local occupancy, then sets mass and smoothingLength.
      */
     struct InitDensityTestParticle
     {
@@ -78,10 +78,10 @@ namespace
             using namespace pmacc::spearhed::tags;
             using namespace spearhed::tags;
 
-            auto const& aabb = particleRegion.volume;
-            // All particles at AABB centre
+            auto const localMin = particleRegion.spatial.localMin();
+            auto const localMax = particleRegion.spatial.localMax();
             pmacc::spearhed::for_each_tag<spearhed::CS>(
-                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+                [&](auto tag) { particle[relativePos][tag] = (localMin[tag] + localMax[tag]) * spearhed::Real{0.5}; });
 
             particle[mass] = TEST_MASS;
             particle[smoothingLength] = TEST_H;

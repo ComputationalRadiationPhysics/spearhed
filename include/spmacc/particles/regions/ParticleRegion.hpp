@@ -30,9 +30,8 @@ namespace pmacc
     namespace spearhed
     {
         /**
-         * Holds a defined volume and the paricles in that volume
-         * Maybe this should be held in an SoA, to do quick ops on the Volume/Frame
-         * is copied in particleRegionBuffer push back, should be fast to copy.
+         * Holds bucket-local spatial metadata and the particles in that bucket.
+         * Metadata is copied when the particle-region buffer is populated, so it must stay compact.
          */
         template<typename TVolume, concepts::SpecializationOf<Frame> T_Frame, typename T_DeviceHeapHandle>
         struct ParticleRegion
@@ -45,8 +44,8 @@ namespace pmacc
             {
             }
 
-            constexpr ParticleRegion(T_DeviceHeapHandle const& deviceHeapHandle, TVolume const& volume)
-                : volume(volume)
+            constexpr ParticleRegion(T_DeviceHeapHandle const& deviceHeapHandle, TVolume const& spatial)
+                : spatial(spatial)
                 , particleFrameList{deviceHeapHandle}
             {
             }
@@ -57,7 +56,7 @@ namespace pmacc
                 return particleFrameList;
             }
 
-            TVolume volume{};
+            TVolume spatial{};
             FrameList<T_Frame, T_DeviceHeapHandle> particleFrameList;
         };
     } // namespace spearhed

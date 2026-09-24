@@ -28,6 +28,7 @@
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
+#include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
@@ -47,6 +48,7 @@ using RelPosType = pmacc::spearhed::Vec<CS, pmacc::spearhed::ValueStorage<CS>>;
 constexpr RelPosType expectedMin{0.125f, 0.125f, 0.125f};
 constexpr RelPosType expectedMax{0.875f, 0.875f, 0.875f};
 constexpr RelPosType defaultPos{0.5f, 0.5f, 0.5f};
+constexpr RelPosType chartOrigin{10.0f, 20.0f, 30.0f};
 
 // Functor to set specific particle positions:
 // - ID 0 -> Min corner
@@ -97,7 +99,70 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     pmacc::spearhed::for_each_tag<spearhed::CS>(
         [&](auto tag)
         {
-            REQUIRE(region.volume.min[tag] == expectedMin[tag]);
-            REQUIRE(region.volume.max[tag] == expectedMax[tag]);
+            REQUIRE(region.spatial.occupancy.min[tag] == expectedMin[tag]);
+            REQUIRE(region.spatial.occupancy.max[tag] == expectedMax[tag]);
+        });
+}
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "MaterialAabbDecomposition prepares a generation and owns its CSR plan",
+    "[integration][spatial]")
+{
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::InitParticles{}(setup);
+
+    auto decomposition = pmacc::spearhed::MaterialAabbDecomposition{*prBuf};
+    decomposition.prepareAfterMotion();
+    auto prepared = decomposition.preparedFor(*prBuf);
+    auto plan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f, prepared);
+    auto multiSourcePlan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f, prepared, prepared);
+    auto emptyPlan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f);
+
+    STATIC_REQUIRE(pmacc::spearhed::PreparedRegionSet<decltype(prepared)>);
+    STATIC_REQUIRE(pmacc::spearhed::SpatialDecompositionFor<decltype(decomposition), decltype(*prBuf)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(plan)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(multiSourcePlan)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(emptyPlan)>);
+    REQUIRE(prepared.generation() == 1u);
+    REQUIRE(prepared.bucketCount() == 1u);
+    REQUIRE(plan.size() == 1u);
+    REQUIRE(multiSourcePlan.size() == 2u);
+    REQUIRE(emptyPlan.size() == 0u);
+
+    // The target may also be a source without another bounds reduction. A later
+    // preparation advances the shared generation, which debug assertions on the
+    // old handle and plan use to reject stale reuse.
+    decomposition.prepareAfterMotion();
+    auto newerPrepared = decomposition.preparedFor(*prBuf);
+    REQUIRE(newerPrepared.generation() == 2u);
+}
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "UpdateRegionBounds reduces world positions without rebasing the chart",
+    "[integration][particles][bounds]")
+{
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+
+    auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+    hostRegions(0).spatial.chart.origin = {10.0f, 20.0f, 30.0f};
+    prBuf->buffer->hostToDevice();
+
+    spearhed::InitParticles{}(setup);
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SetPosFunctor{});
+    pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+
+    prBuf->buffer->deviceToHost();
+    auto const dataBox = prBuf->buffer->getHostBuffer().getDataBox();
+    auto const& region = dataBox(0);
+    pmacc::spearhed::for_each_tag<spearhed::CS>(
+        [&](auto tag)
+        {
+            REQUIRE(region.spatial.chart.origin[tag] == chartOrigin[tag]);
+            REQUIRE(region.spatial.occupancy.min[tag] == region.spatial.chart.origin[tag] + expectedMin[tag]);
+            REQUIRE(region.spatial.occupancy.max[tag] == region.spatial.chart.origin[tag] + expectedMax[tag]);
         });
 }

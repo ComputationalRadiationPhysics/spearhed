@@ -33,7 +33,11 @@
 namespace pmacc::spearhed
 {
     /**
-     * Axis aligned bounding box
+     * @brief Legacy chart-relative AABB used only by setup and initial-placement adapters.
+     *
+     * @c min and @c max are local coordinates relative to @c origin. Runtime spatial metadata
+     * must use RegionChart and WorldAABB instead; this type remains while setup blocks emit the
+     * historical three-vector form.
      */
     template<CoordinateSystem CS>
     struct AABB
@@ -119,10 +123,10 @@ namespace pmacc::spearhed
                                                    { return !(a.min[tag] > b.max[tag] || a.max[tag] < b.min[tag]); });
         }
 
-        // The position of this Volume in the global coordinate system
+        // Chart origin in the world coordinate system.
         Pnt origin{TAxis{0}};
 
-        // The extents of the box, relative to the box origin.
+        // Local extents relative to @c origin.
         Vec min{std::numeric_limits<TAxis>::max()};
         Vec max{std::numeric_limits<TAxis>::lowest()};
     };

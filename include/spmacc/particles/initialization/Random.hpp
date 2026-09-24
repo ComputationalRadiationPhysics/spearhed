@@ -90,7 +90,8 @@ namespace pmacc::spearhed
             // Construct the RNG adapter targeting a local state pointer
             using Rng = random::Random<Distribution, RngMethod, State*>;
 
-            auto const& aabb = particleRegion.volume;
+            auto const localMin = particleRegion.spatial.localMin();
+            auto const localMax = particleRegion.spatial.localMax();
             State state;
             // globalParticleIdx as subsequence gives each particle an independent RNG stream
             RngMethod{}.init(worker, state, seed, globalParticleIdx);
@@ -98,7 +99,7 @@ namespace pmacc::spearhed
             Rng rng(&state);
 
             for_each_tag<CS>([&](auto tag)
-                             { particle[tags::relativePos][tag] = dist(rng(worker), aabb.min[tag], aabb.max[tag]); });
+                             { particle[tags::relativePos][tag] = dist(rng(worker), localMin[tag], localMax[tag]); });
         }
     };
 

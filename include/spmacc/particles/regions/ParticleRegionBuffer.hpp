@@ -57,7 +57,7 @@ namespace pmacc::spearhed
         // Remember to send buf to device before use
         auto pushBack(ParticleRegionType const& pr)
         {
-            PMACC_ASSERT(size < buffer->getHostBuffer().getDataSpace().productOfComponents());
+            PMACC_ASSERT(size < buffer->getHostBuffer().capacityND().productOfComponents());
             buffer->getHostBuffer().getDataBox()[size++] = pr;
             ++topologyVersion;
         }
@@ -74,7 +74,7 @@ namespace pmacc::spearhed
 
         SimulationDataId getUniqueId() override
         {
-            return prBufId<Species>();
+            return prBufId(Species{});
         }
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;

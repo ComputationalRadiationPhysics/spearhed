@@ -191,8 +191,9 @@ namespace pmacc::spearhed
             std::array<uint32_t, CS::dimension> const& n) const
         {
             using Scalar = typename CS::T_Axis;
-            auto const& aabb = particleRegion.volume;
-            auto const extents = aabb.max - aabb.min;
+            auto const localMin = particleRegion.spatial.localMin();
+            auto const localMax = particleRegion.spatial.localMax();
+            auto const extents = localMax - localMin;
 
             // Mixed-radix index decomposition + position write at cell centre.
             uint32_t accum = 1u;
@@ -202,7 +203,7 @@ namespace pmacc::spearhed
                     uint32_t const ik = (globalParticleIdx / accum) % n[i.value];
                     accum *= n[i.value];
                     Scalar const di = extents[tag] / static_cast<Scalar>(n[i.value]);
-                    particle[tags::relativePos][tag] = aabb.min[tag] + (static_cast<Scalar>(ik) + Scalar{0.5}) * di;
+                    particle[tags::relativePos][tag] = localMin[tag] + (static_cast<Scalar>(ik) + Scalar{0.5}) * di;
                 });
         }
 
@@ -225,8 +226,9 @@ namespace pmacc::spearhed
             // For others either figure out how to do it in those systems, or convert to and from cartesian
             using Scalar = typename CS::T_Axis;
             constexpr std::size_t Dim = CS::dimension;
-            auto const& aabb = particleRegion.volume;
-            auto const extents = aabb.max - aabb.min;
+            auto const localMin = particleRegion.spatial.localMin();
+            auto const localMax = particleRegion.spatial.localMax();
+            auto const extents = localMax - localMin;
 
             using x_t = tag_of<CS, 0>;
             Scalar const Lx = extents[x_t{}];

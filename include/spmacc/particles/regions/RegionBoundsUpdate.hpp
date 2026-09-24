@@ -53,12 +53,11 @@ namespace pmacc::spearhed
             for(int regionIdx = blockIdx; regionIdx < numParticleRegions; regionIdx += worker.gridDomSize())
             {
                 auto& region = prDeviceBox[regionIdx];
-                using VolumeType = std::remove_cvref_t<decltype(region.volume)>;
+                using BoundsType = std::remove_cvref_t<decltype(region.spatial.occupancy)>;
 
-                // Thread-Local Accumulation: walk the region's frames sequentially with the
-                // hierarchy iterator, distributing each frame's live slots across the block with
-                // the lockstep combinator (same distribution as the previous hand-rolled walk).
-                VolumeType localBounds;
+                // Particle coordinates are chart-local, while occupancy is always world-space.
+                // Keep the chart immutable: material membership does not rebase particles after motion.
+                BoundsType localBounds;
 
                 // DeviceHeapAccess{} instead of the deviceHeap instance: odr-using the
                 // namespace-scope constexpr variable from device code is ill-formed under nvcc.
@@ -71,12 +70,13 @@ namespace pmacc::spearhed
                         lockstepForEachParticle(
                             worker,
                             frame,
-                            [&](auto particle) { localBounds.extend(particle[tags::relativePos].get()); });
+                            [&](auto particle)
+                            { localBounds.extend(region.spatial.chart.toWorld(particle[tags::relativePos].get())); });
                     });
 
                 // Block-Wide Reduction
                 // Allocate shared memory for the reduction tree
-                PMACC_SMEM(worker, s_bounds, VolumeType[MaxBlockSize]);
+                PMACC_SMEM(worker, s_bounds, BoundsType[MaxBlockSize]);
 
                 // Load thread-local results into shared memory
                 if(threadIdx < MaxBlockSize)
@@ -98,7 +98,7 @@ namespace pmacc::spearhed
 
                 if(threadIdx == 0)
                 {
-                    region.volume = s_bounds[0];
+                    region.spatial.occupancy = s_bounds[0];
                 }
 
                 // Ensure write visibility before next iteration
@@ -152,7 +152,7 @@ namespace pmacc::spearhed
                 //     // Write final result to global memory
                 //     if(laneIdx == 0)
                 //     {
-                //         region.volume = localBounds;
+                //         region.spatial.occupancy = localBounds;
                 //     }
                 // }
 
@@ -162,38 +162,38 @@ namespace pmacc::spearhed
         }
     };
 
-    // Update region bounds after particles in a region move
+    /**
+     * @brief Reduce chart-relative particle positions into material occupancy bounds.
+     *
+     * This is the low-level compatibility operation. Spatial lifecycle users
+     * should call MaterialAabbDecomposition::prepareAfterMotion() instead.
+     */
+    template<typename T_ParticleRegion>
+    void updateMaterialAabbBounds(ParticleRegionBuffer<T_ParticleRegion>& prBuf)
+    {
+        constexpr uint32_t threadsPerBlock = 256;
+        constexpr int maxBlocks = 1024;
+
+        int numBlocks = (prBuf.size + static_cast<int>(threadsPerBlock) - 1) / static_cast<int>(threadsPerBlock);
+        if(numBlocks > maxBlocks)
+            numBlocks = maxBlocks;
+        if(numBlocks == 0)
+            numBlocks = 1;
+
+        PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
+            .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+    }
+
+    // Compatibility wrapper for low-level tests and callers not yet migrated to a decomposition.
     template<typename T_ParticleRegion>
     struct UpdateVolumes
     {
-        // Allow customizing the buffer name if needed
         void operator()() const
         {
-            // Tuning constants
-            constexpr uint32_t threadsPerBlock = 256;
-            // Maximum blocks to launch (prevents kernel launch overhead on small GPUs)
-            constexpr int maxBlocks = 1024;
-
             auto& dc = pmacc::Environment<>::get().DataConnector();
-
-            // Note: Ensure PRType is defined in this scope or passed as a template
             using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
             using Species = typename T_ParticleRegion::Species;
-
-            auto& prBuf = *dc.get<BufferType>(prBufId<Species>());
-
-            // Dynamic Grid Sizing:
-            // Calculate enough blocks to cover the regions, capped at maxBlocks.
-            // Since the kernel uses a grid-stride loop, this ensures high occupancy
-            // without launching unnecessary empty blocks for small problems.
-            int numBlocks = (prBuf.size + threadsPerBlock - 1) / threadsPerBlock;
-            if(numBlocks > maxBlocks)
-                numBlocks = maxBlocks;
-            if(numBlocks == 0)
-                numBlocks = 1;
-
-            PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
-                .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+            updateMaterialAabbBounds(*dc.get<BufferType>(prBufId(Species{})));
         }
     };
 } // namespace pmacc::spearhed

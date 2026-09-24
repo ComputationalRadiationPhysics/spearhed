@@ -36,17 +36,6 @@
 
 namespace pmacc::spearhed
 {
-    namespace detail
-    {
-        template<typename T>
-        struct Node
-        {
-            using NodePtr = Node<T>*;
-            PMACC_ALIGN(data, T);
-            PMACC_ALIGN(next, NodePtr);
-        };
-    } // namespace detail
-
     /**
      * A singly-linked list of frames on the acc
      * uses new and delete on CPU and mallocMC on GPU
@@ -76,13 +65,14 @@ namespace pmacc::spearhed
             PtrType tmp = memory::allocateMemory<T>(worker, m_deviceHeapHandle);
 
             PMACC_DEVICE_VERIFY_MSG(tmp != nullptr, "Error: Out of device heap memory in %s:%u\n", __FILE__, __LINE__);
+            if(!tmp)
+            {
+                return nullptr;
+            }
 
             if constexpr(std::default_initializable<T>)
             {
-                if(tmp)
-                {
-                    new(tmp) T;
-                }
+                new(tmp) T;
             }
             // TODO check if this is necessary for iteration end or if it is already set
             tmp->next = nullptr;
@@ -103,13 +93,13 @@ namespace pmacc::spearhed
 
             if constexpr(!std::is_trivially_destructible_v<T>)
             {
-                node->data.~T();
+                node->~T();
             }
 
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
             m_deviceHeapHandle.free(worker.getAcc(), (void*) node);
 #else
-            operator delete(node, std::nothrow);
+            ::operator delete(static_cast<void*>(node), std::align_val_t{alignof(T)});
 #endif
             node = nullptr;
         }
@@ -165,8 +155,14 @@ namespace pmacc::spearhed
             return size;
         }
 
-
-    private:
+        /** Detach every node without freeing it; callers retain the returned raw head. */
+        constexpr PtrType detachAllNodes()
+        {
+            PtrType const first = m_firstNode;
+            m_firstNode = nullptr;
+            m_lastNode = nullptr;
+            return first;
+        }
 
     private:
         // TODO try to move this out. Not every list on my device needs to hold a copy of the heap handle

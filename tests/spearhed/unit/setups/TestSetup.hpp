@@ -44,7 +44,7 @@ namespace spearhed
         };
     };
 
-    // place each particle at the center of its particle region's AABB
+    // Place each particle at the center of its bucket's chart-local occupancy bounds.
     struct CenterPlaceParticle
     {
         DINLINE constexpr void operator()(
@@ -53,9 +53,10 @@ namespace spearhed
             auto const& particleRegion,
             [[maybe_unused]] uint32_t globalParticleIdx) const
         {
-            auto const& aabb = particleRegion.volume;
+            auto const localMin = particleRegion.spatial.localMin();
+            auto const localMax = particleRegion.spatial.localMax();
             pmacc::spearhed::for_each_tag<CS>(
-                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * 0.5f; });
+                [&](auto tag) { particle[relativePos][tag] = (localMin[tag] + localMax[tag]) * 0.5f; });
         }
     };
 

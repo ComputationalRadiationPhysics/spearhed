@@ -29,6 +29,7 @@
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/NeighbourEntry.hpp"
+#include "spmacc/particles/spatial/InteractionEntry.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/eventSystem/Manager.hpp>
@@ -165,11 +166,10 @@ namespace pmacc::spearhed
         /**
          * @brief Bundles per-neighbour-frame geometry parameters.
          */
-        template<typename OV, typename NV, typename NFP, typename R2>
+        template<typename Offset, typename NFP, typename R2>
         struct NeighbourFrameCtx
         {
-            OV ownVolume;
-            NV neighbourVolume;
+            Offset sourceChartOffsetInTarget;
             NFP neighbourFramePtr;
             R2 radius2;
         };
@@ -224,15 +224,15 @@ namespace pmacc::spearhed
             auto& regs,
             auto&... args)
         {
-            using CS = typename std::remove_cvref_t<decltype(frameCtx.ownVolume)>::Vec::CS;
+            using CS = typename std::remove_cvref_t<decltype(frameCtx.sourceChartOffsetInTarget)>::CS;
             using Axis = typename CS::T_Axis;
             using DistVec = Vec<CS, ValueStorage<CS>>;
             using FnType = std::remove_cvref_t<decltype(fn)>;
             constexpr bool hasStage = HasStageHook<FnType>;
 
-            // Phase 1: cooperatively stage neighbours (one slot per worker, no compaction)
-            // Origin offset baked into every staged position so the inner loop skips getPosition().
-            DistVec const originShift = frameCtx.neighbourVolume.origin - frameCtx.ownVolume.origin;
+            // Phase 1: cooperatively stage neighbours (one slot per worker, no compaction).
+            // The provider supplies the source-chart translation in the target chart.
+            DistVec const sourceChartOffsetInTarget = frameCtx.sourceChartOffsetInTarget;
             // Large finite sentinel: sentinel*sentinel overflows to +inf so the cull rejects it.
             constexpr Axis sentinel = std::numeric_limits<Axis>::max() / Axis{4};
             forEachSlot(
@@ -251,7 +251,10 @@ namespace pmacc::spearhed
                         auto const relView = nParticle[tags::relativePos].get();
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
-                            { smem.posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
+                            {
+                                smem.posCache[slot][tags::relativePos][tag]
+                                    = relView[tag] + sourceChartOffsetInTarget[tag];
+                            });
                     }
                     else
                     {
@@ -312,8 +315,57 @@ namespace pmacc::spearhed
         }
 
         /**
-         * @brief Compile-time helpers deriving the per-role SMEM/register records from the functor.
+         * @brief Resolve an interaction attribute set, defaulting an omitted declaration to empty.
+         *
+         * Interaction functors may independently declare @c neighbourReads, @c ownReads, and
+         * @c ownAccumulate as static constexpr ll::makeSet(...) members. An omitted member means
+         * that the functor needs no attributes for that role.
          */
+        template<typename Fn, typename = void>
+        struct NeighbourReadsSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct NeighbourReadsSet<Fn, std::void_t<decltype(Fn::neighbourReads)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::neighbourReads)>;
+        };
+
+        template<typename Fn>
+        using neighbour_reads_set_t = typename NeighbourReadsSet<Fn>::type;
+
+        template<typename Fn, typename = void>
+        struct OwnReadsSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct OwnReadsSet<Fn, std::void_t<decltype(Fn::ownReads)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::ownReads)>;
+        };
+
+        template<typename Fn>
+        using own_reads_set_t = typename OwnReadsSet<Fn>::type;
+
+        template<typename Fn, typename = void>
+        struct OwnAccumulateSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct OwnAccumulateSet<Fn, std::void_t<decltype(Fn::ownAccumulate)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::ownAccumulate)>;
+        };
+
+        template<typename Fn>
+        using own_accumulate_set_t = typename OwnAccumulateSet<Fn>::type;
+
         template<typename Record, typename Set>
         using neighbour_reads_record_t = ll::sub_record_from_set_t<Record, Set>;
 
@@ -370,16 +422,16 @@ namespace pmacc::spearhed
                 auto& region = targetPRDeviceBox[rIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
-                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+                using MetadataType = typename std::remove_reference_t<decltype(region.spatial)>;
                 using RecordType = typename FrameType::ParticleRecord;
-                using CS = typename VolumeType::Vec::CS;
+                using CS = typename MetadataType::Chart::Vec::CS;
                 constexpr uint32_t frameSize = FrameType::frameSize;
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
                 using FnType = std::remove_cvref_t<decltype(fn)>;
-                using NeighbourReadsSet = std::remove_cvref_t<decltype(FnType::neighbourReads)>;
-                using OwnReadsSet = std::remove_cvref_t<decltype(FnType::ownReads)>;
-                using OwnAccumulateSet = std::remove_cvref_t<decltype(FnType::ownAccumulate)>;
+                using NeighbourReadsSet = neighbour_reads_set_t<FnType>;
+                using OwnReadsSet = own_reads_set_t<FnType>;
+                using OwnAccumulateSet = own_accumulate_set_t<FnType>;
 
                 using NbRecord = nb_cache_record_t<FnType, RecordType, NeighbourReadsSet>;
                 using PosRecord = position_record_t<RecordType>;
@@ -399,8 +451,6 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
                 memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
-                VolumeType const ownVolume = region.volume;
-
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
                 // Per-virtual-worker registers that persist across the whole neighbour sweep.
@@ -423,41 +473,40 @@ namespace pmacc::spearhed
                     validVar,
                     prepVar);
 
-                int const startNeighbour = sourceView.regionOffsetsBox[rIdx];
-                int const endNeighbour = sourceView.regionOffsetsBox[rIdx + 1];
-
-                for(int n = startNeighbour; n < endNeighbour; ++n)
-                {
-                    int const neighbourRegionIdx = sourceView.neighbourRegionsBox[n];
-                    auto& neighbourRegion = sourceView.sourcePRDeviceBox[neighbourRegionIdx];
-                    auto& neighbourFrameList = neighbourRegion.particleFrameList;
-
-                    for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
+                sourceView.candidates.forEachCandidate(
+                    static_cast<uint32_t>(rIdx),
+                    [&](auto const& candidate)
                     {
-                        memory::FramePointer const neighbourFramePtr{&*it};
-                        VolumeType const neighbourVolume = neighbourRegion.volume;
-                        // Each live frame is a unique heap allocation belonging to exactly one
-                        // region of one buffer, so equal frame pointers already identify the same
-                        // frame (same region, same buffer).
-                        bool const isSelfFrame
-                            = (static_cast<void const*>(ownFramePtr.operator->())
-                               == static_cast<void const*>(neighbourFramePtr.operator->()));
+                        auto& neighbourRegion = sourceView.sourceStore[candidate.sourceBucketSlot];
+                        auto& neighbourFrameList = neighbourRegion.particleFrameList;
 
-                        auto regBlock = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
-                        auto smemCaches = detail::SmemCaches{posCache, nbCache};
-                        auto frameCtx
-                            = detail::NeighbourFrameCtx{ownVolume, neighbourVolume, neighbourFramePtr, radius2};
-                        interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
-                            worker,
-                            forEachSlot,
-                            smemCaches,
-                            frameCtx,
-                            isSelfFrame,
-                            fn,
-                            regBlock,
-                            args...);
-                    }
-                }
+                        for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
+                        {
+                            memory::FramePointer const neighbourFramePtr{&*it};
+                            // Equal frame pointers identify the same physical frame only for the
+                            // unshifted image. A periodic image of that frame is not a self frame.
+                            bool const isSelfFrame = candidate.isUnshiftedImage
+                                                     && (static_cast<void const*>(ownFramePtr.operator->())
+                                                         == static_cast<void const*>(neighbourFramePtr.operator->()));
+
+                            auto regBlock
+                                = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
+                            auto smemCaches = detail::SmemCaches{posCache, nbCache};
+                            auto frameCtx = detail::NeighbourFrameCtx{
+                                candidate.sourceChartOffsetInTarget,
+                                neighbourFramePtr,
+                                radius2};
+                            interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
+                                worker,
+                                forEachSlot,
+                                smemCaches,
+                                frameCtx,
+                                isSelfFrame,
+                                fn,
+                                regBlock,
+                                args...);
+                        }
+                    });
 
                 storeOwnAccumulators<ValidParticlePredicate>(forEachSlot, ownFramePtr, validVar, ownAccVar);
             }
@@ -503,16 +552,16 @@ namespace pmacc::spearhed
                 auto& region = targetPRDeviceBox[rIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
-                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+                using MetadataType = typename std::remove_reference_t<decltype(region.spatial)>;
                 using RecordType = typename FrameType::ParticleRecord;
-                using CS = typename VolumeType::Vec::CS;
+                using CS = typename MetadataType::Chart::Vec::CS;
                 constexpr uint32_t frameSize = FrameType::frameSize;
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
                 using FnType = std::remove_cvref_t<decltype(fn)>;
-                using NeighbourReadsSet = std::remove_cvref_t<decltype(FnType::neighbourReads)>;
-                using OwnReadsSet = std::remove_cvref_t<decltype(FnType::ownReads)>;
-                using OwnAccumulateSet = std::remove_cvref_t<decltype(FnType::ownAccumulate)>;
+                using NeighbourReadsSet = neighbour_reads_set_t<FnType>;
+                using OwnReadsSet = own_reads_set_t<FnType>;
+                using OwnAccumulateSet = own_accumulate_set_t<FnType>;
 
                 using NbRecord = nb_cache_record_t<FnType, RecordType, NeighbourReadsSet>;
                 using PosRecord = position_record_t<RecordType>;
@@ -533,8 +582,6 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
                 memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
-                VolumeType const ownVolume = region.volume;
-
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
                 // Per-virtual-worker registers persisting across all sources (own SMEM is gone).
@@ -562,43 +609,43 @@ namespace pmacc::spearhed
                 {
                     auto processSource = [&](auto const& sourceView)
                     {
-                        int const startNeighbour = sourceView.regionOffsetsBox[rIdx];
-                        int const endNeighbour = sourceView.regionOffsetsBox[rIdx + 1];
-
-                        for(int n = startNeighbour; n < endNeighbour; ++n)
-                        {
-                            int const neighbourRegionIdx = sourceView.neighbourRegionsBox[n];
-                            auto& neighbourRegion = sourceView.sourcePRDeviceBox[neighbourRegionIdx];
-                            auto& neighbourFrameList = neighbourRegion.particleFrameList;
-
-                            for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
+                        sourceView.candidates.forEachCandidate(
+                            static_cast<uint32_t>(rIdx),
+                            [&](auto const& candidate)
                             {
-                                memory::FramePointer const neighbourFramePtr{&*it};
-                                VolumeType const neighbourVolume = neighbourRegion.volume;
-                                // Equal frame pointers identify the frames as the same.
-                                bool const isSelfFrame
-                                    = (static_cast<void const*>(ownFramePtr.operator->())
-                                       == static_cast<void const*>(neighbourFramePtr.operator->()));
+                                auto& neighbourRegion = sourceView.sourceStore[candidate.sourceBucketSlot];
+                                auto& neighbourFrameList = neighbourRegion.particleFrameList;
 
-                                auto regBlock
-                                    = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
-                                auto smemCaches = detail::SmemCaches{posCache, nbCache};
-                                auto frameCtx = detail::NeighbourFrameCtx{
-                                    ownVolume,
-                                    neighbourVolume,
-                                    neighbourFramePtr,
-                                    radius2};
-                                interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
-                                    worker,
-                                    forEachSlot,
-                                    smemCaches,
-                                    frameCtx,
-                                    isSelfFrame,
-                                    fn,
-                                    regBlock,
-                                    args...);
-                            }
-                        }
+                                for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
+                                {
+                                    memory::FramePointer const neighbourFramePtr{&*it};
+                                    bool const isSelfFrame
+                                        = candidate.isUnshiftedImage
+                                          && (static_cast<void const*>(ownFramePtr.operator->())
+                                              == static_cast<void const*>(neighbourFramePtr.operator->()));
+
+                                    auto regBlock = detail::OwnRegisterBlock{
+                                        ownRelVar,
+                                        ownReadsVar,
+                                        ownAccVar,
+                                        validVar,
+                                        prepVar};
+                                    auto smemCaches = detail::SmemCaches{posCache, nbCache};
+                                    auto frameCtx = detail::NeighbourFrameCtx{
+                                        candidate.sourceChartOffsetInTarget,
+                                        neighbourFramePtr,
+                                        radius2};
+                                    interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
+                                        worker,
+                                        forEachSlot,
+                                        smemCaches,
+                                        frameCtx,
+                                        isSelfFrame,
+                                        fn,
+                                        regBlock,
+                                        args...);
+                                }
+                            });
                     };
                     (processSource(pmacc::memory::tuple::get<Is>(sourceViewTuple)), ...);
                 }(std::make_index_sequence<

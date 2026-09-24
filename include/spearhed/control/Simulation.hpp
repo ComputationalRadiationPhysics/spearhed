@@ -19,8 +19,12 @@
 
 #pragma once
 
+#include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/control/TargetWorkSet.hpp"
 #include "spearhed/param.hpp"
+#include "spearhed/param/setup.hpp"
 #include "spearhed/sph/SphKernel.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
@@ -30,6 +34,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace spearhed
@@ -80,7 +85,18 @@ namespace spearhed
         void updateHydrodynamics();
 
     private:
+        using SetupDecompositionGroups = pmacc::spearhed::DecompositionGroupsFor<Setup, AllSpecies>;
+        using AllocatorHandle = decltype(std::declval<DeviceHeap&>().getAllocatorHandle());
+        using SpatialGroups
+            = pmacc::spearhed::DecompositionGroupSet<AllSpecies, SetupDecompositionGroups, Setup, AllocatorHandle>;
+        using InteractionTargets = InteractionTargetSets<Setup, AllSpecies>;
+        using TargetFrameIndices = TargetFrameIndexCache<AllSpecies, typename InteractionTargets::Targets>;
+
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
+        // These own mapping generations and topology-derived indices across timesteps. A timestep's
+        // TargetWorkSet borrows the indices and owns only its query-specific interaction plans.
+        std::optional<SpatialGroups> spatialGroups{std::nullopt};
+        std::optional<TargetFrameIndices> targetFrameIndices{std::nullopt};
 
         // layout parameter
         std::vector<uint32_t> devices;

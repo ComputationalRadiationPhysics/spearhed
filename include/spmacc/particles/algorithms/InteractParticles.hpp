@@ -41,7 +41,7 @@ namespace pmacc::spearhed
     inline constexpr UnifiedPolicy unified{};
 
     /**
-     * @brief Perform pairwise particle interactions using pre-computed neighbour lists.
+     * @brief Perform pairwise particle interactions using candidate-provider entries.
      *
      * Dispatches automatically based on the number of source entries in the bundle:
      *   - 0 sources: no-op.
@@ -61,7 +61,7 @@ namespace pmacc::spearhed
      * Wait on the returned event before any of them is destroyed. Ordering against later device work
      * needs no wait: subsequent kernels and copies are transaction-ordered behind these launches.
      *
-     * @param bundle         NeighbourBundle or NeighbourBundleView.
+     * @param bundle         NeighbourBundle compatibility plan or selected view.
      * @param target         The target ParticleRegionBuffer.
      * @param index          FrameIndexBuffer for @p target.
      * @param radius         Maximum pairwise interaction distance.

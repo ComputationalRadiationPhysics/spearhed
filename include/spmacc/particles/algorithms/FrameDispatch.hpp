@@ -25,6 +25,7 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
+#include <pmacc/eventSystem/eventSystem.hpp>
 #include <pmacc/eventSystem/events/EventTask.hpp>
 #include <pmacc/eventSystem/tasks/TaskKernel.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -83,7 +84,8 @@ namespace pmacc::spearhed
      * @brief In-place inclusive prefix sum on a HostDeviceBuffer<uint32_t> via the host.
      *
      * Copies the buffer device to host, computes arr[i] += arr[i-1] for i in [1, size),
-     * then copies back host to device.
+     * then copies non-zero scans back to the device. A zero sum leaves the already-zero device
+     * buffer unchanged and avoids queuing a redundant asynchronous copy.
      *
      * @param buf   Buffer populated by a device kernel.
      * @param size  Number of elements to scan (must be <= buf capacity).
@@ -92,11 +94,13 @@ namespace pmacc::spearhed
     [[nodiscard]] inline uint32_t inclusiveScanOnHost(pmacc::HostDeviceBuffer<uint32_t, DIM1>& buf, int size)
     {
         buf.deviceToHost();
+        pmacc::eventSystem::getTransactionEvent().waitForFinished();
         auto data = buf.getHostBuffer().getDataBox();
         for(int i = 1; i < size; ++i)
             data[i] += data[i - 1];
         uint32_t const total = data[size - 1];
-        buf.hostToDevice();
+        if(total != 0u)
+            buf.hostToDevice();
         return total;
     }
 

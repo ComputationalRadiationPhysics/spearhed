@@ -130,7 +130,7 @@ namespace spearhed
             // (numSources == 0), and then this self-init is the only real work -- it must still be
             // represented in the returned event. When both launches are live they share the compute
             // stream, so the combine is host-side bookkeeping with no added cross-stream sync.
-            auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            auto sources = neighbourBundle.selectByRole(pmacc::spearhed::roles::source);
             return zeroDone
                    + pmacc::spearhed::interact(
                        sources,

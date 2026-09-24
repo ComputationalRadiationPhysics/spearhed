@@ -203,7 +203,7 @@ namespace spearhed
             auto zeroDone
                 = pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, target, index, ZeroDerivatives{});
 
-            auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            auto sources = neighbourBundle.selectByRole(pmacc::spearhed::roles::source);
             return zeroDone
                    + pmacc::spearhed::interact(
                        sources,

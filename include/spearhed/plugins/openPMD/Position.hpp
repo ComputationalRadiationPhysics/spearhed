@@ -32,7 +32,7 @@
 namespace spearhed::output
 {
     // Tag for the absolute (world-space) position field in the output record.
-    // Distinct from relativePos (which is AABB-relative) to make the output self-contained.
+    // Distinct from chart-relative relativePos to make the output self-contained.
     DEFINE_TAG(position);
 
     template<pmacc::spearhed::CoordinateSystem CS>
@@ -46,7 +46,7 @@ namespace pmacc::spearhed
      * Partial specialisation for position leaf paths.
      *
      * Reads each relativePos axis leaf from the source frame SoA, adds the
-     * region origin component for that axis, and writes the absolute coordinate
+     * region-chart origin component for that axis, and writes the absolute coordinate
      * to the matching position leaf in the output DynSoA.
      */
     template<>
@@ -57,12 +57,12 @@ namespace pmacc::spearhed
         {
             using namespace pmacc::spearhed::tags;
             using ::spearhed::output::position_t;
-            using CS = std::remove_cvref_t<decltype(region.volume.origin)>::CS;
+            using CS = std::remove_cvref_t<decltype(region.spatial.chart.origin)>::CS;
 
             pmacc::spearhed::for_each_tag<CS>(
                 [&](auto axisTag)
                 {
-                    auto const o = region.volume.origin[axisTag];
+                    auto const o = region.spatial.chart.origin[axisTag];
                     auto const srcSpan = srcSoa.template getLeaf<ll::TagPath<relativePos_t, decltype(axisTag)>>();
                     auto dstSpan = dst.template getLeaf<ll::TagPath<position_t, decltype(axisTag)>>();
 

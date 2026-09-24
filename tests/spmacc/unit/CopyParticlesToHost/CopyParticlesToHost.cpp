@@ -27,6 +27,7 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
+#include "spmacc/particles/attributes/MultiMask.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -65,6 +66,16 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
 
     // Sync device heap to host and obtain the pointer offset for frame translation.
     auto heapOffset = spearhed::syncHeapToHost();
+
+    // Initialisation appends all frames for one region from one block.  This is
+    // the permanent storage contract: no interior frame or slot gaps exist.
+    using namespace pmacc::spearhed::tags;
+    auto isLive = [](auto particle) { return static_cast<bool>(particle[multiMask]); };
+    {
+        auto hostBox = prBuf->buffer->getHostBuffer().getDataBox();
+        for(int r = 0; r < prBuf->size; ++r)
+            REQUIRE(hostBox[r].particleFrameList.isPacked(isLive));
+    }
 
     // only serialize a subset of the tags
     // vel isnt used but still copied to check if the iterative path traversal based copy is working

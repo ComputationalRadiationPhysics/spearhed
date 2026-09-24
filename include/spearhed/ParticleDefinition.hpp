@@ -21,9 +21,9 @@
 
 #include "spearhed/param.hpp"
 #include "spmacc/Frame.hpp"
-#include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/regions/mapping/MaterialRegionMetadata.hpp"
 
 #include <pmacc/meta/Pair.hpp>
 #include <pmacc/meta/conversion/MakeSeq.hpp>
@@ -51,8 +51,10 @@ namespace spearhed
     /** Per-species ParticleRegion type.  Species propagates from ParticleDescription -> Frame ->
      *  ParticleRegion, so callers of ParticleRegionBuffer never name the species explicitly. */
     template<typename S>
-    using PRTypeFor = pmacc::spearhed::
-        ParticleRegion<pmacc::spearhed::AABB<CS>, FrameTypeFor<S>, typename DeviceHeap::AllocatorHandle>;
+    using PRTypeFor = pmacc::spearhed::ParticleRegion<
+        pmacc::spearhed::MaterialRegionMetadata<CS>,
+        FrameTypeFor<S>,
+        typename DeviceHeap::AllocatorHandle>;
 
     /** The simulation's species vector: every species (pmacc::spearhed::species::AllTypes) paired with
      *  the per-species PRType template.  Predicate-driven buffer helpers (forEachSpeciesBufWithPred,

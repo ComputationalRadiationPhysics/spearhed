@@ -108,7 +108,7 @@ TEST_CASE("NeighbourBundle: selectByRole", "[neighbour_bundle_v2]")
     NeighbourBundle<true, test::EntryA, test::EntryB, test::EntryC> bundle{std::tuple{a, b, c}};
 
     // A and C have Interior; B does not.
-    auto interiorView = bundle.selectByRole<roles::Interior>();
+    auto interiorView = bundle.selectByRole(roles::interior);
     STATIC_REQUIRE(decltype(interiorView)::size() == 2);
     STATIC_REQUIRE(IsNeighbourBundle<decltype(interiorView)>);
 
@@ -117,7 +117,7 @@ TEST_CASE("NeighbourBundle: selectByRole", "[neighbour_bundle_v2]")
     REQUIRE(count == 2);
 
     // B has Frozen; A and C do not.
-    auto frozenView = bundle.selectByRole<roles::Frozen>();
+    auto frozenView = bundle.selectByRole(roles::frozen);
     STATIC_REQUIRE(decltype(frozenView)::size() == 1);
     count = 0;
     frozenView.forEachEntry([&](auto&) { ++count; });
@@ -125,7 +125,7 @@ TEST_CASE("NeighbourBundle: selectByRole", "[neighbour_bundle_v2]")
 
     // No species has Movable, so the result should be empty.
     // (empty is allowed: NeighbourBundle with 0 entries is still valid for views)
-    auto movableView = bundle.selectByRole<roles::Movable>();
+    auto movableView = bundle.selectByRole(roles::movable);
     STATIC_REQUIRE(decltype(movableView)::size() == 0);
 }
 
@@ -139,7 +139,7 @@ TEST_CASE("NeighbourBundle: selectBySpecies", "[neighbour_bundle_v2]")
 
     NeighbourBundle<true, test::EntryA, test::EntryB, test::EntryC> bundle{std::tuple{a, b, c}};
 
-    auto aView = bundle.selectBySpecies<test::SpeciesA>();
+    auto aView = bundle.selectBySpecies(test::SpeciesA{});
     STATIC_REQUIRE(decltype(aView)::size() == 1);
     std::size_t count = 0;
     aView.forEachEntry([&](auto&) { ++count; });
@@ -156,7 +156,7 @@ TEST_CASE("NeighbourBundle: selectSpecies (multi)", "[neighbour_bundle_v2]")
 
     NeighbourBundle<true, test::EntryA, test::EntryB, test::EntryC> bundle{std::tuple{a, b, c}};
 
-    auto abView = bundle.selectSpecies<test::SpeciesA, test::SpeciesB>();
+    auto abView = bundle.selectSpecies(test::SpeciesA{}, test::SpeciesB{});
     STATIC_REQUIRE(decltype(abView)::size() == 2);
     std::size_t count = 0;
     abView.forEachEntry([&](auto&) { ++count; });
@@ -174,8 +174,8 @@ TEST_CASE("NeighbourBundle: chained select", "[neighbour_bundle_v2]")
     NeighbourBundle<true, test::EntryA, test::EntryB, test::EntryC> bundle{std::tuple{a, b, c}};
 
     // Chain: role then species
-    auto interiorView = bundle.selectByRole<roles::Interior>(); // A + C
-    auto aOnly = interiorView.selectBySpecies<test::SpeciesA>(); // A only
+    auto interiorView = bundle.selectByRole(roles::interior); // A + C
+    auto aOnly = interiorView.selectBySpecies(test::SpeciesA{}); // A only
     STATIC_REQUIRE(decltype(aOnly)::size() == 1);
     STATIC_REQUIRE(IsNeighbourBundle<decltype(aOnly)>);
     std::size_t count = 0;

@@ -160,7 +160,7 @@ namespace pmacc::spearhed
         }
     };
 
-    //! A single ParticleRegion: its frame list and volume.
+    //! A single ParticleRegion: its frame list and spatial metadata.
     template<typename T_Region>
     struct RegionView
     {
@@ -171,9 +171,9 @@ namespace pmacc::spearhed
             return region.particleFrameList;
         }
 
-        HDINLINE auto& volume() const
+        HDINLINE auto& spatial() const
         {
-            return region.volume;
+            return region.spatial;
         }
     };
 

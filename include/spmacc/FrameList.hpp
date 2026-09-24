@@ -170,6 +170,38 @@ namespace pmacc::spearhed
             return framePtr;
         }
 
+        /**
+         * @brief Detach the complete frame chain before a bulk rebuild.
+         *
+         * The caller must retain frame addresses independently and release each
+         * detached frame after all reads complete.  This is the relocation
+         * primitive: the active list can immediately receive a freshly packed
+         * chain while the old frames remain valid scatter sources.
+         */
+        HDINLINE constexpr FrameType* detachAllFrames()
+        {
+            numParticles = 0u;
+            return list.detachAllNodes();
+        }
+
+        /** Release one frame previously detached with detachAllFrames(). */
+        HDINLINE constexpr void destroyDetachedFrame(auto const& worker, FrameType* frame)
+        {
+            list.removeNode(worker, frame);
+        }
+
+        /** Free every active frame and restore an empty, valid list. */
+        HDINLINE constexpr void destroyAllFrames(auto const& worker)
+        {
+            FrameType* frame = detachAllFrames();
+            while(frame != nullptr)
+            {
+                FrameType* const next = frame->next;
+                destroyDetachedFrame(worker, frame);
+                frame = next;
+            }
+        }
+
         HDINLINE constexpr Iterator begin() const
         {
             return Iterator{list.begin()};
@@ -204,9 +236,47 @@ namespace pmacc::spearhed
             numParticles = n;
         }
 
-        HDINLINE constexpr auto size()
+        HDINLINE constexpr auto size() const
         {
             return list.size();
+        }
+
+        /**
+         * @brief Verify the packed-frame invariant with a caller-supplied liveness predicate.
+         *
+         * The predicate receives a slot view and returns whether the slot is live.
+         * This is useful in tests and debug maintenance checks without making the
+         * generic frame list depend on a particular particle-record tag.
+         */
+        template<typename IsLive>
+        HDINLINE constexpr bool isPacked(IsLive isLive) const
+        {
+            uint32_t countedParticles = 0u;
+            uint32_t countedFrames = 0u;
+            for(auto const& frame : *this)
+            {
+                bool seenGap = false;
+                uint32_t liveInFrame = 0u;
+                for(uint32_t slot = 0u; slot < FrameType::frameSize; ++slot)
+                {
+                    bool const live = isLive(frame[slot]);
+                    if(!live)
+                        seenGap = true;
+                    else
+                    {
+                        if(seenGap)
+                            return false;
+                        ++liveInFrame;
+                    }
+                }
+                if(frame.liveParticles != liveInFrame)
+                    return false;
+                if(frame.next != nullptr && liveInFrame != FrameType::frameSize)
+                    return false;
+                countedParticles += liveInFrame;
+                ++countedFrames;
+            }
+            return countedParticles == numParticles && countedFrames == numFrames();
         }
 
     private:

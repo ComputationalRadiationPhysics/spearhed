@@ -33,6 +33,7 @@
  */
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/control/TargetWorkSet.hpp"
 #include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Acceleration.hpp"
@@ -55,6 +56,8 @@
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -93,6 +96,13 @@ namespace
 
     struct Box2DSetup
     {
+        // Fluid and wall deliberately have independent group lifecycles. The frozen wall mapping
+        // is retained until explicitly invalidated; tracer remains an empty configured group here.
+        using DecompositionGroups = std::tuple<
+            pmacc::spearhed::StaticMappingDecompositionGroup<pmacc::spearhed::species::Default>,
+            pmacc::spearhed::ExplicitInvalidationDecompositionGroup<pmacc::spearhed::species::Boundary>,
+            pmacc::spearhed::StaticMappingDecompositionGroup<pmacc::spearhed::species::Tracer>>;
+
         // Required by SetupInterface concept - represents the interior region's domain
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
 
@@ -172,11 +182,12 @@ namespace
                 DINLINE constexpr uint32_t operator()(auto&, auto& particleRegion, uint32_t) const
                 {
                     using namespace pmacc::spearhed::tags;
-                    auto const& aabb = particleRegion.volume;
+                    auto const localMin = particleRegion.spatial.localMin();
+                    auto const localMax = particleRegion.spatial.localMax();
                     auto const nx
-                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[x] - localMin[x]) / sc_spacing + spearhed::Real{0.5});
                     auto const ny
-                        = static_cast<uint32_t>((aabb.max[y] - aabb.min[y]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[y] - localMin[y]) / sc_spacing + spearhed::Real{0.5});
                     return nx * ny;
                 }
             };
@@ -197,16 +208,17 @@ namespace
                     using namespace pmacc::spearhed::tags;
                     using namespace spearhed::tags;
 
-                    auto const& aabb = particleRegion.volume;
+                    auto const localMin = particleRegion.spatial.localMin();
+                    auto const localMax = particleRegion.spatial.localMax();
                     uint32_t const nx
-                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[x] - localMin[x]) / sc_spacing + spearhed::Real{0.5});
                     uint32_t const ix = globalParticleIdx % nx;
                     uint32_t const iy = globalParticleIdx / nx;
 
                     particle[relativePos][x]
-                        = aabb.min[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
+                        = localMin[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
                     particle[relativePos][y]
-                        = aabb.min[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
+                        = localMin[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
 
                     particle[mass] = particleMass;
                     particle[density] = rho0;
@@ -286,9 +298,10 @@ namespace
         DINLINE constexpr void operator()(auto const&, auto& particle, auto const& region, uint32_t) const
         {
             using namespace pmacc::spearhed::tags;
-            auto const& aabb = region.volume;
+            auto const localMin = region.spatial.localMin();
+            auto const localMax = region.spatial.localMax();
             pmacc::spearhed::for_each_tag<spearhed::CS>(
-                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+                [&](auto tag) { particle[relativePos][tag] = (localMin[tag] + localMax[tag]) * spearhed::Real{0.5}; });
         }
     };
 
@@ -430,15 +443,23 @@ TEST_CASE_METHOD(
         using K = spearhed::CubicSplineKernel;
         constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
 
+        // The setup-level declaration constructs the simulation-wide owners. The wall group remains
+        // prepared across all steps, while the interior group advances once after each push. Their
+        // plan uses the generic materialised-CSR fallback without mutating either prepared group.
+        using Groups = pmacc::spearhed::DecompositionGroupSet<
+            spearhed::AllSpecies,
+            pmacc::spearhed::DecompositionGroupsFor<Box2DSetup, spearhed::AllSpecies>>;
+        Groups groups;
+
         for(uint32_t step = 0; step < 5u; ++step)
         {
             spearhed::ParticlePush{}(step);
-            pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-            auto bundle = pmacc::spearhed::calculateNeighbours(
-                *prBuf,
-                interactionRadius,
-                *prBuf,
-                *this->template prBufFor<species::Boundary>());
+            groups.prepareAfterMotion();
+            auto bundle = pmacc::spearhed::makeInteractionPlan(
+                groups.preparedFor(*prBuf),
+                pmacc::spearhed::InteractionQuery{interactionRadius},
+                groups.preparedFor(*prBuf),
+                groups.preparedFor(boundaryBuf));
             // One frame index serves both passes: neither mutates frame-list topology, only
             // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
             // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
@@ -454,6 +475,9 @@ TEST_CASE_METHOD(
                 spearhed::EulerIntegrate{},
                 spearhed::dt);
         }
+
+        // The static boundary group was prepared once and reused for every target plan.
+        REQUIRE(groups.preparedFor(boundaryBuf).generation() == 1u);
 
         // CHECK 1: boundary positions frozen
 
@@ -527,6 +551,51 @@ TEST_CASE_METHOD(
     }
 
 
+    SECTION("Boundary: target work retains mixed-group plans across density and hydro phases")
+    {
+        namespace species = pmacc::spearhed::species;
+
+        Box2DSetup setup;
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        using K = spearhed::CubicSplineKernel;
+        constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
+        using Groups = pmacc::spearhed::DecompositionGroupSet<
+            spearhed::AllSpecies,
+            pmacc::spearhed::DecompositionGroupsFor<Box2DSetup, spearhed::AllSpecies>>;
+        using DensityTargets = std::tuple<species::Default, species::Boundary>;
+        using HydroTargets = std::tuple<species::Default>;
+        using Targets = spearhed::detail::TupleUnion<DensityTargets, HydroTargets>;
+
+        Groups groups;
+        spearhed::TargetFrameIndexCache<spearhed::AllSpecies, Targets> frameIndices;
+        groups.prepareAfterMotion();
+        auto workSet = spearhed::makeTargetWorkSet<DensityTargets, HydroTargets>(
+            groups,
+            frameIndices,
+            pmacc::spearhed::InteractionQuery{interactionRadius});
+
+        // Both target densities complete before the hydro pass reads either source density. The
+        // work set owns each plan and prepared target handle until the hydro completion below.
+        auto densityDone = workSet.launchDensity(
+            [](auto& work)
+            { return spearhed::UpdateDensity<K>{}(work.plan, *work.target, *work.frameIndex, spearhed::h0); });
+        densityDone.waitForFinished();
+        auto hydroDone = workSet.launchHydro(
+            [](auto& work)
+            {
+                return spearhed::UpdateHydroForces<K>{
+                    spearhed::gamma_eos}(work.plan, *work.target, *work.frameIndex, spearhed::h0);
+            });
+        hydroDone.waitForFinished();
+
+        auto& boundary = *this->template prBufFor<species::Boundary>();
+        REQUIRE(groups.preparedFor(*prBuf).generation() == 1u);
+        REQUIRE(groups.preparedFor(boundary).generation() == 1u);
+    }
+
+
     /**
      * Verifies that the high-level UpdateDensity API produces the same interior
      * densities as the manual DensityInitSelf + interact() code path. Both paths are
@@ -592,7 +661,7 @@ TEST_CASE_METHOD(
         // Re-initialize and compute via the manual code path (explicit index, same internals as UpdateDensity).
         pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
         {
-            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
             using PRType = spearhed::PRType;
             pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
             pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, spearhed::AccumulateDensity<K>{})
@@ -632,9 +701,17 @@ TEST_CASE_METHOD(
         spearhed::InitParticles{}(setup);
 
         auto& boundary = *this->template prBufFor<species::Boundary>();
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+
+        // The non-targeted tracer remains a valid configured zero-sized store, so a static
+        // decomposition-group/work-set type never depends on a runtime present-species subset.
+        REQUIRE(dc.hasId(pmacc::spearhed::prBufId(species::Tracer{})));
+        auto& tracer = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRTypeFor<species::Tracer>>>(
+            pmacc::spearhed::prBufId(species::Tracer{}));
 
         REQUIRE(prBuf->size == 1);
         REQUIRE(boundary.size == 1);
+        REQUIRE(tracer.size == 0);
         REQUIRE(countLiveParticles(*prBuf) == 4);
         REQUIRE(countLiveParticles(boundary) == 4);
     }

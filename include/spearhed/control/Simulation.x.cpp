@@ -30,18 +30,18 @@
 #include "spearhed/sph/HydroForces.hpp"
 #include "spmacc/particles/algorithms/FrameIndex.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 
+#include <cassert>
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <type_traits>
 
 namespace spearhed
 {
@@ -134,42 +134,50 @@ namespace spearhed
     template<SphKernel K>
     void Simulation::updateHydrodynamics()
     {
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        // The integration target: the (single) species advanced in time and used as the bundle target.
-        auto& defaultSpecies = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-            pmacc::spearhed::prBufId(pmacc::spearhed::species::default_));
+        assert(spatialGroups && targetFrameIndices && "spatial groups are created after region initialisation");
 
         auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
 
-        // Every present species that contributes to neighbour sums is a source; the boundary wall is
-        // included automatically when the setup created it, with no hardcoded species list.
-        pmacc::spearhed::withSpeciesBufsWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
-            [&](auto&... sources)
-            {
-                auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
-                // One frame index serves both passes: neither mutates frame-list topology, only
-                // particle attributes (see the FrameIndexBuffer invalidation contract).
-                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
-                auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
-                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
-                // bundle and index own device memory read by the still-queued kernels and die at the
-                // end of this scope, so this is the mandatory sync point for both passes.
-                (densityDone + hydroDone).waitForFinished();
-            });
+        // Mapping maintenance is group-owned, rather than target-owned. It runs once for every
+        // dynamic group before any target plans are built; static groups retain their prepared
+        // generation until their owner explicitly invalidates them.
+        spatialGroups->prepareAfterMotion();
 
-        // Euler update: v += dvdt*dt, u += dudt*dt. The forces computed above persist on the device
-        // buffers, so this runs as a separate phase. Only species that are both advanced in time
-        // (Movable) and carry thermodynamic accumulators (Thermodynamic) are integrated here, so
-        // Frozen wall species are skipped even though they may still be Thermodynamic sources.
-        pmacc::spearhed::forEachSpeciesBufWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::
-                withAllRoles<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>,
+        // TargetWorkSet owns all query-specific plans across both phases. It borrows only frame
+        // indices from the durable topology cache, whose refreshIfStale() rebuilds an index solely
+        // after a frame-list mutation. makeTargetWorkSet() only consumes prepared handles and never
+        // performs decomposition maintenance.
+        auto workSet = spearhed::
+            makeTargetWorkSet<typename InteractionTargets::DensityTargets, typename InteractionTargets::HydroTargets>(
+                *spatialGroups,
+                *targetFrameIndices,
+                pmacc::spearhed::InteractionQuery{interactionRadius});
+
+        // Every density target is queued and completed before any hydro target begins. This makes
+        // source-density dependencies explicit even when different targets use different groups.
+        auto densityDone = workSet.launchDensity(
+            [&](auto& work) { return spearhed::UpdateDensity<K>{}(work.plan, *work.target, *work.frameIndex, h0); });
+        densityDone.waitForFinished();
+
+        auto hydroDone = workSet.launchHydro(
+            [&](auto& work)
+            { return spearhed::UpdateHydroForces<K>{gamma_eos}(work.plan, *work.target, *work.frameIndex, h0); });
+        hydroDone.waitForFinished();
+
+        // Euler update: v += dvdt*dt, u += dudt*dt. Restrict it to configured hydro targets:
+        // density-only targets deliberately receive no integration, while frozen hydro targets are
+        // skipped even if they carry thermodynamic fields.
+        spearhed::forEachConfiguredTargetStore<typename InteractionTargets::HydroTargets>(
+            *spatialGroups,
             [&](auto& buf)
             {
-                pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);
+                using Species = typename std::remove_reference_t<decltype(buf)>::Species;
+                if constexpr(pmacc::spearhed::hasRole(Species{}, pmacc::spearhed::roles::Movable{}))
+                    pmacc::spearhed::launchForEach(
+                        pmacc::spearhed::levels::particle,
+                        buf,
+                        spearhed::EulerIntegrate{},
+                        dt);
             });
     }
 
@@ -178,7 +186,6 @@ namespace spearhed
         // order of operations? which species to start with?
         // force calculation first? or pusher or something else?
         ParticlePush{}(currentStep);
-        pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         using SmoothingKernel = typename Setup::SmoothingKernel;
         updateHydrodynamics<SmoothingKernel>();
@@ -265,6 +272,12 @@ namespace spearhed
 
         InitRegions{}(*deviceHeap, setup);
         InitParticles{}(setup);
+
+        // Region creation registers a zero-sized buffer for every configured species, allowing the
+        // setup declaration to instantiate one stable, simulation-wide group set without runtime
+        // present-subset specialisation. These owners remain alive through queued target work.
+        spatialGroups.emplace(setup, deviceHeap->getAllocatorHandle());
+        targetFrameIndices.emplace();
 
         return 0u;
     }

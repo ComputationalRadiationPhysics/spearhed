@@ -93,6 +93,15 @@ endfunction()
 add_test_target(unit_test_llama_ "llamaLite" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
 add_test_target(unit_test_spmacc_ "spmacc" ${CMAKE_CURRENT_SOURCE_DIR}/spmacc/unit/**)
 add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
+target_include_directories(unit_test_spearhed_MappingSetups_MappingSetups PRIVATE ${PROJECT_SOURCE_DIR}/share)
+
+# Repeatable Phase-0 spatial baseline. This is built with the tests but is not registered with
+# CTest: timings are hardware-dependent and are recorded manually in the benchmark notes.
+alpaka_add_executable(
+    benchmark_spmacc_spatial_baseline
+    ${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks/spatial/SpatialBaseline.cpp
+)
+target_link_libraries(benchmark_spmacc_spatial_baseline PRIVATE alpaka::alpaka spearhed-hostonly pmacc::pmacc)
 
 # Per-test DIM2 override: shadow the global dimension.param with a 2D version
 # for the BoundaryConditions test only. BEFORE ensures the local file wins.

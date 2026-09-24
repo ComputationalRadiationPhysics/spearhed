@@ -184,19 +184,13 @@ namespace pmacc::spearhed
     template<typename T>
     concept SpeciesRegistryTag = requires { typename T::List; };
 
-    /** DataConnector id for a species' particle-region buffer -- type-based (template). */
-    template<SpeciesTag T>
-    inline std::string prBufId()
-    {
-        return std::string("PRBuf_") + T::name.c_str();
-    }
-
     /** DataConnector id for a species' particle-region buffer -- value-based.
      *  Regular function (not consteval) because the return type std::string is not
      *  a literal type usable in constant expressions. */
     [[nodiscard]] inline std::string prBufId(SpeciesTag auto species)
     {
-        return std::string("PRBuf_") + std::remove_cvref_t<decltype(species)>::name.c_str();
+        using Species = decltype(species);
+        return std::string("PRBuf_") + Species::name.c_str();
     }
 
     // Species predicates & iteration
