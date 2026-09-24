@@ -6,8 +6,8 @@
 
 #pragma once
 
+#include "llamaLite/tag/TagPath.hpp"
 #include "llamaLite/utility.hpp"
-#include "tag/TagPath.hpp"
 
 namespace llama_lite
 {

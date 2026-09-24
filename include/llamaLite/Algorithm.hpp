@@ -8,8 +8,8 @@
 
 #include "llamaLite/Record.hpp"
 #include "llamaLite/tag/TagPath.hpp"
-#include "traits.hpp"
-#include "utility.hpp"
+#include "llamaLite/traits.hpp"
+#include "llamaLite/utility.hpp"
 
 #include <utility>
 

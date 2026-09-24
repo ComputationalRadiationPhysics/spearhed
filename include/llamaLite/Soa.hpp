@@ -14,7 +14,7 @@
 #include "llamaLite/Tuple.hpp"
 #include "llamaLite/View.hpp"
 #include "llamaLite/tag/TagPath.hpp"
-#include "utility.hpp"
+#include "llamaLite/utility.hpp"
 
 #include <array>
 #include <cstddef>

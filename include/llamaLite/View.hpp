@@ -6,12 +6,12 @@
 
 #pragma once
 
-#include "Record.hpp"
 #include "llamaLite/AccessSet.hpp"
+#include "llamaLite/Record.hpp"
 #include "llamaLite/Set.hpp"
 #include "llamaLite/tag/TagPath.hpp"
+#include "llamaLite/traits.hpp"
 #include "llamaLite/utility.hpp"
-#include "traits.hpp"
 
 #include <concepts>
 #include <cstdint>
