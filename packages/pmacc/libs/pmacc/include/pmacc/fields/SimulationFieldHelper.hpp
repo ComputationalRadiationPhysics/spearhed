@@ -43,16 +43,6 @@ namespace pmacc
 
         virtual ~SimulationFieldHelper() = default;
 
-        /**
-         * Reset is as well used for init.
-         */
-        virtual void reset(uint32_t currentStep) = 0;
-
-        /**
-         * Synchronize data from host to device.
-         */
-        virtual void syncToDevice() = 0;
-
         CellDescription getCellDescription() const
         {
             return cellDescription;

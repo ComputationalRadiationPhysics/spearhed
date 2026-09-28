@@ -50,11 +50,8 @@ namespace pmacc
          * Constructor that creates the buffers with the given size
          *
          * @param size DataSpace representing buffer size
-         * @param sizeOnDevice if true, internal buffers must store their
-         *        size additionally on the device
-         *        (as we keep this information coherent with the host, it influences
-         *        performance on host-device copies, but some algorithms on the device
-         *        might need to know the size of the buffer)
+         * @param sizeOnDevice if true, allocate device-side size storage. Initialize it explicitly, for example by
+         *        starting hostToDevice(), before device use.
          */
         HostDeviceBuffer(DataSpace<T_dim> const& size, bool sizeOnDevice = false);
 
@@ -92,25 +89,11 @@ namespace pmacc
          */
         HINLINE DBuffer& getDeviceBuffer() const;
 
-        /**
-         * Resets both internal buffers.
-         *
-         * See DeviceBuffer::reset and HostBuffer::reset for details.
-         *
-         * @param preserveData determines if data on internal buffers should not be erased
-         */
-        void reset(bool preserveData = true);
+        /** Return a lazy copy from the internal host buffer to the device buffer. */
+        [[nodiscard]] HINLINE auto hostToDevice();
 
-        /**
-         * Asynchronously copies data from internal host to internal device buffer.
-         *
-         */
-        HINLINE void hostToDevice();
-
-        /**
-         * Asynchronously copies data from internal device to internal host buffer.
-         */
-        HINLINE void deviceToHost();
+        /** Return a lazy copy from the internal device buffer to the host buffer. */
+        [[nodiscard]] HINLINE auto deviceToHost();
 
     private:
         std::unique_ptr<HBuffer> hostBuffer;

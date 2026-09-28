@@ -272,7 +272,11 @@ endif()
 ################################################################################
 
 find_package(MPI REQUIRED)
-target_link_libraries(pmacc PUBLIC MPI::MPI_CXX)
+if(NOT TARGET caravan::mpi)
+    set(CARAVAN_BUILD_TESTING OFF)
+    add_subdirectory(${PMacc_DIR}/../caravan ${CMAKE_BINARY_DIR}/caravan EXCLUDE_FROM_ALL)
+endif()
+target_link_libraries(pmacc PUBLIC MPI::MPI_CXX caravan::mpi)
 
 if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND CMAKE_EXE_LINKER_FLAGS)
     # Workaround for linker issues when linking static MPI libraries.

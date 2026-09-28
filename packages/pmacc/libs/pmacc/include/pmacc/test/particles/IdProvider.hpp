@@ -31,6 +31,8 @@
 #include <cstdint>
 #include <set>
 
+#include <caravan/alpaka.hpp>
+#include <caravan/core.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 namespace pmacc
@@ -115,34 +117,52 @@ namespace pmacc
                     uint64_t maxRanks = Environment<T_dim>::get().GridController().getGpuNodes().productOfComponents();
                     uint64_t rank = Environment<T_dim>::get().GridController().getScalarPosition();
                     auto idProvider = IdProvider("id provider", rank, maxRanks);
+                    auto& device = Environment<>::get().DeviceContext();
+                    caravan::ControlContext context;
+                    context.wait(context.spawn(caravan::alpaka::withDevice(device, idProvider.initialize())));
+                    auto getNewId = [&]
+                    {
+                        auto result = context.spawnFuture<uint64_t>(
+                            caravan::alpaka::withDevice(device, idProvider.getNewIdHost()));
+                        context.wait(result.event());
+                        return result.result();
+                    };
 
                     // Check initial state
-                    auto state = idProvider.getState();
+                    auto state = idProvider.getStateHost();
                     REQUIRE(state.startId == state.nextId);
                     REQUIRE(state.maxNumProc == 1u);
-                    REQUIRE(!idProvider.isOverflown());
+                    REQUIRE(!IdProvider::isOverflown(state));
                     std::set<uint64_t> ids;
-                    REQUIRE(idProvider.getNewIdHost() == state.nextId);
+                    REQUIRE(getNewId() == state.nextId);
                     // Generate some IDs using the function
                     for(int i = 0; i < numIds; i++)
                     {
-                        uint64_t const newId = idProvider.getNewIdHost();
+                        uint64_t const newId = getNewId();
                         REQUIRE(checkDuplicate(ids, newId, false));
                         ids.insert(newId);
                     }
+                    context.wait(context.spawn(caravan::alpaka::withDevice(device, idProvider.synchronize())));
+                    REQUIRE(idProvider.getStateHost().nextId == state.nextId + numIds + 1u);
                     // Reset the state
-                    idProvider.setState(state);
-                    REQUIRE(idProvider.getNewIdHost() == state.nextId);
+                    idProvider.setStateHost(state);
+                    context.wait(context.spawn(caravan::alpaka::withDevice(device, idProvider.initialize())));
+                    REQUIRE(getNewId() == state.nextId);
                     // Generate the same IDs on the device
                     HostDeviceBuffer<uint64_t, 1> idBuf(numIds);
+                    auto& deviceBuffer = idBuf.getDeviceBuffer();
 
-                    PMACC_LOCKSTEP_KERNEL(GenerateIds<numIdsPerBlock>{})
-                        .template config<numIdsPerBlock>(numBlocks)(
-                            idBuf.getDeviceBuffer().getDataBox(),
-                            idProvider.getDeviceGenerator(),
-                            numThreads,
-                            numIdsPerThread);
-                    idBuf.deviceToHost();
+                    auto generate = PMACC_LOCKSTEP_KERNEL(GenerateIds<numIdsPerBlock>{})
+                                        .template config<numIdsPerBlock>(numBlocks)(
+                                            deviceBuffer.getOwnedDataBox(),
+                                            idProvider.getDeviceGenerator(),
+                                            numThreads,
+                                            numIdsPerThread);
+                    auto copy = idBuf.deviceToHost();
+                    context.wait(context.spawn(
+                        caravan::alpaka::withDevice(
+                            device,
+                            std::move(generate) | caravan::sequence(std::move(copy)))));
                     REQUIRE(numIds == ids.size());
                     auto hostBox = idBuf.getHostBuffer().getDataBox();
                     // Make sure they are the same

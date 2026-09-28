@@ -64,113 +64,121 @@ namespace pmacc
                     reduceBuffer = std::make_unique<GridBuffer<char, DIM1>>(DataSpace<DIM1>(byte));
             }
 
-            /** Reduce elements in global gpu memory
+            /** Lazily reduce device values and copy the result to the host.
              *
-             * @param func binary functor for reduce which takes two arguments, first argument is the source and
-             * get the new reduced value. Functor must specialize the function getMPI_Op.
-             * @param src a class or a pointer where the reduce algorithm can access the value by operator [] (one
-             * dimensional access)
-             * @param n number of elements to reduce
-             *
-             * @return reduced value
+             * The queue and source storage must remain alive through completion. Operations using the same reducer
+             * must not overlap because they share its scratch buffer.
              */
             template<class Functor, typename Src>
-            HINLINE typename traits::GetValueType<Src>::ValueType operator()(Functor func, Src src, uint32_t n)
+            [[nodiscard]] HINLINE auto reduce(Functor func, Src src, uint32_t n)
             {
                 /* - the result of a functor can be a reference or a const value
                  * - it is not allowed to create const or reference memory
                  *   thus we remove `references` and `const` qualifiers */
-                using Type = typename std::remove_const_t<
-                    typename std::remove_reference_t<typename traits::GetValueType<Src>::ValueType>>;
+                using Type
+                    = std::remove_const_t<std::remove_reference_t<typename traits::GetValueType<Src>::ValueType>>;
 
-                uint32_t blockcount = optimalThreadsPerBlock(n, sizeof(Type));
+                tmpBufferAlloc();
+                auto* destination = reinterpret_cast<Type*>(reduceBuffer->getDeviceBuffer().data());
+                auto kernels = caravan::alpaka::submit(
+                    [func = std::move(func),
+                     src = std::move(src),
+                     n,
+                     destination,
+                     scratchBytes = byte,
+                     sharedBytes = sharedMemByte](auto& nativeQueue) mutable
+                    { enqueueReduction(nativeQueue, func, src, n, destination, scratchBytes, sharedBytes); });
+                auto copy = reduceBuffer->deviceToHost();
+                auto host = reduceBuffer->getHostBuffer().getOwnedAlpakaView();
+                return std::move(kernels) | caravan::sequence(std::move(copy))
+                       | caravan::then([host = std::move(host)]
+                                       { return *reinterpret_cast<Type const*>(::alpaka::onHost::data(host.value)); });
+            }
 
-                uint32_t n_buffer = byte / sizeof(Type);
-
-                uint32_t threads
-                    = n_buffer * blockcount
-                      * 2; /* x2 is used thus we can use all byte in Buffer, after we calculate threads/2 */
-
-
+        private:
+            template<typename T_Queue, class Functor, typename Src, typename Type>
+            HINLINE static void enqueueReduction(
+                T_Queue& queue,
+                Functor func,
+                Src src,
+                uint32_t n,
+                Type* destination,
+                uint32_t scratchBytes,
+                uint32_t sharedBytes)
+            {
+                uint32_t blockcount = optimalThreadsPerBlock(n, sizeof(Type), sharedBytes);
+                uint32_t const nBuffer = scratchBytes / sizeof(Type);
+                uint32_t threads = nBuffer * blockcount * 2u;
                 if(threads > n)
                     threads = n;
 
-                // lazy allocation of the result buffer
-                tmpBufferAlloc();
-
-                auto* dest = (Type*) reduceBuffer->getDeviceBuffer().data();
-
-                uint32_t blocks = threads / 2 / blockcount;
-                if(blocks == 0)
-                    blocks = 1;
-                callReduceKernel<Type>(
+                uint32_t blocks = threads / 2u / blockcount;
+                if(blocks == 0u)
+                    blocks = 1u;
+                enqueueReduceKernel<Type>(
+                    queue,
                     blocks,
                     blockcount,
                     blockcount * sizeof(Type),
                     src,
                     n,
-                    dest,
+                    destination,
                     func,
-                    pmacc::math::operation::Assign());
+                    pmacc::math::operation::Assign{});
                 n = blocks;
-                blockcount = optimalThreadsPerBlock(n, sizeof(Type));
-                blocks = n / 2 / blockcount;
-                if(blocks == 0 && n > 1)
-                    blocks = 1;
+                blockcount = optimalThreadsPerBlock(n, sizeof(Type), sharedBytes);
+                blocks = n / 2u / blockcount;
+                if(blocks == 0u && n > 1u)
+                    blocks = 1u;
 
-
-                while(blocks != 0)
+                while(blocks != 0u)
                 {
-                    if(blocks > 1)
+                    if(blocks > 1u)
                     {
-                        uint32_t blockOffset = ceil((double) blocks / blockcount);
-                        uint32_t useBlocks = blocks - blockOffset;
-                        uint32_t problemSize = n - (blockOffset * blockcount);
-                        Type* srcPtr = dest + (blockOffset * blockcount);
-
-                        callReduceKernel<Type>(
+                        uint32_t const blockOffset = ceil(static_cast<double>(blocks) / blockcount);
+                        uint32_t const useBlocks = blocks - blockOffset;
+                        uint32_t const problemSize = n - blockOffset * blockcount;
+                        Type* source = destination + blockOffset * blockcount;
+                        enqueueReduceKernel<Type>(
+                            queue,
                             useBlocks,
                             blockcount,
                             blockcount * sizeof(Type),
-                            srcPtr,
+                            source,
                             problemSize,
-                            dest,
+                            destination,
                             func,
                             func);
                         blocks = blockOffset * blockcount;
                     }
                     else
                     {
-                        callReduceKernel<Type>(
+                        enqueueReduceKernel<Type>(
+                            queue,
                             blocks,
                             blockcount,
                             blockcount * sizeof(Type),
-                            dest,
+                            destination,
                             n,
-                            dest,
+                            destination,
                             func,
-                            pmacc::math::operation::Assign());
+                            pmacc::math::operation::Assign{});
                     }
 
                     n = blocks;
-                    blockcount = optimalThreadsPerBlock(n, sizeof(Type));
-                    blocks = n / 2 / blockcount;
-                    if(blocks == 0 && n > 1)
-                        blocks = 1;
+                    blockcount = optimalThreadsPerBlock(n, sizeof(Type), sharedBytes);
+                    blocks = n / 2u / blockcount;
+                    if(blocks == 0u && n > 1u)
+                        blocks = 1u;
                 }
-
-                reduceBuffer->deviceToHost();
-                eventSystem::getTransactionEvent().waitForFinished();
-                return *((Type*) (reduceBuffer->getHostBuffer().data()));
             }
 
-        private:
             /** calculate number of threads per block
              *
              * @param threads maximal number of threads per block
              * @return number of threads per block
              */
-            HINLINE uint32_t getThreadsPerBlock(uint32_t threads)
+            HINLINE static uint32_t getThreadsPerBlock(uint32_t threads)
             {
                 /// \todo this list is not complete
                 ///        extend it and maybe check for sm_version
@@ -199,64 +207,54 @@ namespace pmacc
                 return 1;
             }
 
-            /** start the reduce kernel
-             *
-             * The minimal number of elements reduced within a CUDA block is chosen at
-             * compile time.
-             */
-            template<typename Type, typename... T_Args>
-            HINLINE void callReduceKernel(uint32_t blocks, uint32_t threads, uint32_t sharedMemSize, T_Args&&... args)
+            template<typename Type, typename T_Queue, typename... T_Args>
+            HINLINE static void enqueueReduceKernel(
+                T_Queue& queue,
+                uint32_t blocks,
+                uint32_t threads,
+                uint32_t sharedMemSize,
+                T_Args&&... args)
             {
                 if(threads >= 512u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<512u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<512u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 256u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<256u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<256u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 128u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<128u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<128u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 64u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<64u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<64u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 32u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<32u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<32u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 16u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<16u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<16u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 8u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<8u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<8u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 4u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<4u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<4u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else if(threads >= 2u)
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<2u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<2u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
                 else
-                {
                     PMACC_LOCKSTEP_KERNEL(reduce::Kernel<Type>{})
-                        .template configSMem<1u>(blocks, sharedMemSize)(args...);
-                }
+                        .template configSMem<1u>(blocks, sharedMemSize)
+                        .enqueueNative(queue, std::forward<T_Args>(args)...);
             }
 
             /** calculate optimal number of threads per block with respect to shared memory limitations
@@ -265,7 +263,7 @@ namespace pmacc
              * @param sizePerElement size in bytes per elements
              * @return optimal count of threads per block to solve the problem
              */
-            HINLINE uint32_t optimalThreadsPerBlock(uint32_t n, uint32_t sizePerElement)
+            HINLINE static uint32_t optimalThreadsPerBlock(uint32_t n, uint32_t sizePerElement, uint32_t sharedMemByte)
             {
                 uint32_t const sharedBorder = sharedMemByte / sizePerElement;
                 return getThreadsPerBlock(std::min(sharedBorder, n));

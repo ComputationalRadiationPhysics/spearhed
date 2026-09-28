@@ -34,7 +34,7 @@ namespace pmacc
             /** Addition of two values
              *
              * @tparam T_AlpakaOperation alpaka atomic operation [::alpaka::op]
-             * @tparam T_AlpakaHierarchy alpaka atomic hierarchy [::alpaka::hierarchy]
+             * @tparam T_AlpakaHierarchy alpaka atomic scope [::alpaka::onAcc::scope]
              */
             template<typename T_AlpakaOperation, typename T_AlpakaHierarchy = ::alpaka::onAcc::scope::Device>
             struct Atomic

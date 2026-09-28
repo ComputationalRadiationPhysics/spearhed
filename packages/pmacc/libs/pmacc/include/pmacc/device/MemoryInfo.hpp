@@ -27,12 +27,6 @@
 #include "pmacc/alpakaHelper/acc.hpp"
 #include "pmacc/types.hpp"
 
-#include <pmacc/communication/manager_common.hpp>
-
-#include <cstring> // memset
-
-#include <mpi.h>
-
 namespace pmacc
 {
     namespace device
@@ -74,59 +68,6 @@ namespace pmacc
 
                     *total = totalInternal;
                 }
-            }
-
-            /** Check if the memory pool is shared by host and device.
-             *
-             * @attention This method is using MPI collectives and must be called from all MPI processes collectively.
-             *
-             *  @param numRanksPerDevice number of ranks using one device
-             *  @param mpiComm MPI communicator
-             *
-             *  @return true if the device memory is shared with the host else false
-             */
-            bool isSharedMemoryPool(
-                [[maybe_unused]] uint32_t const numRanksPerDevice,
-                [[maybe_unused]] MPI_Comm mpiComm) const
-            {
-#if (!ALPAKA_LANG_CUDA && !ALPAKA_LANG_HIP)
-                return true;
-#else
-                if(numRanksPerDevice >= 2u)
-                    MPI_CHECK(MPI_Barrier(mpiComm));
-
-                size_t freeInternal = 0;
-                size_t freeAtStart = 0;
-
-                getMemoryInfo(&freeAtStart);
-
-                if(numRanksPerDevice >= 2u)
-                    MPI_CHECK(MPI_Barrier(mpiComm));
-
-                /* Do not allocate 100% is a bit risky on a SoC-like device */
-                double const fractionOfMemory = 0.9 / static_cast<double>(numRanksPerDevice);
-                size_t allocSth = static_cast<size_t>(fractionOfMemory * static_cast<double>(freeAtStart));
-                uint8_t* c = new uint8_t[allocSth];
-                memset(c, 0, allocSth);
-
-                if(numRanksPerDevice >= 2u)
-                    MPI_CHECK(MPI_Barrier(mpiComm));
-
-                getMemoryInfo(&freeInternal);
-
-                if(numRanksPerDevice >= 2u)
-                    MPI_CHECK(MPI_Barrier(mpiComm));
-
-                delete[] c;
-
-                /* if we allocated 90% of available mem, we should have "lost" more
-                 * than 50% of memory, even with fluctuations from the OS */
-                double const thresholdFraction = 0.5 / static_cast<double>(numRanksPerDevice);
-                if(static_cast<double>(freeInternal) / static_cast<double>(freeAtStart) < thresholdFraction)
-                    return true;
-
-                return false;
-#endif
             }
 
             void setReservedMemory(size_t reservedMem)

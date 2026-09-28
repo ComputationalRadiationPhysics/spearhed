@@ -26,6 +26,7 @@
 #include "pmacc/meta/conversion/Unique.hpp"
 #include "pmacc/particles/policies/DeleteParticles.hpp"
 #include "pmacc/particles/policies/ExchangeParticles.hpp"
+#include "pmacc/static_assert.hpp"
 
 namespace pmacc
 {

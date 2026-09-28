@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "pmacc/fields/tasks/FieldFactory.hpp"
 #include "pmacc/lockstep.hpp"
 #include "pmacc/mappings/kernel/ExchangeMapping.hpp"
 #include "pmacc/mappings/kernel/MappingDescription.hpp"
@@ -31,6 +30,8 @@
 #include "pmacc/types.hpp"
 
 #include <boost/core/ignore_unused.hpp>
+
+#include <caravan/alpaka.hpp>
 
 namespace pmacc
 {
@@ -139,7 +140,7 @@ namespace pmacc
                  * @param exchangeType the exchange direction which needs to be copied
                  */
                 template<typename T_SrcBuffer, typename T_SuperCellSize>
-                void operator()(
+                [[nodiscard]] auto sender(
                     T_SrcBuffer& srcBuffer,
                     T_SuperCellSize const& superCellSize,
                     uint32_t const exchangeType) const
@@ -164,10 +165,10 @@ namespace pmacc
 
                     DataSpace<dim> const direction = Mask::getRelativeDirections<dim>(mapper.getExchangeType());
 
-                    PMACC_LOCKSTEP_KERNEL(KernelCopyGuardToExchange{})
+                    return PMACC_LOCKSTEP_KERNEL(KernelCopyGuardToExchange{})
                         .config(mapper.getGridDim(), SuperCellSize{})(
-                            srcBuffer.getSendExchange(exchangeType).getDeviceBuffer().getDataBox(),
-                            srcBuffer.getDeviceBuffer().getDataBox(),
+                            srcBuffer.getSendExchange(exchangeType).getDeviceBuffer().getOwnedDataBox(),
+                            srcBuffer.getDeviceBuffer().getOwnedDataBox(),
                             srcBuffer.getSendExchange(exchangeType).getDeviceBuffer().capacityND(),
                             direction,
                             mapper);

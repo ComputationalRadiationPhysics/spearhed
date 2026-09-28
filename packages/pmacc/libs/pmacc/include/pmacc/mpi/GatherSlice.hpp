@@ -21,13 +21,18 @@
 
 #pragma once
 
-#pragma once
-
 #include "pmacc/Environment.hpp"
 #include "pmacc/dimensions/DataSpace.hpp"
 #include "pmacc/memory/buffers/HostBuffer.hpp"
 
-#include <mpi.h>
+#include <array>
+#include <memory>
+#include <optional>
+#include <span>
+#include <vector>
+
+#include <caravan/core.hpp>
+#include <caravan/mpi.hpp>
 
 namespace pmacc
 {
@@ -37,33 +42,33 @@ namespace pmacc
         class GatherSlice
         {
         private:
-            MPI_Comm gatherComm = MPI_COMM_NULL;
+            std::optional<caravan::CommunicatorInfo> caravanGatherComm;
+            caravan::MpiContext* mpiContext = nullptr;
             // gather rank zero will hold final data
             int gatherRank = -1;
             // number of ranks participating in the gather operation
             int numRanksInPlane = 0;
 
         public:
-            GatherSlice()
-            {
-            }
+            GatherSlice() = default;
 
             virtual ~GatherSlice()
             {
-                if(gatherComm != MPI_COMM_NULL)
+                if(!caravanGatherComm)
+                    return;
+                try
                 {
-                    auto err = MPI_Comm_free(&gatherComm);
-                    if(err != MPI_SUCCESS)
-                        std::cerr << __FILE__ << ":" << __LINE__ << "MPI_Comm_free failed." << std::endl;
-                    gatherComm = MPI_COMM_NULL;
+                    caravan::syncWait(caravan::mpi::destroyCommunicator(*mpiContext, caravanGatherComm->communicator));
+                }
+                catch(std::exception const& error)
+                {
+                    std::cerr << "Failed to destroy Caravan gather communicator: " << error.what() << '\n';
                 }
             }
 
             /** Check if MPI rank is the gather master rank.
              *
-             * The master will return the data when calling gatherSlice().
-             *
-             * @return True if this MPI rank is returning the gathered data during gatherSlice() operation, else false.
+             * @return True if this MPI rank receives the gathered data, else false.
              */
             bool isMaster() const
             {
@@ -72,7 +77,7 @@ namespace pmacc
 
             /** Check if this MPI rank gathers the data.
              *
-             * @return True if this MPI rank returns the gathered data during gatherSlice() operation, else false.
+             * @return True if this MPI rank receives the gathered data, else false.
              */
             bool hasResult() const
             {
@@ -97,63 +102,21 @@ namespace pmacc
              */
             bool participate(bool isActive)
             {
-                int countRanks;
-                int globalMpiRank;
-                MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &countRanks));
-                std::vector<int> allRank(countRanks);
-                std::vector<int> groupRanks(countRanks);
-                MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &globalMpiRank));
-
-                if(!isActive)
-                    globalMpiRank = -1;
-
-                // avoid deadlock between not finished pmacc tasks and mpi blocking collectives
-                eventSystem::getTransactionEvent().waitForFinished();
-                MPI_CHECK(MPI_Allgather(&globalMpiRank, 1, MPI_INT, allRank.data(), 1, MPI_INT, MPI_COMM_WORLD));
-
-                int numRanks = 0;
-                for(int i = 0; i < countRanks; ++i)
-                {
-                    if(allRank[i] != -1)
-                    {
-                        groupRanks[numRanks] = allRank[i];
-                        numRanks++;
-                    }
-                }
-                numRanksInPlane = numRanks;
-
-                MPI_Group group = MPI_GROUP_NULL;
-                MPI_Group newgroup = MPI_GROUP_NULL;
-                MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
-                MPI_CHECK(MPI_Group_incl(group, numRanks, groupRanks.data(), &newgroup));
-
-                MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, newgroup, &gatherComm));
-
-                if(globalMpiRank != -1)
-                {
-                    MPI_CHECK(MPI_Comm_rank(gatherComm, &gatherRank));
-                }
-                MPI_CHECK(MPI_Group_free(&group));
-                MPI_CHECK(MPI_Group_free(&newgroup));
-
-                return this->isMaster();
+                mpiContext = &Environment<>::get().getMpiContext();
+                auto const world = mpiContext->topology();
+                caravanGatherComm
+                    = caravan::syncWait<std::optional<caravan::CommunicatorInfo>>(caravan::mpi::splitCommunicator(
+                        *mpiContext,
+                        isActive ? std::optional<int>{0} : std::nullopt,
+                        world.rank));
+                gatherRank = caravanGatherComm ? caravanGatherComm->rank : -1;
+                numRanksInPlane = caravanGatherComm ? caravanGatherComm->size : 0;
+                return isMaster();
             }
 
-            /** gather data
-             *
-             * Must be called by all participating MPI ranks.
-             * If a non-participating MPI rank is calling the method the returned buffer will be empty.
-             * @attention The master rank will allocate host memory for the received data.
-             *
-             * @tparam T_DataType Slice buffer data type.
-             * @param localInputSlice Buffer with local slice data. Buffer memory must be contiguous without line
-             * paddings. Buffer extents can be different for each MPI rank.
-             * @param globalSliceExtent extent in elements of the global slice
-             * @param localSliceOffset local offset in elements relative to the global slice origin
-             * @return shared pointer to host buffer with gathered slice data (only master has valid data)
-             */
+            /** Gather after the caller has explicitly completed writes to localInputSlice. */
             template<typename T_DataType>
-            auto gatherSlice(
+            auto gatherSliceExplicit(
                 HostBuffer<T_DataType, DIM2>& localInputSlice,
                 DataSpace<DIM2> globalSliceExtent,
                 DataSpace<DIM2> localSliceOffset) const
@@ -164,36 +127,33 @@ namespace pmacc
                 if(!isParticipating())
                     return std::shared_ptr<HostBuffer<ValueType, DIM2>>{};
 
-                // avoid deadlock between not finished pmacc tasks and mpi blocking collectives
-                eventSystem::getTransactionEvent().waitForFinished();
                 // get number of elements per participating mpi rank
                 auto extentPerDevice = std::vector<DataSpace<DIM2>>(numRanksInPlane);
-
+                auto offsetPerDevice = std::vector<DataSpace<DIM2>>(numRanksInPlane);
                 auto localSliceSize = localInputSlice.capacityND();
 
-                // gather extents
-                MPI_CHECK(MPI_Gather(
-                    reinterpret_cast<int*>(&localSliceSize),
-                    2,
-                    MPI_INT,
-                    reinterpret_cast<int*>(extentPerDevice.data()),
-                    2,
-                    MPI_INT,
-                    0,
-                    gatherComm));
-
-                auto offsetPerDevice = std::vector<DataSpace<DIM2>>(numRanksInPlane);
-
-                // gather offsets
-                MPI_CHECK(MPI_Gather(
-                    reinterpret_cast<int*>(&localSliceOffset),
-                    2,
-                    MPI_INT,
-                    reinterpret_cast<int*>(offsetPerDevice.data()),
-                    2,
-                    MPI_INT,
-                    0,
-                    gatherComm));
+                std::array<int, 2> localExtent{localSliceSize.x(), localSliceSize.y()};
+                std::array<int, 2> localOffset{localSliceOffset.x(), localSliceOffset.y()};
+                std::vector<std::array<int, 2>> extents(numRanksInPlane);
+                std::vector<std::array<int, 2>> offsets(numRanksInPlane);
+                caravan::syncWait<caravan::GatherResult>(caravan::mpi::gather(
+                    *mpiContext,
+                    std::as_bytes(std::span{localExtent}),
+                    std::as_writable_bytes(std::span{extents}),
+                    caravan::Peer{0},
+                    caravanGatherComm->communicator));
+                caravan::syncWait<caravan::GatherResult>(caravan::mpi::gather(
+                    *mpiContext,
+                    std::as_bytes(std::span{localOffset}),
+                    std::as_writable_bytes(std::span{offsets}),
+                    caravan::Peer{0},
+                    caravanGatherComm->communicator));
+                if(isMaster())
+                    for(int rank = 0; rank < numRanksInPlane; ++rank)
+                    {
+                        extentPerDevice[rank] = DataSpace<DIM2>(extents[rank][0], extents[rank][1]);
+                        offsetPerDevice[rank] = DataSpace<DIM2>(offsets[rank][0], offsets[rank][1]);
+                    }
 
                 std::vector<int> displs(numRanksInPlane);
                 std::vector<int> count(numRanksInPlane);
@@ -217,16 +177,16 @@ namespace pmacc
                 auto allData = std::vector<ValueType>(globalNumElements);
                 int localNumElements = localSliceSize.productOfComponents();
 
-                MPI_CHECK(MPI_Gatherv(
-                    reinterpret_cast<char*>(localInputSlice.data()),
-                    localNumElements * sizeof(ValueType),
-                    MPI_CHAR,
-                    reinterpret_cast<char*>(allData.data()),
-                    count.data(),
-                    displs.data(),
-                    MPI_CHAR,
-                    0,
-                    gatherComm));
+                std::vector<std::size_t> receiveBytes(count.begin(), count.end());
+                std::vector<std::size_t> displacements(displs.begin(), displs.end());
+                caravan::syncWait<caravan::GatherResult>(caravan::mpi::gatherV(
+                    *mpiContext,
+                    std::as_bytes(std::span{localInputSlice.data(), static_cast<std::size_t>(localNumElements)}),
+                    std::as_writable_bytes(std::span{allData}),
+                    std::move(receiveBytes),
+                    std::move(displacements),
+                    caravan::Peer{0},
+                    caravanGatherComm->communicator));
 
                 std::shared_ptr<HostBuffer<ValueType, DIM2>> globalField;
                 if(isMaster())

@@ -60,7 +60,7 @@ namespace pmacc
          * @warning access is only atomic within the given alpaka hierarchy
          *
          * @tparam T_Acc type of the alpaka accelerator
-         * @tparam T_Hierarchy alpaka::hierarchy type of the hierarchy
+         * @tparam T_Hierarchy alpaka::onAcc::scope type of the atomic scope
          *
          * @param acc alpaka accelerator
          * @param count number of elements to increase stack with
@@ -72,7 +72,7 @@ namespace pmacc
         template<typename T_Worker, typename T_Hierarchy>
         HDINLINE TileDataBox<VALUE> pushN(T_Worker const& worker, TYPE count, T_Hierarchy const& hierarchy)
         {
-            TYPE old_addr = alpaka::atomicAdd(worker.getAcc(), currentSize, count, hierarchy);
+            TYPE old_addr = ::alpaka::onAcc::atomicAdd(worker.getAcc(), currentSize, count, hierarchy);
             return TileDataBox<VALUE>(this->m_ptr, DataSpace<DIM1>(old_addr));
         }
 
@@ -81,7 +81,7 @@ namespace pmacc
          * @warning access is only atomic within the given alpaka hierarchy
          *
          * @tparam T_Acc type of the alpaka accelerator
-         * @tparam T_Hierarchy alpaka::hierarchy type of the hierarchy
+         * @tparam T_Hierarchy alpaka::onAcc::scope type of the atomic scope
          *
          * @param acc alpaka accelerator
          * @param val data of type VALUE to add to the stack
@@ -93,7 +93,7 @@ namespace pmacc
         template<typename T_Worker, typename T_Hierarchy>
         HDINLINE void push(T_Worker const& worker, VALUE val, T_Hierarchy const& hierarchy)
         {
-            TYPE old_addr = alpaka::atomicAdd(worker.getAcc(), currentSize, 1, hierarchy);
+            TYPE old_addr = ::alpaka::onAcc::atomicAdd(worker.getAcc(), currentSize, 1, hierarchy);
             (*this)[old_addr] = val;
         }
 

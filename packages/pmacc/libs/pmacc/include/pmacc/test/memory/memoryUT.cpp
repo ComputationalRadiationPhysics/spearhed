@@ -21,7 +21,6 @@
 
 #include <pmacc/boost_workaround.hpp>
 
-#include <pmacc/test/PMaccFixture.hpp>
 
 // STL
 #include <cstdint> /* uint8_t */
@@ -32,9 +31,6 @@
 
 // BOOST
 #include "pmacc/meta/Mp11.hpp"
-
-// MPI
-#include <mpi.h> /* MPI_Init, MPI_Finalize */
 
 // PMacc
 #include "pmacc/types.hpp" /* DIM1,DIM2,DIM3 */
@@ -95,10 +91,6 @@ using Dims = ::pmacc::mp_list<pmacc::mp_int<DIM1>, pmacc::mp_int<DIM2>, pmacc::m
 /*******************************************************************************
  * Test Suites
  ******************************************************************************/
-using MyPMaccFixture = pmacc::test::PMaccFixture<TEST_DIM>;
-
-static MyPMaccFixture fixture;
-
 #include "HostBuffer/copyFrom.hpp"
 #include "HostBuffer/reset.hpp"
 #include "HostBuffer/setValue.hpp"

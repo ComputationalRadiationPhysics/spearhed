@@ -42,12 +42,12 @@ namespace pmacc
             DataSpace<T_DIM::value> const localSize(subGrid.getLocalDomain().size);
 
             uint64_cu totalNumParticles = 0;
-            totalNumParticles = pmacc::CountParticles::countOnDevice<CORE + BORDER>(
+            totalNumParticles = caravan::syncWait<uint64_cu>(pmacc::CountParticles::count<CORE + BORDER>(
                 *dc.get<T_Species>(T_Species::FrameType::getName()),
                 cellDescription,
                 DataSpace<T_DIM::value>(),
                 localSize,
-                parFilter);
+                parFilter));
             particleCounts.push_back(totalNumParticles);
         }
     };

@@ -26,6 +26,9 @@
 #include "pmacc/dimensions/DataSpace.hpp"
 #include "pmacc/memory/buffers/HostBuffer.hpp"
 
+#include <caravan/alpaka.hpp>
+#include <caravan/core.hpp>
+
 namespace pmacc
 {
     namespace test
@@ -49,33 +52,43 @@ namespace pmacc
                         using ::pmacc::test::memory::getElementsPerDim;
 
                         std::vector<size_t> nElementsPerDim = getElementsPerDim<T_Dim>();
+                        auto const device = manager::Device<ComputeDevice>::get().current();
+                        ComputeDeviceQueue queue = caravan::alpaka::detail::makeQueue<ComputeDeviceQueue>(device);
+                        caravan::ControlContext context;
 
                         for(unsigned i = 0; i < nElementsPerDim.size(); ++i)
                         {
                             auto const dataSpace = ::pmacc::DataSpace<T_Dim::value>::create(nElementsPerDim[i]);
-                            auto* hostBuffer = new ::pmacc::HostBuffer<Data, T_Dim::value>(dataSpace);
-                            auto* deviceBuffer = new ::pmacc::DeviceBuffer<Data, T_Dim::value>(dataSpace);
+                            ::pmacc::HostBuffer<Data, T_Dim::value> hostBuffer(dataSpace);
+                            ::pmacc::DeviceBuffer<Data, T_Dim::value> deviceBuffer(dataSpace);
 
-                            hostBuffer->reset();
+                            hostBuffer.reset();
 
-                            auto fillBox = hostBuffer->getDataBox();
+                            auto fillBox = hostBuffer.getDataBox();
                             for(size_t i = 0; i < static_cast<size_t>(dataSpace.productOfComponents()); ++i)
                             {
                                 fillBox.getPointer()[i] = static_cast<Data>(i);
                             }
 
-                            deviceBuffer->copyFrom(*hostBuffer);
-                            hostBuffer->reset();
-                            hostBuffer->copyFrom(*deviceBuffer);
+                            context.wait(context.spawn(
+                                caravan::alpaka::copy(
+                                    queue,
+                                    deviceBuffer.getOwnedAlpakaView(),
+                                    hostBuffer.getOwnedAlpakaView(),
+                                    dataSpace.toAlpakaMemVec())));
+                            hostBuffer.reset();
+                            context.wait(context.spawn(
+                                caravan::alpaka::copy(
+                                    queue,
+                                    hostBuffer.getOwnedAlpakaView(),
+                                    deviceBuffer.getOwnedAlpakaView(),
+                                    dataSpace.toAlpakaMemVec())));
 
-                            auto compareBox = hostBuffer->getDataBox();
+                            auto compareBox = hostBuffer.getDataBox();
                             for(size_t i = 0; i < static_cast<size_t>(dataSpace.productOfComponents()); ++i)
                             {
                                 REQUIRE(compareBox.getPointer()[i] == static_cast<Data>(i));
                             }
-
-                            delete hostBuffer;
-                            delete deviceBuffer;
                         }
                     }
 

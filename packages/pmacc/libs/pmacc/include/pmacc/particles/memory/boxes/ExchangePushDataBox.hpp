@@ -64,7 +64,7 @@ namespace pmacc
          * The method is threadsave within the given alpaka hierarchy.
          *
          * @tparam T_Acc type of the alpaka accelerator
-         * @tparam T_Hierarchy alpaka::hierarchy type of the hierarchy
+         * @tparam T_Hierarchy alpaka::onAcc::scope type of the atomic scope
          *
          * @param acc alpaka accelerator
          * @param count number of elements to increase stack with
@@ -82,12 +82,12 @@ namespace pmacc
             T_Hierarchy const& hierarchy)
         {
             // offset in destination array for our particle data
-            TYPE oldSize = alpaka::atomicAdd(worker.getAcc(), m_particleCount, count, hierarchy);
+            TYPE oldSize = ::alpaka::onAcc::atomicAdd(worker.getAcc(), m_particleCount, count, hierarchy);
 
             if(oldSize + count > m_maxSize)
             {
                 // reset size to maxsize
-                alpaka::atomicExch(worker.getAcc(), m_particleCount, m_maxSize, hierarchy);
+                ::alpaka::onAcc::atomicExch(worker.getAcc(), m_particleCount, m_maxSize, hierarchy);
                 if(oldSize >= m_maxSize)
                 {
                     return TileDataBox<VALUE>(nullptr, DataSpace<DIM1>(0), 0);

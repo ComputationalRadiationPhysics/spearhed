@@ -24,8 +24,6 @@
 
 #include "pmacc/communication/CommunicatorMPI.hpp"
 #include "pmacc/dimensions/DataSpace.hpp"
-#include "pmacc/eventSystem/eventSystem.hpp"
-#include "pmacc/mappings/simulation/EnvironmentController.hpp"
 #include "pmacc/mappings/simulation/SubGrid.hpp"
 
 namespace pmacc
@@ -52,7 +50,7 @@ namespace pmacc
          * @param nodes number of GPU nodes in each dimension
          * @param periodic specifying whether the grid is periodic (1) or not (0) in each dimension
          */
-        void init(DataSpace<DIM> nodes, DataSpace<DIM> periodic = DataSpace<DIM>())
+        void init(caravan::MpiContext& mpiContext, DataSpace<DIM> nodes, DataSpace<DIM> periodic = DataSpace<DIM>())
         {
             static bool commIsInit = false;
             if(!commIsInit)
@@ -85,10 +83,8 @@ namespace pmacc
                     periodicTmp[2] = periodic[2];
                 }
 
-                comm.init(tmp, periodicTmp);
+                comm.init(mpiContext, tmp, periodicTmp);
                 commIsInit = true;
-
-                Environment<DIM>::get().EnvironmentController().setCommunicator(comm);
             }
         }
 
@@ -163,11 +159,9 @@ namespace pmacc
          *
          * @return true if the position of the calling GPU is switched to the end, false otherwise
          */
+        /** @pre All work using grid coordinates is quiescent. */
         bool slide()
         {
-            /* wait that all tasks are finished */
-            eventSystem::waitForAllTasks();
-
             bool result = comm.slide();
 
             updateDomainOffset();
@@ -208,7 +202,7 @@ namespace pmacc
          */
         Mask const& getCommunicationMask() const
         {
-            return Environment<DIM>::get().EnvironmentController().getCommunicationMask();
+            return comm.getCommunicationMask();
         }
 
         /**

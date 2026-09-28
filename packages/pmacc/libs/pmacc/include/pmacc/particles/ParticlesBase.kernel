@@ -111,7 +111,7 @@ namespace pmacc
                     [&](bool isParticle)
                     {
                         if(isParticle)
-                            kernel::atomicAllInc(worker, &numParticles, ::alpaka::hierarchy::Threads{});
+                            kernel::atomicAllInc(worker, &numParticles, ::alpaka::onAcc::scope::Block{});
                     },
                     isParticleCtx);
 
@@ -123,7 +123,7 @@ namespace pmacc
                         if(idx < numParticles && isParticle == false)
                         {
                             int const localGapIdx
-                                = kernel::atomicAllInc(worker, &numGaps, ::alpaka::hierarchy::Threads{});
+                                = kernel::atomicAllInc(worker, &numGaps, ::alpaka::onAcc::scope::Block{});
                             gapIndices_sh[localGapIdx] = idx;
                         }
                     },
@@ -138,7 +138,7 @@ namespace pmacc
                         {
                             // any particle search a gap
                             int const srcGapIdx
-                                = kernel::atomicAllInc(worker, &srcGap, ::alpaka::hierarchy::Threads{});
+                                = kernel::atomicAllInc(worker, &srcGap, ::alpaka::onAcc::scope::Block{});
                             int const gapIdx = gapIndices_sh[srcGapIdx];
                             auto parDestFull = lastFrame[gapIdx];
                             /* enable particle */
@@ -246,7 +246,7 @@ namespace pmacc
                         int gapIdx = INV_LOC_IDX;
                         if(firstFrame[idx][multiMask_] == 0)
                         {
-                            gapIdx = kernel::atomicAllInc(worker, &numGaps, ::alpaka::hierarchy::Threads{});
+                            gapIdx = kernel::atomicAllInc(worker, &numGaps, ::alpaka::onAcc::scope::Block{});
                         }
                         return gapIdx;
                     });
@@ -263,7 +263,7 @@ namespace pmacc
                             if(lastFrame[linearIdx][multiMask_] == 1)
                             {
                                 int const localParticleIdx
-                                    = kernel::atomicAllInc(worker, &numParticles, ::alpaka::hierarchy::Threads{});
+                                    = kernel::atomicAllInc(worker, &numParticles, ::alpaka::onAcc::scope::Block{});
                                 particleIndices_sh[localParticleIdx] = linearIdx;
                             }
                         });
@@ -484,11 +484,11 @@ namespace pmacc
                             int direction = frameIter[idx % frameSize][multiMask_] - 2;
                             if(direction >= 0)
                             {
-                                destParticleIdx = alpaka::atomicAdd(
+                                destParticleIdx = ::alpaka::onAcc::atomicAdd(
                                     lockstepWorker.getAcc(),
                                     &(destFramesCounter[direction]),
                                     1u,
-                                    ::alpaka::hierarchy::Threads{});
+                                    ::alpaka::onAcc::scope::Block{});
                             }
                             return direction;
                         },
@@ -779,7 +779,7 @@ namespace pmacc
                         lcellId_t gabIdx = INV_LOC_IDX;
                         if(frame[idx][multiMask_] == 1)
                         {
-                            gabIdx = kernel::atomicAllInc(worker, &numParticles, ::alpaka::hierarchy::Threads{});
+                            gabIdx = kernel::atomicAllInc(worker, &numParticles, ::alpaka::onAcc::scope::Block{});
                         }
                         return gabIdx;
                     });
@@ -797,7 +797,7 @@ namespace pmacc
                                 numParticles,
                                 // Compute the target supercell depending on the exchangeType
                                 DataSpaceOperations<dim>::reduce(superCellIdx, mapper.getExchangeType()),
-                                ::alpaka::hierarchy::Blocks{});
+                                ::alpaka::onAcc::scope::Device{});
                             if(exchangeChunk.getSize() < numParticles)
                                 allParticlesCopied = false;
                         });

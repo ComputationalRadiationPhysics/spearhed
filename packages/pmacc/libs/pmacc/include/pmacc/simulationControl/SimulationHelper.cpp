@@ -25,7 +25,6 @@
 #include "pmacc/Environment.hpp"
 #include "pmacc/dataManagement/DataConnector.hpp"
 #include "pmacc/dimensions/DataSpace.hpp"
-#include "pmacc/eventSystem/Manager.hpp"
 #include "pmacc/particles/IdProvider.hpp"
 #include "pmacc/pluginSystem/IPlugin.hpp"
 #include "pmacc/pluginSystem/containsStep.hpp"
@@ -34,9 +33,11 @@
 #include "pmacc/simulationControl/signal.hpp"
 #include "pmacc/types.hpp"
 
+#include <array>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -52,6 +53,7 @@ namespace pmacc
     template<unsigned DIM, typename CheckpointingClass>
     SimulationHelper<DIM, CheckpointingClass>::~SimulationHelper()
     {
+        asyncContext.wait(signalCompletion);
         checkpointing.finishTimeBasedCheckpointing();
         tSimulation.toggleEnd();
         if(output)
@@ -73,7 +75,7 @@ namespace pmacc
     void SimulationHelper<DIM, CheckpointingClass>::dumpOneStep(uint32_t currentStep)
     {
         checkSignals(currentStep);
-        checkpointing.template dump<DIM>(currentStep);
+        checkpointing.template dump<DIM>(currentStep, asyncContext);
     }
 
     template<unsigned DIM, typename CheckpointingClass>
@@ -127,6 +129,8 @@ namespace pmacc
         DataConnector& dc = Environment<>::get().DataConnector();
         auto idProvider = std::make_shared<IdProvider>("globalId", rank, maxRanks);
         dc.share(idProvider);
+        asyncContext.wait(asyncContext.spawn(
+            caravan::alpaka::withDevice(Environment<>::get().DeviceContext(), idProvider->initialize())));
 
         init();
 
@@ -145,7 +149,8 @@ namespace pmacc
              * easier to hunt because the rank that outputs timings will only show the timing for the initialization if
              * all ranks reached this point.
              */
-            eventSystem::mpiBlocking(Environment<DIM>::get().GridController().getCommunicator().getMPIComm());
+            auto& communicator = Environment<DIM>::get().GridController().getCommunicator();
+            asyncContext.wait(asyncContext.spawn(communicator.barrier()));
 
             tInit.toggleEnd();
             if(output)
@@ -205,23 +210,9 @@ namespace pmacc
                 dumpOneStep(currentStep);
             }
 
-            // The simulation is finished, wait until all MPI ranks finished the time step loop
-            MPI_Request globalMPISync = MPI_REQUEST_NULL;
-            MPI_CHECK(
-                MPI_Ibarrier(Environment<DIM>::get().GridController().getCommunicator().getMPIComm(), &globalMPISync));
-            Manager::getInstance().waitFor(
-                [&]() -> bool
-                {
-                    // check for signal in case other MPI ranks still process the time step loop
-                    checkSignals(currentStep);
-                    MPI_Status mpiBarrierStatus;
-                    int flag = 0;
-                    MPI_CHECK(MPI_Test(&globalMPISync, &flag, &mpiBarrierStatus));
-                    return flag != 0;
-                });
-
-            // ensure that the event system processed all tasks
-            eventSystem::getTransactionEvent().waitForFinished();
+            // The simulation is finished, wait until all MPI ranks finished the time step loop.
+            auto barrier = asyncContext.spawn(communicator.barrier());
+            asyncContext.wait(barrier, [&] { checkSignals(currentStep); });
 
             tSimCalculation.toggleEnd();
 
@@ -270,7 +261,63 @@ namespace pmacc
     template<unsigned DIM, typename CheckpointingClass>
     void SimulationHelper<DIM, CheckpointingClass>::checkSignals(uint32_t const currentStep)
     {
-        Environment<>::get().Factory().template createTaskSignal<DIM>(currentStep, checkpointing, output);
+        asyncContext.runReady();
+        if(signalCompletion.state() == caravan::CompletionState::pending)
+            return;
+        signalCompletion.wait();
+        if(!signal::received())
+            return;
+
+        struct State
+        {
+            uint32_t processAtStep;
+            uint32_t commonStep = 0u;
+            std::array<uint32_t, 2u> send{signal::stopSimulation(), signal::createCheckpoint()};
+            std::array<uint32_t, 2u> global{};
+        };
+
+        auto state = std::make_shared<State>(State{currentStep + 1u});
+        if(output)
+            std::cout << "SIGNAL: received." << std::endl;
+
+        auto& communicator = Environment<DIM>::get().GridController().getCommunicator();
+        auto reductions = caravan::whenAll(
+            communicator.signalAllReduce(
+                &state->processAtStep,
+                &state->commonStep,
+                sizeof(state->processAtStep),
+                caravan::ScalarType::uint32,
+                caravan::ReduceOperation::maximum),
+            communicator.signalAllReduce(
+                state->send.data(),
+                state->global.data(),
+                sizeof(state->send),
+                caravan::ScalarType::uint32,
+                caravan::ReduceOperation::sum));
+        auto handle = asyncContext.onControl(std::move(reductions))
+                      | caravan::then(
+                          [this, state](caravan::AllReduceResult, caravan::AllReduceResult)
+                          {
+                              auto const ranks = Environment<DIM>::get().GridController().getCommunicator().getSize();
+                              bool const shouldStop = state->global[0] == static_cast<uint32_t>(ranks);
+                              bool const shouldCheckpoint = state->global[1] == static_cast<uint32_t>(ranks);
+                              if(shouldCheckpoint)
+                              {
+                                  if(output)
+                                      std::cout << "SIGNAL: Activate checkpointing for step " << state->commonStep
+                                                << std::endl;
+                                  checkpointing.addCheckpoint(state->commonStep);
+                              }
+                              if(shouldStop)
+                              {
+                                  if(output)
+                                      std::cout << "SIGNAL: Shutdown simulation at step " << state->commonStep
+                                                << std::endl;
+                                  Environment<>::get().SimulationDescription().setRunSteps(state->commonStep);
+                              }
+                              signal::release(shouldCheckpoint, shouldStop);
+                          });
+        signalCompletion = asyncContext.spawn(std::move(handle));
     }
 
     template<unsigned DIM, typename CheckpointingClass>

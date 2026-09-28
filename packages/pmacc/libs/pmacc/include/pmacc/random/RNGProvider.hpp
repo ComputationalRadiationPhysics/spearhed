@@ -71,12 +71,11 @@ namespace pmacc
              */
             RNGProvider(Space const& size, std::string const& uniqueId = "");
 
-            /**
-             * Initializes the random number generators
-             * Must be called before usage
-             * @param seed Base seed to be used
+            /** Lazily initialize the random number generators.
+             *
+             * @param seed base seed to be used
              */
-            void init(uint32_t seed);
+            [[nodiscard]] auto init(uint32_t seed);
 
             /**
              * Factory method
@@ -101,10 +100,10 @@ namespace pmacc
              */
             static std::string getName();
             SimulationDataId getUniqueId() override;
-            void synchronize() override;
 
-            //! Synchronize device data with host data
-            void syncToDevice();
+            [[nodiscard]] auto synchronize();
+
+            [[nodiscard]] auto syncToDevice();
 
             /**
              * Return a reference to the buffer containing the states

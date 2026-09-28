@@ -22,38 +22,41 @@
 #pragma once
 
 
-#include "pmacc/Environment.hpp"
-#include "pmacc/eventSystem/tasks/TaskKernel.hpp"
+#include "pmacc/dimensions/DataSpace.hpp"
 #include "pmacc/exec/KernelLauncher.hpp"
 #include "pmacc/math/vector/Vector.hpp"
 #include "pmacc/types.hpp"
 
-#include <string>
-#include <typeinfo>
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1
+#    include "pmacc/alpakaHelper/ValidateCall.hpp"
 
-
-/* No namespace in this file since we only declare macro defines */
-
-/*if this flag is defined all kernel calls would be checked and synchronize
- * this flag must set by the compiler or inside of the Makefile
- */
-#if (PMACC_SYNC_KERNEL == 1)
-#    define PMACC_CHECK_KERNEL_MSG(...) PMACC_CHECK_ALPAKA_CALL_MSG(__VA_ARGS__)
-#else
-/*no synchronize and check of kernel calls*/
-#    define PMACC_CHECK_KERNEL_MSG(...) ;
+#    include <string>
+#    include <typeinfo>
 #endif
 
+#include <caravan/alpaka.hpp>
 
 namespace pmacc::exec::detail
 {
+    /** Detect an alpaka 3 queue handle.
+     *
+     * alpaka 3 does not provide a public queue concept, therefore the public queue interface is checked directly.
+     * This is used to distinguish the borrowed-queue launcher from the queue-free launcher.
+     */
+    template<typename T>
+    concept QueueHandle = requires(T const& queue) {
+        { queue.getQueueKind() } -> ::alpaka::concepts::QueueKind;
+    };
+
     template<typename T_Kernel, uint32_t T_dim>
     struct KernelLauncher
     {
         //! kernel functor
         T_Kernel const m_kernel;
-        std::string const m_file;
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1
+        char const* const m_file;
         size_t const m_line;
+#endif
         //! grid extents for the kernel
         math::Vector<IdxType, T_dim> const m_gridExtent;
         //! block extents for the kernel
@@ -66,54 +69,65 @@ namespace pmacc::exec::detail
         template<typename T_VectorGrid, typename T_VectorBlock>
         HINLINE KernelLauncher(
             T_Kernel const& kernel,
-            std::string const& file,
+            char const* const file,
             size_t const line,
             T_VectorGrid const& gridExtent,
             T_VectorBlock const& blockExtent)
             : m_kernel(kernel)
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1
             , m_file(file)
             , m_line(line)
+#endif
             , m_gridExtent(gridExtent)
             , m_blockExtent(blockExtent)
         {
+#if !defined(PMACC_SYNC_KERNEL) || PMACC_SYNC_KERNEL != 1
+            static_cast<void>(file);
+            static_cast<void>(line);
+#endif
         }
 
-        /** Enqueue the kernel functor with the given arguments for execution.
-         *
-         * The stream into which the kernel is enqueued is automatically chosen by PMacc's event system.
-         *
-         * @tparam T_Args types of the arguments
-         * @param args arguments for the kernel functor
-         */
-        template<typename... T_Args>
-        HINLINE void operator()(T_Args&&... args) const
+        /** Enqueue this kernel from a submission state that retains all arguments through completion. */
+        template<typename T_Queue, typename... T_Args>
+        HINLINE void enqueueNative(T_Queue& queue, T_Args&&... args) const
         {
-            std::string const kernelName = typeid(m_kernel).name();
-            std::string const kernelInfo = kernelName + std::string(" [") + m_file + std::string(":")
-                                           + std::to_string(m_line) + std::string(" ]");
-
-            PMACC_CHECK_KERNEL_MSG(
-                manager::Device<ComputeDevice>::get().current().wait();
-                , std::string("Crash before kernel call ") + kernelInfo);
-
-            pmacc::TaskKernel* taskKernel = pmacc::Environment<>::get().Factory().createTaskKernel(kernelName);
-
-            auto gridExtent = m_gridExtent.toAlpakaKernelVec();
-            auto blockExtent = m_blockExtent.toAlpakaKernelVec();
-            auto threadSpec = alpaka::onHost::ThreadSpec{gridExtent, blockExtent};
-            auto kernelBundle = alpaka::KernelBundle{m_kernel, std::forward<T_Args>(args)...};
-
-            auto queue = taskKernel->getAlpakaQueue();
-
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1
+            std::string const kernelInfo
+                = std::string(typeid(m_kernel).name()) + " [" + m_file + ":" + std::to_string(m_line) + " ]";
+            PMACC_CHECK_ALPAKA_CALL_MSG(::alpaka::onHost::wait(queue), "Crash before kernel call " + kernelInfo);
+#endif
+            auto const gridExtent = m_gridExtent.toAlpakaKernelVec();
+            auto const blockExtent = m_blockExtent.toAlpakaKernelVec();
+            auto const threadSpec = ::alpaka::onHost::ThreadSpec{gridExtent, blockExtent};
+            auto const kernelBundle = ::alpaka::KernelBundle{m_kernel, caravan::unwrap(args)...};
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1
+            PMACC_CHECK_ALPAKA_CALL_MSG(
+                queue.enqueue(threadSpec, kernelBundle),
+                "Crash during kernel launch " + kernelInfo);
+            PMACC_CHECK_ALPAKA_CALL_MSG(::alpaka::onHost::wait(queue), "Crash after kernel call " + kernelInfo);
+#else
             queue.enqueue(threadSpec, kernelBundle);
+#endif
+        }
 
-            PMACC_CHECK_KERNEL_MSG(
-                manager::Device<ComputeDevice>::get().current().wait();
-                , std::string("Crash after kernel launch ") + kernelInfo);
-            taskKernel->activateChecks();
-            PMACC_CHECK_KERNEL_MSG(
-                manager::Device<ComputeDevice>::get().current().wait();
-                , std::string("Crash after kernel activation") + kernelInfo);
+        /** Lazily describe this kernel on an explicitly borrowed queue. */
+        template<typename T_Queue, typename... T_Args>
+        requires(QueueHandle<T_Queue>)
+        [[nodiscard]] HINLINE auto operator()(T_Queue& queue, T_Args... args) const
+        {
+            return caravan::alpaka::submit(
+                queue,
+                [launcher = *this, args = std::tuple<T_Args...>{std::move(args)...}](T_Queue& nativeQueue) mutable
+                { std::apply([&](auto&... values) { launcher.enqueueNative(nativeQueue, values...); }, args); });
+        }
+
+        /** Lazily describe this kernel; the receiver environment supplies its queue. */
+        template<typename... T_Args>
+        [[nodiscard]] HINLINE auto operator()(T_Args... args) const
+        {
+            return caravan::alpaka::submit(
+                [launcher = *this, args = std::tuple<T_Args...>{std::move(args)...}](auto& nativeQueue) mutable
+                { std::apply([&](auto&... values) { launcher.enqueueNative(nativeQueue, values...); }, args); });
         }
     };
 

@@ -53,8 +53,9 @@ namespace pmacc
                         {
                             auto const dataSpace = ::pmacc::DataSpace<T_Dim::value>::create(nElementsPerDim[i]);
                             ::pmacc::HostBuffer<Data, T_Dim::value> hostBuffer(dataSpace);
+                            hostBuffer.setValue(1u);
 
-                            hostBuffer.reset();
+                            hostBuffer.reset(false);
 
                             auto resultBox = hostBuffer.getDataBox();
                             for(size_t i = 0; i < static_cast<size_t>(dataSpace.productOfComponents()); ++i)

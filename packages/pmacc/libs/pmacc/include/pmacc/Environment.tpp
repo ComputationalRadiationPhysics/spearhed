@@ -26,11 +26,9 @@
 #include "pmacc/alpakaHelper/Device.hpp"
 #include "pmacc/alpakaHelper/acc.hpp"
 #include "pmacc/attribute/FunctionSpecifier.hpp"
-#include "pmacc/communication/manager_common.hpp"
 #include "pmacc/types.hpp"
 
 #include <stdexcept>
-
 
 #if !defined(ALPAKA_API_PREFIX)
 /* ALPAKA_API_PREFIX was removed in alpaka 1.0.0 but is required to get access cuda/hip functions directly.
@@ -48,44 +46,6 @@ namespace pmacc
 {
     namespace detail
     {
-        pmacc::QueueController& Environment::QueueController()
-        {
-            PMACC_ASSERT_MSG(
-                EnvironmentContext::getInstance().isDeviceSelected(),
-                "Environment< DIM >::initDevices() must be called before this method!");
-            return QueueController::getInstance();
-        }
-
-        pmacc::EnvironmentController& Environment::EnvironmentController()
-        {
-            PMACC_ASSERT_MSG(
-                EnvironmentContext::getInstance().isMpiInitialized(),
-                "Environment< DIM >::initDevices() must be called before this method!");
-            return EnvironmentController::getInstance();
-        }
-
-        pmacc::Factory& Environment::Factory()
-        {
-            PMACC_ASSERT_MSG(
-                EnvironmentContext::getInstance().isMpiInitialized()
-                    && EnvironmentContext::getInstance().isDeviceSelected(),
-                "Environment< DIM >::initDevices() must be called before this method!");
-            return Factory::getInstance();
-        }
-
-        pmacc::EventPool& Environment::EventPool()
-        {
-            PMACC_ASSERT_MSG(
-                EnvironmentContext::getInstance().isDeviceSelected(),
-                "Environment< DIM >::initDevices() must be called before this method!");
-            return EventPool::getInstance();
-        }
-
-        pmacc::ParticleFactory& Environment::ParticleFactory()
-        {
-            return ParticleFactory::getInstance();
-        }
-
         pmacc::DataConnector& Environment::DataConnector()
         {
             return DataConnector::getInstance();
@@ -94,6 +54,19 @@ namespace pmacc
         pmacc::PluginConnector& Environment::PluginConnector()
         {
             return PluginConnector::getInstance();
+        }
+
+        caravan::MpiContext& Environment::getMpiContext()
+        {
+            return *EnvironmentContext::getInstance().m_mpiContext;
+        }
+
+        caravan::alpaka::SharedQueuePool<ComputeDeviceQueue>& Environment::DeviceContext()
+        {
+            PMACC_ASSERT_MSG(
+                EnvironmentContext::getInstance().m_deviceContext,
+                "Environment< DIM >::initDevices() must be called before this method!");
+            return *EnvironmentContext::getInstance().m_deviceContext;
         }
 
         device::MemoryInfo& Environment::MemoryInfo()
@@ -142,22 +115,15 @@ namespace pmacc
     }
 
     template<uint32_t T_dim>
-    void Environment<T_dim>::initDevices(DataSpace<T_dim> devices, DataSpace<T_dim> periodic)
+    void Environment<T_dim>::initDevices(
+        caravan::MpiContext& mpiContext,
+        DataSpace<T_dim> devices,
+        DataSpace<T_dim> periodic)
     {
-        // initialize the MPI context
-        detail::EnvironmentContext::getInstance().init();
-
-        // create singleton instances
-        GridController().init(devices, periodic);
-
-        EnvironmentController();
-
+        detail::EnvironmentContext::getInstance().init(mpiContext);
+        GridController().init(mpiContext, devices, periodic);
         detail::EnvironmentContext::getInstance().setDevice(static_cast<int>(GridController().getHostRank()));
-
-        QueueController().activate();
-
         MemoryInfo();
-
         SimulationDescription();
     }
 
@@ -183,65 +149,22 @@ namespace pmacc
 
     namespace detail
     {
-        void EnvironmentContext::init()
+        void EnvironmentContext::init(caravan::MpiContext& mpiContext)
         {
+            m_mpiContext = &mpiContext;
             m_isMpiInitialized = true;
-
-            char const* env_value = std::getenv("PIC_USE_THREADED_MPI");
-            if(env_value)
-            {
-                int required_level{};
-                if(strcmp(env_value, "MPI_THREAD_SINGLE") == 0)
-                {
-                    required_level = MPI_THREAD_SINGLE;
-                }
-                else if(strcmp(env_value, "MPI_THREAD_FUNNELED") == 0)
-                {
-                    required_level = MPI_THREAD_FUNNELED;
-                }
-                else if(strcmp(env_value, "MPI_THREAD_SERIALIZED") == 0)
-                {
-                    required_level = MPI_THREAD_SERIALIZED;
-                }
-                else if(strcmp(env_value, "MPI_THREAD_MULTIPLE") == 0)
-                {
-                    required_level = MPI_THREAD_MULTIPLE;
-                }
-                else
-                {
-                    throw std::runtime_error(
-                        "Environment variable PIC_USE_THREADED_MPI must be one of MPI_THREAD_SINGLE, "
-                        "MPI_THREAD_FUNNELED, MPI_THREAD_SERIALIZED or MPI_THREAD_MULTIPLE.");
-                }
-                // MPI_Init with NULL is allowed since MPI 2.0
-                int provided;
-                MPI_CHECK(MPI_Init_thread(nullptr, nullptr, required_level, &provided));
-                if(provided != required_level)
-                {
-                    std::cerr << "[MPI_Init_thread] Provided level '" << provided << "' differs from required level '"
-                              << required_level << "'. Will go on.\n";
-                }
-            }
-            else
-            {
-                // MPI_Init with NULL is allowed since MPI 2.0
-                MPI_CHECK(MPI_Init(nullptr, nullptr));
-            }
         }
 
         void EnvironmentContext::finalize()
         {
             if(m_isMpiInitialized)
             {
-                eventSystem::waitForAllTasks();
-                // Required by scorep for flushing the buffers
-                manager::Device<ComputeDevice>::get().current().wait();
+                // Required by scorep for flushing the buffers. Application async contexts must already be joined.
+                alpaka::onHost::wait(manager::Device<ComputeDevice>::get().current());
+                m_deviceContext.reset();
+                m_isDeviceSelected = false;
                 m_isMpiInitialized = false;
-                /* Free the MPI context.
-                 * The gpu context is freed by the `QueueController`, because
-                 * MPI and CUDA are independent.
-                 */
-                MPI_CHECK(MPI_Finalize());
+                m_mpiContext = nullptr;
             }
         }
 
@@ -346,18 +269,10 @@ namespace pmacc
             // initialize the default host device
             manager::Device<HostDevice>::get().device();
             m_isDeviceSelected = true;
+            m_deviceContext = std::make_unique<caravan::alpaka::SharedQueuePool<ComputeDeviceQueue>>(
+                manager::Device<ComputeDevice>::get().current(),
+                1u);
         }
 
     } // namespace detail
 } // namespace pmacc
-
-/* PMACC_NO_TPP_INCLUDE is only defined if pmaccHeaderCheck is running.
- * In this case the current tested hpp file can include a file which depend on the tested hpp file.
- * This will build a cyclic include we can only solve if we write everywhere clean header files without
- * implementations.
- */
-#if !defined(PMACC_NO_TPP_INCLUDE)
-#    include "pmacc/eventSystem/tasks/Factory.tpp"
-#    include "pmacc/fields/tasks/FieldFactory.tpp"
-#    include "pmacc/particles/tasks/ParticleFactory.tpp"
-#endif

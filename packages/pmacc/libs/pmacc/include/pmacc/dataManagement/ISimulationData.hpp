@@ -37,12 +37,6 @@ namespace pmacc
     public:
         virtual ~ISimulationData() = default;
         /**
-         * Synchronizes simulation data, meaning accessing (host side) data
-         * will return up-to-date values.
-         */
-        virtual void synchronize() = 0;
-
-        /**
          * Return the globally unique identifier for this simulation data.
          *
          * @return globally unique identifier

@@ -22,60 +22,37 @@
 
 #pragma once
 
-#include "pmacc/communication/ICommunicator.hpp"
-#include "pmacc/communication/manager_common.hpp"
 #include "pmacc/dimensions/DataSpace.hpp"
 #include "pmacc/memory/dataTypes/Mask.hpp"
 #include "pmacc/types.hpp"
 
+#include <cstddef>
 #include <utility>
 
-#include <mpi.h>
+#include <caravan/core.hpp>
+#include <caravan/mpi.hpp>
 
 namespace pmacc
 {
     /*! communication via MPI
      */
     template<unsigned DIM>
-    class CommunicatorMPI : public ICommunicator
+    class CommunicatorMPI
     {
     public:
         CommunicatorMPI() = default;
 
-        virtual ~CommunicatorMPI() = default;
-
-        int getRank() override
+        int getRank()
         {
             return mpiRank;
         }
 
-        virtual int getSize()
+        int getSize()
         {
             return mpiSize;
         }
 
-        MPI_Comm getMPIComm() const
-        {
-            return topology;
-        }
-
-        /*! MPI communicator for signal handling
-         *
-         * @attention Do not use this communicator to transfer simulation data.
-         *
-         * @return communicator used transfer signal information only
-         */
-        MPI_Comm getMPISignalComm() const
-        {
-            return commSignal;
-        }
-
-        MPI_Info getMPIInfo() const
-        {
-            return MPI_INFO_NULL;
-        }
-
-        DataSpace<DIM3> getPeriodic() const override
+        DataSpace<DIM3> getPeriodic() const
         {
             return this->periodic;
         }
@@ -87,7 +64,18 @@ namespace pmacc
          *
          * \warning throws invalid argument if cx*cy*cz != totalnodes
          */
-        void init(DataSpace<DIM3> numberProcesses, DataSpace<DIM3> periodic);
+        /** initialize from MPI-thread-owned immutable topology data */
+        void init(caravan::MpiContext& mpiContext, DataSpace<DIM3> numberProcesses, DataSpace<DIM3> periodic);
+
+        caravan::CommunicatorId getCommunicatorId() const
+        {
+            return communicatorId;
+        }
+
+        caravan::CommunicatorId getSignalCommunicatorId() const
+        {
+            return signalCommunicatorId;
+        }
 
         /*! returns a rank number (0-n) for each host
          *
@@ -99,9 +87,7 @@ namespace pmacc
             return hostRank;
         }
 
-        // description in ICommunicator
-
-        Mask const& getCommunicationMask() const override
+        Mask const& getCommunicationMask() const
         {
             return communicationMask;
         }
@@ -116,19 +102,50 @@ namespace pmacc
             return this->coordinates;
         }
 
-        //! description in ICommunicator
-        MPI_Request* startSend(uint32_t ex, char const* send_data, size_t send_data_count, uint32_t tag) override;
+        [[nodiscard]] auto send(uint32_t ex, char const* sendData, size_t sendBytes, uint32_t tag)
+        {
+            return caravan::mpi::send(
+                *mpiContext,
+                std::span<std::byte const>{reinterpret_cast<std::byte const*>(sendData), sendBytes},
+                caravan::Peer{ExchangeTypeToRank(ex)},
+                caravan::MessageTag{static_cast<int>(gridExchangeTag + tag)},
+                communicatorId);
+        }
 
+        [[nodiscard]] auto receive(uint32_t ex, char* receiveData, size_t receiveBytes, uint32_t tag)
+        {
+            return caravan::mpi::receive(
+                *mpiContext,
+                std::span<std::byte>{reinterpret_cast<std::byte*>(receiveData), receiveBytes},
+                caravan::Peer{ExchangeTypeToRank(ex)},
+                caravan::MessageTag{static_cast<int>(gridExchangeTag + tag)},
+                communicatorId);
+        }
 
-        //! description in ICommunicator
-        MPI_Request* startReceive(uint32_t ex, char* recv_data, size_t recv_data_max, uint32_t tag) override;
+        auto signalAllReduce(
+            void const* input,
+            void* output,
+            size_t bytes,
+            caravan::ScalarType type,
+            caravan::ReduceOperation operation)
+        {
+            return caravan::mpi::allReduce(
+                *mpiContext,
+                std::span<std::byte const>{static_cast<std::byte const*>(input), bytes},
+                std::span<std::byte>{static_cast<std::byte*>(output), bytes},
+                type,
+                operation,
+                signalCommunicatorId);
+        }
 
+        auto barrier()
+        {
+            return caravan::mpi::barrier(*mpiContext, communicatorId);
+        }
 
-        //! description in ICommunicator
-        bool slide() override;
+        bool slide();
 
-
-        bool setStateAfterSlides(size_t numSlides) override;
+        bool setStateAfterSlides(size_t numSlides);
 
         /*! converts an exchangeType (e.g. RIGHT) to an MPI-rank
          */
@@ -139,14 +156,6 @@ namespace pmacc
 
 
     protected:
-        /*! gets hostRank
-         *
-         * Computes the node-local rank (the index of this process among all
-         * processes sharing the same node) via MPI_Comm_split_type. This is used
-         * to assign one GPU per process on a node.
-         */
-        void updateHostRank();
-
         /*! update coordinates @see getCoordinates
          */
         void updateCoordinates();
@@ -154,12 +163,13 @@ namespace pmacc
     private:
         //! coordinates in GPU-Grid [0:cx-1,0:cy-1,0:cz-1]
         DataSpace<DIM> coordinates;
+        DataSpace<DIM> baseCoordinates;
 
         DataSpace<DIM3> periodic;
-        //! MPI communicator (currently MPI_COMM_WORLD)
-        MPI_Comm topology;
-        //! Communicator to handle signals
-        MPI_Comm commSignal;
+        //! Opaque communicators owned by the Caravan MPI thread.
+        caravan::CommunicatorId communicatorId{caravan::worldCommunicator};
+        caravan::CommunicatorId signalCommunicatorId{caravan::worldCommunicator};
+        caravan::MpiContext* mpiContext{nullptr};
         //! array for exchangetype-to-rank conversion @see ExchangeTypeToRank
         int ranks[27];
         //! size of pmacc [cx,cy,cz]
@@ -173,6 +183,7 @@ namespace pmacc
 
         int mpiRank;
         int mpiSize;
+        static constexpr uint32_t gridExchangeTag = 5u;
     };
 
 } // namespace pmacc

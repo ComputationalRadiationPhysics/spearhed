@@ -82,6 +82,7 @@
         catch(std::exception const& e)                                                                                \
         {                                                                                                             \
             PMACC_PRINT_ALPAKA_ERROR(std::string(e.what()) + "\n" + msg);                                             \
+            throw;                                                                                                    \
         }                                                                                                             \
     } while(false)
 

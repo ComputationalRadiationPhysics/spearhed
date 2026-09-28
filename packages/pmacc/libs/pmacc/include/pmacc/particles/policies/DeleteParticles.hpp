@@ -23,6 +23,8 @@
 
 #include <cstdint>
 
+#include <caravan/alpaka.hpp>
+
 namespace pmacc
 {
     namespace particles
@@ -34,15 +36,18 @@ namespace pmacc
              */
             struct DeleteParticles
             {
-                template<class T_Particles>
-                void handleOutgoing(T_Particles& par, int32_t direction) const
+                /** Lazily delete particles in the guard of the given direction, returning a sender. */
+                template<typename T_Particles>
+                [[nodiscard]] auto handleOutgoing(T_Particles& par, int32_t direction) const
                 {
-                    par.deleteGuardParticles(direction);
+                    return par.deleteGuardParticles(direction);
                 }
 
-                template<class T_Particles>
-                void handleIncoming(T_Particles& par, int32_t direction) const
+                /** Empty sender for the incoming direction. */
+                template<typename T_Particles>
+                [[nodiscard]] auto handleIncoming(T_Particles&, int32_t) const
                 {
+                    return caravan::alpaka::submit([](auto&) {});
                 }
             };
 

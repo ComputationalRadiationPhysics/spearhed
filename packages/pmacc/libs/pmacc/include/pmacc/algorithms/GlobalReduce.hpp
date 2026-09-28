@@ -105,7 +105,7 @@ namespace pmacc
                     Type localResult = reduce(func, src, n);
                     Type globalResult;
 
-                    mpi_reduce(func, &globalResult, &localResult, 1, method);
+                    caravan::syncWait(mpi_reduce.reduce(func, &globalResult, &localResult, 1, method));
                     return globalResult;
                 }
                 return Type{};

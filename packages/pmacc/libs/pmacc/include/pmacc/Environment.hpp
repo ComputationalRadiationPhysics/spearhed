@@ -26,16 +26,10 @@
 #include "pmacc/assert.hpp"
 #include "pmacc/dataManagement/DataConnector.hpp"
 #include "pmacc/device/MemoryInfo.hpp"
-#include "pmacc/eventSystem/events/EventPool.hpp"
-#include "pmacc/eventSystem/queues/QueueController.hpp"
-#include "pmacc/eventSystem/tasks/Factory.hpp"
 #include "pmacc/mappings/simulation/GridController.hpp"
 #include "pmacc/mappings/simulation/SubGrid.hpp"
-#include "pmacc/particles/tasks/ParticleFactory.hpp"
 #include "pmacc/pluginSystem/PluginConnector.hpp"
 #include "pmacc/simulationControl/SimulationDescription.hpp"
-
-#include <mpi.h>
 
 namespace pmacc
 {
@@ -55,36 +49,6 @@ namespace pmacc
                 EnvironmentContext::getInstance().finalize();
             }
 
-            /** get the singleton QueueController
-             *
-             * @return instance of QueueController
-             */
-            HINLINE pmacc::QueueController& QueueController();
-
-            /** get the singleton EnvironmentController
-             *
-             * @return instance of EnvironmentController
-             */
-            HINLINE pmacc::EnvironmentController& EnvironmentController();
-
-            /** get the singleton Factory
-             *
-             * @return instance of Factory
-             */
-            HINLINE pmacc::Factory& Factory();
-
-            /** get the singleton EventPool
-             *
-             * @return instance of EventPool
-             */
-            HINLINE pmacc::EventPool& EventPool();
-
-            /** get the singleton ParticleFactory
-             *
-             * @return instance of ParticleFactory
-             */
-            HINLINE pmacc::ParticleFactory& ParticleFactory();
-
             /** get the singleton DataConnector
              *
              * @return instance of DataConnector
@@ -96,6 +60,12 @@ namespace pmacc
              * @return instance of PluginConnector
              */
             HINLINE pmacc::PluginConnector& PluginConnector();
+
+            /** get the attached Caravan MPI context */
+            HINLINE caravan::MpiContext& getMpiContext();
+
+            /** Get the process-global accelerator queue pool. */
+            HINLINE caravan::alpaka::SharedQueuePool<ComputeDeviceQueue>& DeviceContext();
 
             /** get the singleton MemoryInfo
              *
@@ -143,16 +113,8 @@ namespace pmacc
             return instance;
         }
 
-        /** create and initialize the environment of PMacc
-         *
-         * Usage of MPI or device(accelerator) function calls before this method
-         * are not allowed.
-         *
-         * @param devices number of devices per simulation dimension
-         * @param periodic periodicity each simulation dimension
-         *                 (0 == not periodic, 1 == periodic)
-         */
-        HINLINE void initDevices(DataSpace<T_dim> devices, DataSpace<T_dim> periodic);
+        /** initialize PMacc under the dedicated Caravan MPI runtime */
+        HINLINE void initDevices(caravan::MpiContext& mpiContext, DataSpace<T_dim> devices, DataSpace<T_dim> periodic);
 
         /** initialize the computing domain information of PMacc
          *

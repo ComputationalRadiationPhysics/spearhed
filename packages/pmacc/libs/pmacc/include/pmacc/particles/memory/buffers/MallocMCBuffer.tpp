@@ -24,7 +24,6 @@
 #if (ALPAKA_ACC_GPU_CUDA_ENABLED || ALPAKA_ACC_GPU_HIP_ENABLED)
 
 #    include "pmacc/alpakaHelper/Device.hpp"
-#    include "pmacc/eventSystem/eventSystem.hpp"
 #    include "pmacc/math/Vector.hpp"
 #    include "pmacc/particles/memory/buffers/MallocMCBuffer.hpp"
 #    include "pmacc/types.hpp"
@@ -47,29 +46,22 @@ namespace pmacc
     }
 
     template<typename T_DeviceHeap>
-    void MallocMCBuffer<T_DeviceHeap>::synchronize()
+    auto MallocMCBuffer<T_DeviceHeap>::synchronize()
     {
-        auto alpakaBufferSize = pmacc::math::Vector<pmacc::MemIdxType, 1>(deviceHeapInfo.size).toAlpakaMemVec();
-
+        auto const extent = pmacc::math::Vector<pmacc::MemIdxType, 1>(deviceHeapInfo.size).toAlpakaMemVec();
         if(!hostBuffer)
         {
-            hostBuffer
-                = alpaka::onHost::allocMapped<uint8_t>(manager::Device<HostDevice>::get().current(), alpakaBufferSize);
+            hostBuffer = alpaka::onHost::allocMapped<uint8_t>(manager::Device<HostDevice>::get().current(), extent);
 
             hostBufferOffset = static_cast<int64_t>(
                 reinterpret_cast<uint8_t*>(deviceHeapInfo.p) - alpaka::onHost::data(*hostBuffer));
         }
-        /* add event system hints */
-        eventSystem::startOperation(ITask::TASK_DEVICE);
-        eventSystem::startOperation(ITask::TASK_HOST);
+        auto host = *hostBuffer;
+        auto devView
+            = alpaka::makeView(manager::Device<ComputeDevice>::get().current(), (uint8_t*) deviceHeapInfo.p, extent);
 
-        auto devView = alpaka::makeView(
-            manager::Device<ComputeDevice>::get().current(),
-            (uint8_t*) deviceHeapInfo.p,
-            alpakaBufferSize);
-        auto alpakaStream = pmacc::eventSystem::getComputeDeviceQueue(ITask::TASK_DEVICE)->getAlpakaQueue();
-        alpaka::onHost::memcpy(alpakaStream, *hostBuffer, devView, alpakaBufferSize);
-        alpaka::onHost::wait(alpakaStream);
+        return caravan::alpaka::submit([host = std::move(host), device, extent](auto& nativeQueue) mutable
+                                       { alpaka::onHost::memcpy(nativeQueue, host, device, extent); });
     }
 
 } // namespace pmacc

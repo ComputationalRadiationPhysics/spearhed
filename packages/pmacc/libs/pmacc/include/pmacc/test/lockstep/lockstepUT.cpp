@@ -24,14 +24,16 @@
 #include <pmacc/Environment.hpp>
 #include <pmacc/lockstep.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 #include <pmacc/verify.hpp>
 
 #include <cstdint>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <tuple>
 
+#include <caravan/alpaka.hpp>
+#include <caravan/core.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 /** @file
@@ -39,9 +41,6 @@
  *  This file is testing common lockstep pattern.
  *  There are many code duplications, those are necessary because the code snippets are include into the documentation.
  */
-
-using MyPMaccFixture = pmacc::test::PMaccFixture<TEST_DIM>;
-static MyPMaccFixture fixture;
 
 constexpr uint32_t numElements = 4096u;
 
@@ -75,12 +74,13 @@ struct IotaGenericKernel
 };
 
 template<uint32_t T_chunkSize, typename T_DeviceBuffer>
-inline void iotaGerneric(T_DeviceBuffer& devBuffer)
+inline auto iotaGerneric(T_DeviceBuffer& devBuffer)
 {
     auto bufferSize = devBuffer.size();
     // use only half of the blocks needed to process the full data
     uint32_t const numBlocks = bufferSize / T_chunkSize / 2u;
-    PMACC_LOCKSTEP_KERNEL(IotaGenericKernel{}).config<T_chunkSize>(numBlocks)(devBuffer.getDataBox(), bufferSize);
+    return PMACC_LOCKSTEP_KERNEL(IotaGenericKernel{})
+        .config<T_chunkSize>(numBlocks)(devBuffer.getOwnedDataBox(), bufferSize);
 }
 
 // doc-include-end: lockstep generic kernel
@@ -97,11 +97,12 @@ namespace pmacc::lockstep::traits
 } // namespace pmacc::lockstep::traits
 
 template<typename T_DeviceBuffer>
-inline void iotaGernericBufferDerivedChunksize(T_DeviceBuffer& devBuffer)
+inline auto iotaGernericBufferDerivedChunksize(T_DeviceBuffer& devBuffer)
 {
     auto bufferSize = devBuffer.size();
     constexpr uint32_t numBlocks = 9;
-    PMACC_LOCKSTEP_KERNEL(IotaGenericKernel{}).config(numBlocks, devBuffer)(devBuffer.getDataBox(), bufferSize);
+    return PMACC_LOCKSTEP_KERNEL(IotaGenericKernel{})
+        .config(numBlocks, devBuffer)(devBuffer.getOwnedDataBox(), bufferSize);
 }
 
 // doc-include-end: lockstep generic kernel buffer selected domain size
@@ -139,11 +140,12 @@ struct IotaFixedChunkSizeKernel
 };
 
 template<typename T_DeviceBuffer>
-inline void iotaFixedChunkSize(T_DeviceBuffer& devBuffer)
+inline auto iotaFixedChunkSize(T_DeviceBuffer& devBuffer)
 {
     auto bufferSize = devBuffer.size();
     constexpr uint32_t numBlocks = 10;
-    PMACC_LOCKSTEP_KERNEL(IotaFixedChunkSizeKernel{}).config(numBlocks)(devBuffer.getDataBox(), bufferSize);
+    return PMACC_LOCKSTEP_KERNEL(IotaFixedChunkSizeKernel{})
+        .config(numBlocks)(devBuffer.getOwnedDataBox(), bufferSize);
 }
 
 // doc-include-end: lockstep generic kernel hard coded domain size
@@ -183,11 +185,12 @@ struct IotaFixedChunkSizeKernelND
 };
 
 template<typename T_DeviceBuffer>
-inline void iotaFixedChunkSizeND(T_DeviceBuffer& devBuffer)
+inline auto iotaFixedChunkSizeND(T_DeviceBuffer& devBuffer)
 {
     auto bufferSize = devBuffer.size();
     constexpr uint32_t numBlocks = 11;
-    PMACC_LOCKSTEP_KERNEL(IotaFixedChunkSizeKernelND{}).config(numBlocks)(devBuffer.getDataBox(), bufferSize);
+    return PMACC_LOCKSTEP_KERNEL(IotaFixedChunkSizeKernelND{})
+        .config(numBlocks)(devBuffer.getOwnedDataBox(), bufferSize);
 }
 
 // doc-include-end: lockstep generic kernel hard coded N dimensional domain size
@@ -225,14 +228,14 @@ struct IotaGenericKernelWithDynSharedMem
 };
 
 template<uint32_t T_chunkSize, typename T_DeviceBuffer>
-inline void iotaGernericWithDynSharedMem(T_DeviceBuffer& devBuffer)
+inline auto iotaGernericWithDynSharedMem(T_DeviceBuffer& devBuffer)
 {
     auto bufferSize = devBuffer.size();
     // use only half of the blocks needed to process the full data
     uint32_t const numBlocks = bufferSize / T_chunkSize / 2u;
     constexpr size_t requiredSharedMemBytes = T_chunkSize * sizeof(uint32_t);
-    PMACC_LOCKSTEP_KERNEL(IotaGenericKernelWithDynSharedMem{})
-        .configSMem<T_chunkSize>(numBlocks, requiredSharedMemBytes)(devBuffer.getDataBox(), bufferSize);
+    return PMACC_LOCKSTEP_KERNEL(IotaGenericKernelWithDynSharedMem{})
+        .configSMem<T_chunkSize>(numBlocks, requiredSharedMemBytes)(devBuffer.getOwnedDataBox(), bufferSize);
 }
 
 // doc-include-end: lockstep generic kernel with dynamic shared memory
@@ -253,6 +256,45 @@ void validate(T_HostBuffer& results, T_HostBuffer& reference)
     }
 }
 
+#if defined(PMACC_SYNC_KERNEL) && PMACC_SYNC_KERNEL == 1 && defined(ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED)
+struct ThrowingKernel
+{
+    template<typename T_Worker>
+    HDINLINE void operator()(T_Worker const&) const
+    {
+        ALPAKA_THROW_ACC("blocking kernel diagnostic test");
+    }
+};
+
+TEST_CASE("blocking kernel diagnostics", "[lockstep]")
+{
+    using namespace pmacc;
+
+    auto const device = manager::Device<ComputeDevice>::get().current();
+    ComputeDeviceQueue queue = caravan::alpaka::detail::makeQueue<ComputeDeviceQueue>(device);
+    std::ostringstream diagnostics;
+    auto* const previousBuffer = std::cerr.rdbuf(diagnostics.rdbuf());
+    auto const sourceLine = __LINE__ + 1u;
+    auto kernel = PMACC_LOCKSTEP_KERNEL(ThrowingKernel{}).config<1>(1u)(queue);
+    bool continuationRan = false;
+    bool failed = false;
+    try
+    {
+        caravan::syncWait(std::move(kernel) | caravan::then([&] { continuationRan = true; }));
+    }
+    catch(std::exception const&)
+    {
+        failed = true;
+    }
+    std::cerr.rdbuf(previousBuffer);
+
+    CHECK(failed);
+    CHECK_FALSE(continuationRan);
+    CHECK(diagnostics.str().find("Crash after kernel call") != std::string::npos);
+    CHECK(diagnostics.str().find(std::string(__FILE__) + ":" + std::to_string(sourceLine)) != std::string::npos);
+}
+#endif
+
 TEST_CASE("lockstep kernel", "[iota]")
 {
     using namespace pmacc;
@@ -267,6 +309,8 @@ TEST_CASE("lockstep kernel", "[iota]")
 
     auto hostDeviceBuffer = HostDeviceBuffer<uint32_t, DIM1>(DataSpace<DIM1>{numElements});
     using DeviceBuf = DeviceBuffer<uint32_t, DIM1>;
+    auto& device = Environment<>::get().DeviceContext();
+    caravan::ControlContext context;
 
     // register all required test functions
     auto testsFunctions = std::make_tuple(
@@ -284,9 +328,13 @@ TEST_CASE("lockstep kernel", "[iota]")
 
     auto runTest = [&](auto&& function)
     {
-        hostDeviceBuffer.getDeviceBuffer().setValue(0u);
-        function(hostDeviceBuffer.getDeviceBuffer());
-        hostDeviceBuffer.deviceToHost();
+        auto initialize = caravan::alpaka::fill(hostDeviceBuffer.getDeviceBuffer().getOwnedAlpakaView(), 0u);
+        auto kernel = function(hostDeviceBuffer.getDeviceBuffer());
+        auto copy = hostDeviceBuffer.deviceToHost();
+        context.wait(context.spawn(
+            caravan::alpaka::withDevice(
+                device,
+                std::move(initialize) | caravan::sequence(std::move(kernel)) | caravan::sequence(std::move(copy)))));
         validate(hostDeviceBuffer.getHostBuffer(), referenceBuffer);
     };
 

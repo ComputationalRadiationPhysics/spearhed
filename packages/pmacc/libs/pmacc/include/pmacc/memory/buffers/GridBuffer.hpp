@@ -26,11 +26,14 @@
 #include "pmacc/memory/buffers/Exchange.hpp"
 #include "pmacc/memory/buffers/HostDeviceBuffer.hpp"
 #include "pmacc/memory/dataTypes/Mask.hpp"
+#include "pmacc/traits/NumberOfExchanges.hpp"
 
 #include <algorithm>
+#include <array>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace pmacc
 {
@@ -78,8 +81,11 @@ namespace pmacc
      * @tparam TYPE datatype for internal Host- and DeviceBuffer
      * @tparam DIM dimension of the buffers
      * @tparam BORDERTYPE optional type for border data in the buffers. TYPE is used by default.
+     * @tparam T_CommDim dimension of the communicator used for exchanges. Defaults to DIM.
+     *         One-dimensional exchange buffers inside a higher-dimensional simulation must
+     *         pass the simulation dimension so they use the initialized topology.
      */
-    template<class TYPE, unsigned DIM, class BORDERTYPE = TYPE>
+    template<class TYPE, unsigned DIM, class BORDERTYPE = TYPE, unsigned T_CommDim = DIM>
     class GridBuffer : public HostDeviceBuffer<TYPE, DIM>
     {
         using Parent = HostDeviceBuffer<TYPE, DIM>;
@@ -99,7 +105,6 @@ namespace pmacc
             , gridLayout(gridLayout)
             , maxExchange(0)
         {
-            init();
         }
 
         /**
@@ -118,7 +123,6 @@ namespace pmacc
             , gridLayout(dataSpace)
             , maxExchange(0)
         {
-            init();
         }
 
         /**
@@ -141,7 +145,6 @@ namespace pmacc
             , gridLayout(gridLayout)
             , maxExchange(0)
         {
-            init();
         }
 
         GridBuffer(
@@ -156,7 +159,6 @@ namespace pmacc
             , gridLayout(gridLayout)
             , maxExchange(0)
         {
-            init();
         }
 
         /**
@@ -199,7 +201,7 @@ namespace pmacc
             Mask send = receive.getMirroredMask();
 
 
-            for(uint32_t ex = 1; ex < -12 * (int) DIM + 6 * (int) DIM * (int) DIM + 9; ++ex)
+            for(uint32_t ex = 1; ex < traits::NumberOfExchanges<T_CommDim>::value; ++ex)
             {
                 if(send.isSet(ex))
                 {
@@ -224,7 +226,7 @@ namespace pmacc
                     }
 
                     maxExchange = std::max(maxExchange, ex + 1u);
-                    sendExchanges[ex] = std::make_unique<Exchange<BORDERTYPE, DIM>>(
+                    sendExchanges[ex] = std::make_unique<Exchange<BORDERTYPE, DIM, T_CommDim>>(
                         this->getDeviceBuffer(),
                         gridLayout,
                         guardingCells,
@@ -234,7 +236,7 @@ namespace pmacc
                         sizeOnDeviceSend);
                     ExchangeType recvex = Mask::getMirroredExchangeType(ex);
                     maxExchange = std::max(maxExchange, recvex + 1u);
-                    receiveExchanges[recvex] = std::make_unique<Exchange<BORDERTYPE, DIM>>(
+                    receiveExchanges[recvex] = std::make_unique<Exchange<BORDERTYPE, DIM, T_CommDim>>(
                         this->getDeviceBuffer(),
                         gridLayout,
                         guardingCells,
@@ -309,7 +311,7 @@ namespace pmacc
                 receiveMask = receiveMask + receive;
                 sendMask = this->receiveMask.getMirroredMask();
                 Mask send = receive.getMirroredMask();
-                for(uint32_t ex = 1; ex < 27; ++ex)
+                for(uint32_t ex = 1; ex < traits::NumberOfExchanges<T_CommDim>::value; ++ex)
                 {
                     if(send.isSet(ex))
                     {
@@ -335,7 +337,7 @@ namespace pmacc
 
                         // GridLayout<DIM> memoryLayout(size);
                         maxExchange = std::max(maxExchange, ex + 1u);
-                        sendExchanges[ex] = std::make_unique<Exchange<BORDERTYPE, DIM>>(
+                        sendExchanges[ex] = std::make_unique<Exchange<BORDERTYPE, DIM, T_CommDim>>(
                             /*memoryLayout*/ dataSpace,
                             ex,
                             uniqCommunicationTag,
@@ -343,7 +345,7 @@ namespace pmacc
 
                         ExchangeType recvex = Mask::getMirroredExchangeType(ex);
                         maxExchange = std::max(maxExchange, recvex + 1u);
-                        receiveExchanges[recvex] = std::make_unique<Exchange<BORDERTYPE, DIM>>(
+                        receiveExchanges[recvex] = std::make_unique<Exchange<BORDERTYPE, DIM, T_CommDim>>(
                             /*memoryLayout*/ dataSpace,
                             recvex,
                             uniqCommunicationTag,
@@ -408,7 +410,7 @@ namespace pmacc
          * @param ex the direction to query
          * @return the Exchange for sending data
          */
-        Exchange<BORDERTYPE, DIM>& getSendExchange(uint32_t ex) const
+        Exchange<BORDERTYPE, DIM, T_CommDim>& getSendExchange(uint32_t ex) const
         {
             return *sendExchanges[ex];
         }
@@ -422,7 +424,7 @@ namespace pmacc
          * @param ex the direction to query
          * @return the Exchange for receiving data
          */
-        Exchange<BORDERTYPE, DIM>& getReceiveExchange(uint32_t ex) const
+        Exchange<BORDERTYPE, DIM, T_CommDim>& getReceiveExchange(uint32_t ex) const
         {
             return *receiveExchanges[ex];
         }
@@ -434,7 +436,7 @@ namespace pmacc
          */
         Mask getSendMask() const
         {
-            return (Environment<DIM>::get().EnvironmentController().getCommunicationMask() & sendMask);
+            return (Environment<T_CommDim>::get().GridController().getCommunicationMask() & sendMask);
         }
 
         /**
@@ -444,7 +446,7 @@ namespace pmacc
          */
         Mask getReceiveMask() const
         {
-            return (Environment<DIM>::get().EnvironmentController().getCommunicationMask() & receiveMask);
+            return (Environment<T_CommDim>::get().GridController().getCommunicationMask() & receiveMask);
         }
 
         /**
@@ -455,57 +457,73 @@ namespace pmacc
          * This operation runs sequential to other code but intern asynchronous
          *
          */
-        EventTask communication()
+        caravan::Event sendCompletion(uint32_t exchange) const
         {
-            EventTask ev = this->asyncCommunication(eventSystem::getTransactionEvent());
-            eventSystem::setTransactionEvent(ev);
-            return ev;
+            return sendCompletions[exchange];
         }
 
-        /**
-         * Starts sync data from own device buffer to neighbor device buffer.
-         *
-         * Asynchronously starts synchronization data from internal DeviceBuffer using added
-         * Exchange buffers.
-         *
-         */
-        EventTask asyncCommunication(EventTask serialEvent)
+        caravan::Event receiveCompletion(uint32_t exchange) const
         {
-            EventTask evR;
+            return receiveCompletions[exchange];
+        }
+
+        void setSendCompletion(uint32_t exchange, caravan::Event completion)
+        {
+            sendCompletions[exchange] = std::move(completion);
+        }
+
+        void setReceiveCompletion(uint32_t exchange, caravan::Event completion)
+        {
+            receiveCompletions[exchange] = std::move(completion);
+        }
+
+        /** Describe one lazy send for an active exchange direction. */
+        [[nodiscard]] auto send(uint32_t exchange)
+        {
+            return sendExchanges[exchange]->send();
+        }
+
+        /** Describe one lazy receive for an active exchange direction. */
+        [[nodiscard]] auto receive(uint32_t exchange)
+        {
+            return receiveExchanges[exchange]->receive();
+        }
+
+        /** Eager runtime-sized boundary for dynamically selected exchange directions.
+         *
+         * The returned event includes previous, even when this rank has no active exchanges.
+         */
+        [[nodiscard]] caravan::Event spawnCommunication(caravan::ControlContext& context, caravan::Event previous = {})
+        {
+            std::vector<caravan::Event> branches;
+            branches.reserve(maxExchange * 2u + 1u);
+            branches.push_back(previous);
             for(uint32_t i = 0; i < maxExchange; ++i)
             {
-                evR += asyncReceive(serialEvent, i);
+                if(hasReceiveExchange(i))
+                {
+                    auto completion = context.spawn(
+                        caravan::alpaka::withDevice(
+                            Environment<>::get().DeviceContext(),
+                            caravan::whenAll(caravan::asSender(previous), caravan::asSender(receiveCompletions[i]))
+                                | caravan::sequence(receive(i))));
+                    receiveCompletions[i] = completion;
+                    branches.push_back(std::move(completion));
+                }
 
-                ExchangeType sendEx = Mask::getMirroredExchangeType(i);
-
-                evR += asyncSend(serialEvent, sendEx);
+                auto const sendEx = Mask::getMirroredExchangeType(i);
+                if(hasSendExchange(sendEx))
+                {
+                    auto completion = context.spawn(
+                        caravan::alpaka::withDevice(
+                            Environment<>::get().DeviceContext(),
+                            caravan::whenAll(caravan::asSender(previous), caravan::asSender(sendCompletions[sendEx]))
+                                | caravan::sequence(send(sendEx))));
+                    sendCompletions[sendEx] = completion;
+                    branches.push_back(std::move(completion));
+                }
             }
-            return evR;
-        }
-
-        EventTask asyncSend(EventTask serialEvent, uint32_t sendEx)
-        {
-            if(hasSendExchange(sendEx))
-            {
-                eventSystem::startTransaction(serialEvent + sendEvents[sendEx]);
-                sendEvents[sendEx] = sendExchanges[sendEx]->startSend();
-                eventSystem::endTransaction();
-                return sendEvents[sendEx];
-            }
-            return EventTask();
-        }
-
-        EventTask asyncReceive(EventTask serialEvent, uint32_t recvEx)
-        {
-            if(hasReceiveExchange(recvEx))
-            {
-                eventSystem::startTransaction(serialEvent + receiveEvents[recvEx]);
-                receiveEvents[recvEx] = receiveExchanges[recvEx]->startReceive();
-
-                eventSystem::endTransaction();
-                return receiveEvents[recvEx];
-            }
-            return EventTask();
+            return caravan::whenAll(branches);
         }
 
         /**
@@ -518,20 +536,6 @@ namespace pmacc
             return gridLayout;
         }
 
-    private:
-        friend class Environment<DIM>;
-
-        void init()
-        {
-            for(uint32_t i = 0; i < 27; ++i)
-            {
-                /* fill array with valid empty events to avoid side effects if
-                 * array is accessed without calling hasExchange() before usage */
-                receiveEvents[i] = EventTask();
-                sendEvents[i] = EventTask();
-            }
-        }
-
     protected:
         /*if we have one exchange we don't check if communicationTag has been used before*/
         bool hasOneExchange;
@@ -541,11 +545,12 @@ namespace pmacc
         Mask sendMask;
         Mask receiveMask;
 
-        std::unique_ptr<Exchange<BORDERTYPE, DIM>> sendExchanges[27];
-        std::unique_ptr<Exchange<BORDERTYPE, DIM>> receiveExchanges[27];
-        EventTask receiveEvents[27];
-        EventTask sendEvents[27];
-
+        //! Number of exchange slots for the active communicator dimension.
+        static constexpr uint32_t numExchangeSlots = traits::NumberOfExchanges<T_CommDim>::value;
+        std::unique_ptr<Exchange<BORDERTYPE, DIM, T_CommDim>> sendExchanges[numExchangeSlots];
+        std::unique_ptr<Exchange<BORDERTYPE, DIM, T_CommDim>> receiveExchanges[numExchangeSlots];
+        caravan::Event receiveCompletions[numExchangeSlots];
+        caravan::Event sendCompletions[numExchangeSlots];
         uint32_t maxExchange; // use max exchanges and run over the array is faster as use set from stl
     };
 

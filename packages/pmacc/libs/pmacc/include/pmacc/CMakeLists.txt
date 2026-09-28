@@ -104,14 +104,22 @@ foreach(dim 2 3)
         get_filename_component(testCaseFilename ${testCaseFilepath} NAME)
         string(REPLACE "UT.cpp" "" testCase ${testCaseFilename})
         set(testExe "${PROJECT_NAME}-${testCase}-${dim}D")
-        alpaka_add_executable(${testExe} ${testCaseFilepath})
+        add_executable(${testExe} ${testCaseFilepath} test/TestMain.cpp)
         target_compile_definitions(${testExe} PRIVATE TEST_DIM=${dim})
-        target_link_libraries(${testExe} PUBLIC Catch2 Catch2WithMain)
+        target_link_libraries(${testExe} PUBLIC Catch2)
         target_link_libraries(${testExe} PRIVATE pmacc::pmacc)
+        alpaka_finalize(${testExe})
         add_test(
             NAME "${testCase}-${dim}D"
             COMMAND mpiexec ${MPI_RUNTIME_FLAGS} -n 1 ./${testExe}
         )
+        if(testCase STREQUAL "CommunicatorMPI")
+            add_test(
+                NAME "${testCase}-${dim}D-4-ranks"
+                COMMAND mpiexec ${MPI_RUNTIME_FLAGS} -n 4 ./${testExe}
+            )
+            set_tests_properties("${testCase}-${dim}D-4-ranks" PROPERTIES PROCESSORS 4 TIMEOUT 30)
+        endif()
     endforeach()
     string(REPLACE "-DTEST_DIM=${dim}" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endforeach()

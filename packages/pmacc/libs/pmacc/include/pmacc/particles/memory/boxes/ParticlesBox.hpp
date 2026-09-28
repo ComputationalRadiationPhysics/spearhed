@@ -113,7 +113,10 @@ namespace pmacc
                     for(int i = 0; i < static_cast<int>(FrameType::frameSize); ++i)
                         (*tmp)[i][multiMask_] = 0;
                     /* takes care that changed values are visible to all threads inside this block*/
-                    alpaka::mem_fence(worker.getAcc(), alpaka::memory_scope::Block{});
+                    ::alpaka::onAcc::memFence(
+                        worker.getAcc(),
+                        ::alpaka::onAcc::scope::Block{},
+                        ::alpaka::onAcc::order::acq_rel);
                     break;
                 }
             }
@@ -212,13 +215,16 @@ namespace pmacc
              * - this is needed because later on in this method we change `previous`
              *   of an other frame, this must be done in order!
              */
-            alpaka::mem_fence(worker.getAcc(), alpaka::memory_scope::Device{});
+            ::alpaka::onAcc::memFence(
+                worker.getAcc(),
+                ::alpaka::onAcc::scope::Device{},
+                ::alpaka::onAcc::order::acq_rel);
 
-            FramePtr oldFirstFramePtr((FrameType*) alpaka::atomicExch(
+            FramePtr oldFirstFramePtr((FrameType*) ::alpaka::onAcc::atomicExch(
                 worker.getAcc(),
                 (unsigned long long int*) firstFrameNativPtr,
                 (unsigned long long int) frame.ptr,
-                ::alpaka::hierarchy::Grids{}));
+                ::alpaka::onAcc::scope::Device{}));
 
             frame->nextFrame = oldFirstFramePtr;
             if(oldFirstFramePtr.isValid())
@@ -250,13 +256,16 @@ namespace pmacc
              * - this is needed because later on in this method we change `next`
              *   of an other frame, this must be done in order!
              */
-            alpaka::mem_fence(worker.getAcc(), alpaka::memory_scope::Device{});
+            ::alpaka::onAcc::memFence(
+                worker.getAcc(),
+                ::alpaka::onAcc::scope::Device{},
+                ::alpaka::onAcc::order::acq_rel);
 
-            FramePtr oldLastFramePtr((FrameType*) alpaka::atomicExch(
+            FramePtr oldLastFramePtr((FrameType*) ::alpaka::onAcc::atomicExch(
                 worker.getAcc(),
                 (unsigned long long int*) lastFrameNativPtr,
                 (unsigned long long int) frame.ptr,
-                ::alpaka::hierarchy::Grids{}));
+                ::alpaka::onAcc::scope::Device{}));
 
             frame->previousFrame = oldLastFramePtr;
             if(oldLastFramePtr.isValid())

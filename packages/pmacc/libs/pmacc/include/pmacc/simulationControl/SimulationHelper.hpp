@@ -33,6 +33,8 @@
 #include <string>
 #include <vector>
 
+#include <caravan/core.hpp>
+
 namespace pmacc
 {
     /**
@@ -156,6 +158,8 @@ namespace pmacc
         //! enable MPI gpu direct
         bool useMpiDirect{false};
 
+        /** Owns and drives PMacc sender operations for the simulation lifetime. */
+        caravan::ControlContext asyncContext;
 
     private:
         /** Checks if we received a signal.
@@ -187,6 +191,7 @@ namespace pmacc
 
         TimeInterval tSimulation;
         TimeInterval tInit;
+        caravan::Event signalCompletion;
     };
 
 } // namespace pmacc

@@ -42,7 +42,6 @@
 #include "pmacc/attribute/FunctionSpecifier.hpp"
 #include "pmacc/debug/PMaccVerbose.hpp"
 #include "pmacc/dimensions/Definition.hpp"
-#include "pmacc/eventSystem/EventType.hpp"
 #include "pmacc/memory/Align.hpp"
 #include "pmacc/meta/Mp11.hpp"
 #include "pmacc/ppFunctions.hpp"

@@ -27,6 +27,8 @@
 
 #include <memory>
 
+#include <caravan/alpaka.hpp>
+
 namespace pmacc
 {
     namespace random
@@ -69,16 +71,13 @@ namespace pmacc
         }
 
         template<uint32_t T_dim, class T_RNGMethod>
-        void RNGProvider<T_dim, T_RNGMethod>::init(uint32_t seed)
+        auto RNGProvider<T_dim, T_RNGMethod>::init(uint32_t seed)
         {
             constexpr uint32_t blockSize = 256;
-
-            uint32_t const gridSize = (m_size.productOfComponents() + blockSize - 1u) / blockSize; // Round up
-
-            auto bufferBox = buffer->getDeviceBuffer().getDataBox();
-
-            PMACC_LOCKSTEP_KERNEL(kernel::InitRNGProvider<blockSize, RNGMethod>{})
-                .template config<blockSize>(gridSize)(bufferBox, seed, m_size);
+            uint32_t const gridSize = (m_size.productOfComponents() + blockSize - 1u) / blockSize;
+            auto& deviceBuffer = buffer->getDeviceBuffer();
+            return PMACC_LOCKSTEP_KERNEL(kernel::InitRNGProvider<blockSize, RNGMethod>{})
+                .template config<blockSize>(gridSize)(deviceBuffer.getOwnedDataBox(), seed, m_size);
         }
 
         template<uint32_t T_dim, class T_RNGMethod>
@@ -133,15 +132,15 @@ namespace pmacc
         }
 
         template<uint32_t T_dim, class T_RNGMethod>
-        void RNGProvider<T_dim, T_RNGMethod>::synchronize()
+        auto RNGProvider<T_dim, T_RNGMethod>::synchronize()
         {
-            buffer->deviceToHost();
+            return buffer->deviceToHost();
         }
 
         template<uint32_t T_dim, class T_RNGMethod>
-        void RNGProvider<T_dim, T_RNGMethod>::syncToDevice()
+        auto RNGProvider<T_dim, T_RNGMethod>::syncToDevice()
         {
-            buffer->hostToDevice();
+            return buffer->hostToDevice();
         }
 
     } // namespace random

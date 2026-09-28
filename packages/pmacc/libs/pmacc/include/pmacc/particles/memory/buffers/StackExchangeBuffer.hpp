@@ -23,8 +23,13 @@
 
 #include "pmacc/assert.hpp"
 #include "pmacc/memory/buffers/Exchange.hpp"
+#include "pmacc/memory/buffers/size.hpp"
 #include "pmacc/particles/memory/boxes/ExchangePopDataBox.hpp"
 #include "pmacc/particles/memory/boxes/ExchangePushDataBox.hpp"
+
+#include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace pmacc
 {
@@ -33,7 +38,7 @@ namespace pmacc
      *
      * @tparam FRAME frame datatype
      */
-    template<class FRAME, class FRAMEINDEX, unsigned DIM>
+    template<class FRAME, class FRAMEINDEX, unsigned DIM, unsigned T_CommDim = DIM1>
     class StackExchangeBuffer
     {
     public:
@@ -43,8 +48,11 @@ namespace pmacc
          * If the stack's internal GridBuffer has no sizeOnDevice, no device querys are allowed.
          *
          * @param stack Exchange
+         * @param stackIndexer Exchange for the index data
          */
-        StackExchangeBuffer(Exchange<FRAME, DIM1>& stack, Exchange<FRAMEINDEX, DIM1>& stackIndexer)
+        StackExchangeBuffer(
+            Exchange<FRAME, DIM1, T_CommDim>& stack,
+            Exchange<FRAMEINDEX, DIM1, T_CommDim>& stackIndexer)
             : stack(stack)
             , stackIndexer(stackIndexer)
         {
@@ -92,28 +100,30 @@ namespace pmacc
                 stackIndexer.getDeviceBuffer().getDataBox());
         }
 
-        void setSize(size_t const size)
+        /** Reset host-side exchange metadata now; return a sender publishing the zero sizes. */
+        [[nodiscard]] auto reset()
         {
-            // do host and device setSize parallel
-            EventTask split = eventSystem::getTransactionEvent();
-            EventTask e1;
+            stack.getDeviceBuffer().setSizeHostSide(0u);
+            stackIndexer.getDeviceBuffer().setSizeHostSide(0u);
+            auto stackSize = pmacc::size(
+                stack.getDeviceBuffer().sizeOnDeviceBuffer(),
+                stack.getDeviceBuffer().sizeHostSideBuffer());
+            auto indexSize = pmacc::size(
+                stackIndexer.getDeviceBuffer().sizeOnDeviceBuffer(),
+                stackIndexer.getDeviceBuffer().sizeHostSideBuffer());
+            return std::move(stackSize) | caravan::sequence(std::move(indexSize));
+        }
 
-            if(!Environment<>::get().isMpiDirectEnabled())
-            {
-                eventSystem::startTransaction(split);
-                stackIndexer.getHostBuffer().setSize(size);
-                stack.getHostBuffer().setSize(size);
-                e1 = eventSystem::endTransaction();
-            }
-
-            eventSystem::startTransaction(split);
-            stackIndexer.getDeviceBuffer().setSize(size);
-            EventTask e2 = eventSystem::endTransaction();
-            eventSystem::startTransaction(split);
-            stack.getDeviceBuffer().setSize(size);
-            EventTask e3 = eventSystem::endTransaction();
-
-            eventSystem::setTransactionEvent(e1 + e2 + e3);
+        /** Return a sender copying the device-side exchange sizes to the host. */
+        [[nodiscard]] auto publishDeviceSizes()
+        {
+            auto stackSize = pmacc::size(
+                stack.getDeviceBuffer().sizeHostSideBuffer(),
+                stack.getDeviceBuffer().sizeOnDeviceBuffer());
+            auto indexSize = pmacc::size(
+                stackIndexer.getDeviceBuffer().sizeHostSideBuffer(),
+                stackIndexer.getDeviceBuffer().sizeOnDeviceBuffer());
+            return std::move(stackSize) | caravan::sequence(std::move(indexSize));
         }
 
         size_t getHostCurrentSize()
@@ -157,12 +167,12 @@ namespace pmacc
         }
 
     private:
-        Exchange<FRAME, DIM1>& getExchangeBuffer()
+        Exchange<FRAME, DIM1, T_CommDim>& getExchangeBuffer()
         {
             return stack;
         }
 
-        Exchange<FRAME, DIM1>& stack;
-        Exchange<FRAMEINDEX, DIM1>& stackIndexer;
+        Exchange<FRAME, DIM1, T_CommDim>& stack;
+        Exchange<FRAMEINDEX, DIM1, T_CommDim>& stackIndexer;
     };
 } // namespace pmacc

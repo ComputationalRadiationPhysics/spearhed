@@ -21,8 +21,12 @@
 
 #pragma once
 
-#include "pmacc/eventSystem/transactions/TransactionManager.hpp"
 #include "pmacc/types.hpp"
+
+#include <memory>
+
+#include <caravan/alpaka.hpp>
+#include <caravan/mpi.hpp>
 
 namespace pmacc
 {
@@ -45,7 +49,6 @@ namespace pmacc
             friend pmacc::Environment<DIM1>;
             friend pmacc::Environment<DIM2>;
             friend pmacc::Environment<DIM3>;
-            friend pmacc::TransactionManager;
 
             EnvironmentContext() = default;
 
@@ -60,6 +63,12 @@ namespace pmacc
 
             /** state shows if MPI direct is activated */
             bool m_isMpiDirectEnabled{false};
+
+            /** Caravan MPI context, owned by MpiRuntime's dedicated thread. */
+            caravan::MpiContext* m_mpiContext{nullptr};
+
+            /** Process-global accelerator queues, created after device selection. */
+            std::unique_ptr<caravan::alpaka::SharedQueuePool<ComputeDeviceQueue>> m_deviceContext;
 
             /** get the singleton EnvironmentContext
              *
@@ -98,11 +107,8 @@ namespace pmacc
                 return m_isSubGridDefined;
             }
 
-            /** initialize the environment
-             *
-             * After this call it is allowed to use MPI.
-             */
-            HINLINE void init();
+            /** attach to MPI initialized and owned by Caravan */
+            HINLINE void init(caravan::MpiContext& mpiContext);
 
             /** cleanup the environment */
             HINLINE void finalize();
