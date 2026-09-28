@@ -26,7 +26,6 @@
 #include "pmacc/exec/KernelLauncher.hpp"
 #include "pmacc/exec/KernelWithDynSharedMem.hpp"
 #include "pmacc/lockstep/BlockCfg.hpp"
-#include "pmacc/lockstep/Worker.hpp"
 #include "pmacc/types.hpp"
 
 namespace pmacc::lockstep

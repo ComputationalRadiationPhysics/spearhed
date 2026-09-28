@@ -41,7 +41,9 @@ namespace pmacc
     class Buffer
     {
     protected:
-        using CurrentSizeBufferHost = ::alpaka::Buf<HostDevice, size_t, AlpakaDim<DIM1>, MemIdxType>;
+        using CurrentSizeBufferHost = decltype(alpaka::onHost::allocMapped<size_t>(
+            std::declval<HostDevice>(),
+            std::declval<alpaka::Vec<MemIdxType, 1u>>()));
         CurrentSizeBufferHost currentSizeBufferHost;
         MemSpace<T_dim> m_capacityND;
 
@@ -60,9 +62,8 @@ namespace pmacc
          */
         Buffer(MemSpace<T_dim> size)
             : currentSizeBufferHost(
-                  alpaka::allocMappedBufIfSupported<size_t, MemIdxType>(
+                  alpaka::onHost::allocMapped<size_t>(
                       manager::Device<HostDevice>::get().current(),
-                      manager::Device<ComputeDevice>::get().getPlatform(),
                       MemSpace<DIM1>(1).toAlpakaMemVec()))
             , m_capacityND(size)
             , isMemoryContiguous(true)
@@ -100,7 +101,7 @@ namespace pmacc
         virtual size_t size()
         {
             eventSystem::startOperation(ITask::TASK_HOST);
-            return alpaka::getPtrNative(this->currentSizeBufferHost)[0];
+            return alpaka::onHost::data(this->currentSizeBufferHost)[0];
         }
 
         /** set total number of elements
@@ -111,7 +112,7 @@ namespace pmacc
         {
             eventSystem::startOperation(ITask::TASK_HOST);
             PMACC_ASSERT(static_cast<size_t>(newSize) <= static_cast<size_t>(capacityND().productOfComponents()));
-            alpaka::getPtrNative(this->currentSizeBufferHost)[0] = newSize;
+            alpaka::onHost::data(this->currentSizeBufferHost)[0] = newSize;
         }
 
         /** Total number of elements mapped to the N-dimensional size of the buffer */

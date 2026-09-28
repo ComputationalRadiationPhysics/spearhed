@@ -74,7 +74,7 @@ namespace pmacc
          * Sets size of all dimensions from alpaka.
          */
         template<typename T_MemberType>
-        HDINLINE explicit DataSpace(alpaka::Vec<::alpaka::DimInt<T_dim>, T_MemberType> const& value)
+        HDINLINE explicit DataSpace(alpaka::Vec<T_MemberType, T_dim> const& value)
         {
             for(uint32_t i = 0u; i < T_dim; i++)
                 (*this)[T_dim - 1 - i] = value[i];

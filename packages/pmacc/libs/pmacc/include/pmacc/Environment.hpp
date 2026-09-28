@@ -24,10 +24,8 @@
 
 #include "pmacc/Environment.def"
 #include "pmacc/assert.hpp"
-#include "pmacc/communication/manager_common.hpp"
 #include "pmacc/dataManagement/DataConnector.hpp"
 #include "pmacc/device/MemoryInfo.hpp"
-#include "pmacc/eventSystem/eventSystem.hpp"
 #include "pmacc/eventSystem/events/EventPool.hpp"
 #include "pmacc/eventSystem/queues/QueueController.hpp"
 #include "pmacc/eventSystem/tasks/Factory.hpp"

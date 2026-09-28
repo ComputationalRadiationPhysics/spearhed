@@ -41,35 +41,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PMacc_DIR}/../../thirdParty/cmake-m
 # alpaka path
 ################################################################################
 
-# workaround for native CMake CUDA
-# CMake is not forwarding CMAKE_CUDA_ARCHITECTURES to the CMake CUDA compiler check
-# error: clang: error: cannot find libdevice for sm_20. Provide path to different CUDA installation via --cuda-path, or pass -nocudalib to build without linking with libdevice.
-# The workaround is parsing CMAKE_CUDA_ARCHITECTURES and forward command line parameter directly to clang++.
-if(alpaka_ACC_GPU_CUDA_ENABLE AND CMAKE_CUDA_COMPILER)
-    string(REGEX MATCH "(.*clang.*)" IS_CLANGCUDA_COMPILER ${CMAKE_CUDA_COMPILER})
-    if(IS_CLANGCUDA_COMPILER)
-        foreach(_CUDA_ARCH_ELEM ${CMAKE_CUDA_ARCHITECTURES})
-            set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --cuda-gpu-arch=sm_${_CUDA_ARCH_ELEM}")
-        endforeach()
-    endif()
-endif()
-
-# workaround for a CMake bug which is not handled in alpaka 0.7.0
-# https://github.com/alpaka-group/alpaka/pull/1423
-if(alpaka_ACC_GPU_CUDA_ENABLE)
-    include(CheckLanguage)
-    check_language(CUDA)
-    # Use user selected CMake CXX compiler as cuda host compiler to avoid fallback to the default system CXX host compiler.
-    # CMAKE_CUDA_HOST_COMPILER is reset by check_language(CUDA) therefore definition passed by the user via -DCMAKE_CUDA_HOST_COMPILER are
-    # ignored by CMake (looks like a CMake bug).
-    # The if condition used here should work correct after the CMake bug is fixed, too.
-    # Check the environment variable CUDAHOSTCXX to prefer the CUDA host compiler set by the user.
-    if("$ENV{CUDAHOSTCXX}" STREQUAL "" AND NOT CMAKE_CUDA_HOST_COMPILER)
-        set(CMAKE_CUDA_HOST_COMPILER ${CMAKE_CXX_COMPILER})
-    endif()
-    enable_language(CUDA)
-endif()
-
 # set path to internal
 set(PMACC_alpaka_PROVIDER "intern" CACHE STRING "Select which alpaka is used")
 set_property(CACHE PMACC_alpaka_PROVIDER PROPERTY STRINGS "intern;extern")
@@ -85,12 +56,52 @@ if(NOT DEFINED alpaka_CXX_STANDARD)
 endif()
 
 ################################################################################
+# compute backend selection
+################################################################################
+# A backend bundles an alpaka API + device kind (which device the code runs on) with an executor
+# (how the parallelism on that device is organised). Exactly one backend is active per build.
+#
+# Selecting a backend:
+#   - enables the alpaka dependency required by the backend (CUDA/HIP/oneAPI/TBB/OpenMP),
+#   - defines the C++ macro PMACC_BACKEND_<name> consumed by pmacc/alpakaHelper/acc.hpp.
+#
+# These options have to be set before alpaka is added (add_subdirectory / find_package) below.
+set(PMACC_BACKEND "CpuSerial" CACHE STRING "Compute backend (alpaka API + executor) PMacc is built for")
+set(_PMACC_BACKENDS "CpuSerial;CpuOmpBlocks;CpuTbbBlocks;GpuCuda;GpuHip;OneApi")
+set_property(CACHE PMACC_BACKEND PROPERTY STRINGS "${_PMACC_BACKENDS}")
+
+if(NOT PMACC_BACKEND IN_LIST _PMACC_BACKENDS)
+    message(FATAL_ERROR "PMACC_BACKEND=\"${PMACC_BACKEND}\" is invalid. Valid backends: ${_PMACC_BACKENDS}")
+endif()
+
+# map the selected backend to its alpaka executor option name and required alpaka dependency
+# (the alpaka executor option for the TBB blocks executor is named alpaka_EXEC_TbbBlocks)
+if(PMACC_BACKEND STREQUAL "CpuSerial")
+    set(_PMACC_BACKEND_EXEC "CpuSerial")
+elseif(PMACC_BACKEND STREQUAL "CpuOmpBlocks")
+    set(_PMACC_BACKEND_EXEC "CpuOmpBlocks")
+    set(alpaka_DEP_OMP ON CACHE BOOL "" FORCE)
+elseif(PMACC_BACKEND STREQUAL "CpuTbbBlocks")
+    set(_PMACC_BACKEND_EXEC "TbbBlocks")
+    set(alpaka_DEP_TBB ON CACHE BOOL "" FORCE)
+elseif(PMACC_BACKEND STREQUAL "GpuCuda")
+    set(_PMACC_BACKEND_EXEC "GpuCuda")
+    set(alpaka_DEP_CUDA ON CACHE BOOL "" FORCE)
+elseif(PMACC_BACKEND STREQUAL "GpuHip")
+    set(_PMACC_BACKEND_EXEC "GpuHip")
+    set(alpaka_DEP_HIP ON CACHE BOOL "" FORCE)
+elseif(PMACC_BACKEND STREQUAL "OneApi")
+    set(_PMACC_BACKEND_EXEC "OneApi")
+    set(alpaka_DEP_ONEAPI ON CACHE BOOL "" FORCE)
+endif()
+
+################################################################################
 # setup alpaka
 ################################################################################
 
 # the min and max. supported alpaka version
-set(_PMACC_MIN_ALPAKA_VERSION 1.2.0)
-set(_PMACC_MAX_ALPAKA_VERSION 1.2.0)
+set(_PMACC_MIN_ALPAKA_VERSION 3.0.0)
+set(_PMACC_MAX_ALPAKA_VERSION 3.0.0)
 
 # do not search for alpaka if it already exists
 # for example, a project that includes alpaka via add_subdirectory before including pmacc via add_subdirectory
@@ -138,11 +149,9 @@ file(GLOB_RECURSE PMACC_SRC_FILES "${PMacc_DIR}/*.cpp")
 # remove files located in the directory 'test'
 string(REGEX REPLACE "${PMacc_DIR}/test/.*" "" PMACC_SRC_FILES "${PMACC_SRC_FILES}")
 
-alpaka_add_library(
-        pmacc
-        STATIC
-        ${PMACC_SRC_FILES}
-)
+add_library(pmacc STATIC ${PMACC_SRC_FILES})
+target_link_libraries(pmacc PUBLIC alpaka::alpaka)
+alpaka_finalize(pmacc)
 
 target_include_directories(pmacc PUBLIC $<BUILD_INTERFACE:${PMacc_DIR}/..> $<INSTALL_INTERFACE:${PMacc_DIR}/..>)
 
@@ -150,7 +159,6 @@ target_include_directories(pmacc PUBLIC $<BUILD_INTERFACE:${PMacc_DIR}/..> $<INS
 set_target_properties(pmacc PROPERTIES LINKER_LANGUAGE CXX)
 
 add_library(pmacc::pmacc ALIAS pmacc)
-target_link_libraries(pmacc PUBLIC alpaka::alpaka)
 
 ###############################################################################
 # Build Flags
@@ -332,10 +340,7 @@ endif()
 # Find OpenMP
 ################################################################################
 
-if(
-    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang"
-    AND (alpaka_ACC_GPU_HIP_ENABLE OR (alpaka_ACC_GPU_CUDA_ENABLE AND alpaka_CUDA_COMPILER MATCHES "clang"))
-)
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND (alpaka_DEP_HIP OR alpaka_DEP_CUDA))
     # For HIP the problem is that in alpaka '::isnan(), ::sinh(), ::isfinite(), ::isinf()' is not found.
     # The reason could be that if OpenMP is activated clang is using math C headers where all of these functions are macros.
     message(
@@ -353,7 +358,7 @@ endif()
 # Find mallocMC
 ################################################################################
 
-if(alpaka_ACC_GPU_CUDA_ENABLE OR alpaka_ACC_GPU_HIP_ENABLE)
+if(alpaka_DEP_CUDA OR alpaka_DEP_HIP)
     if(PMACC_alpaka_PROVIDER STREQUAL "intern")
         set(mallocMC_USE_alpaka
             "${PMacc_DIR}/../../thirdParty/alpaka"
@@ -378,6 +383,10 @@ endif()
 ################################################################################
 # PMacc options
 ################################################################################
+
+# tell acc.hpp which compute backend (alpaka API + executor) to build for
+message(STATUS "PMacc compute backend: ${PMACC_BACKEND}")
+target_compile_definitions(pmacc PUBLIC "PMACC_BACKEND_${PMACC_BACKEND}=1")
 
 option(PMACC_ASYNC_QUEUES "Enable asynchronous alpaka queues" ON)
 if(PMACC_ASYNC_QUEUES)

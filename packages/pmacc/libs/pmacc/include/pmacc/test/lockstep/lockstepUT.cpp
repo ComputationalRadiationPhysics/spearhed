@@ -201,7 +201,7 @@ struct IotaGenericKernelWithDynSharedMem
         constexpr uint32_t blockDomSize = T_Worker::blockDomSize();
         auto numDataBlocks = (size + blockDomSize - 1u) / blockDomSize;
 
-        uint32_t* s_mem = ::alpaka::getDynSharedMem<uint32_t>(worker.getAcc());
+        uint32_t* s_mem = ::alpaka::onAcc::getDynSharedMem<uint32_t>(worker.getAcc());
 
         // grid-strided loop over the chunked data
         for(int dataBlock = worker.blockDomIdx(); dataBlock < numDataBlocks; dataBlock += worker.gridDomSize())

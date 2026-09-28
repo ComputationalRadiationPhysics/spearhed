@@ -30,7 +30,7 @@
 
 namespace pmacc
 {
-    ComputeEvent::ComputeEvent() : event(ComputeDeviceEvent(manager::Device<ComputeDevice>::get().current()))
+    ComputeEvent::ComputeEvent() : event(manager::Device<ComputeDevice>::get().current().makeEvent())
     {
         log(ggLog::CUDA_RT() + ggLog::EVENT(), "create event");
     }
@@ -39,7 +39,7 @@ namespace pmacc
     {
         PMACC_ASSERT(refCounter == 0u);
         log(ggLog::CUDA_RT() + ggLog::EVENT(), "sync and delete event");
-        alpaka::wait(event);
+        alpaka::onHost::wait(event);
     }
 
     void ComputeEvent::registerHandle()
@@ -68,7 +68,7 @@ namespace pmacc
         if(!finished)
         {
             assert(stream.has_value());
-            finished = alpaka::isComplete(event);
+            finished = event.isComplete();
         }
         return finished;
     }
@@ -79,7 +79,7 @@ namespace pmacc
         assert(!this->stream.has_value());
         finished = false;
         this->stream = stream;
-        alpaka::enqueue(*this->stream, event);
+        this->stream->enqueue(event);
     }
 
 } // namespace pmacc

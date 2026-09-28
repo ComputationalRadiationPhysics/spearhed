@@ -53,7 +53,7 @@ namespace pmacc
         void init() override
         {
             auto queue = this->getAlpakaQueue();
-            alpaka::memcpy(
+            alpaka::onHost::memcpy(
                 queue,
                 buffer->sizeHostSideBuffer(),
                 buffer->sizeDeviceSideBuffer(),

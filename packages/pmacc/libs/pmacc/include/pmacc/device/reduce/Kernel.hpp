@@ -87,7 +87,7 @@ namespace pmacc
                     uint32_t const numGlobalVirtualThreadCount
                         = worker.gridDomSizeND().x() * worker.blockDomSizeND().x();
 
-                    Type* s_mem = ::alpaka::getDynSharedMem<Type>(worker.getAcc());
+                    Type* s_mem = ::alpaka::onAcc::getDynSharedMem<Type>(worker.getAcc());
 
                     this->operator()(
                         worker,

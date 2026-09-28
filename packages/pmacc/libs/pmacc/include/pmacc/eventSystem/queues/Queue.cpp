@@ -28,13 +28,21 @@
 
 namespace pmacc
 {
-    Queue::Queue() : queue(ComputeDeviceQueue(manager::Device<ComputeDevice>::get().current()))
+    Queue::Queue()
+        : queue(
+              manager::Device<ComputeDevice>::get().current().makeQueue(
+#if (PMACC_USE_ASYNC_QUEUES == 1)
+                  alpaka::queueKind::nonBlocking
+#else
+                  alpaka::queueKind::blocking
+#endif
+                  ))
     {
     }
 
     Queue::~Queue()
     {
-        alpaka::wait(queue);
+        alpaka::onHost::wait(queue);
     }
 
     ComputeDeviceQueue Queue::getAlpakaQueue() const
@@ -48,7 +56,7 @@ namespace pmacc
         {
             auto alpakaEvent = *ev;
             auto queue = this->getAlpakaQueue();
-            alpaka::wait(queue, alpakaEvent);
+            queue.enqueue(alpakaEvent);
         }
     }
 } // namespace pmacc

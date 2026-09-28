@@ -51,7 +51,7 @@ namespace pmacc
                 template<>
                 struct AlpakaAtomicOp<Add>
                 {
-                    using type = alpaka::AtomicAdd;
+                    using type = alpaka::operation::Add;
                 };
 
                 /**

@@ -35,11 +35,11 @@ namespace pmacc::exec::detail
     template<typename T_Kernel>
     struct KernelWithDynSharedMem : public T_Kernel
     {
-        size_t const m_dynSharedMemBytes;
+        size_t const dynSharedMemBytes;
 
-        KernelWithDynSharedMem(T_Kernel const& kernel, size_t const& dynSharedMemBytes)
+        KernelWithDynSharedMem(T_Kernel const& kernel, size_t const& dynSharedMemBytesIn)
             : T_Kernel(kernel)
-            , m_dynSharedMemBytes(dynSharedMemBytes)
+            , dynSharedMemBytes(dynSharedMemBytesIn)
         {
         }
     };

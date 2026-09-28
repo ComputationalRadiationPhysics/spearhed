@@ -42,7 +42,9 @@ namespace pmacc
     {
     public:
         using DeviceHeap = T_DeviceHeap;
-        using BufferType = ::alpaka::Buf<HostDevice, uint8_t, AlpakaDim<DIM1>, MemIdxType>;
+        using BufferType = decltype(alpaka::onHost::allocMapped<uint8_t>(
+            std::declval<HostDevice>(),
+            std::declval<alpaka::Vec<MemIdxType, 1u>>()));
 
         MallocMCBuffer(DeviceHeap& deviceHeap);
 

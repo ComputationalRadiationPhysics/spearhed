@@ -133,142 +133,66 @@ namespace pmacc
     } // namespace math
 } // namespace pmacc
 
-namespace alpaka
+namespace alpaka::math::internal
 {
-    namespace math
+    template<
+        typename T_MathImpl,
+        typename T_ScalarType1,
+        typename T_ScalarType2,
+        uint32_t T_dim,
+        typename T_Storage1,
+        typename T_Storage2>
+    struct Min::Op<
+        T_MathImpl,
+        ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1>,
+        ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2>>
     {
-        namespace trait
+        using ScalarResultType
+            = std::decay_t<decltype(alpaka::math::min(std::declval<T_ScalarType1>(), std::declval<T_ScalarType2>()))>;
+        using ResultType = ::pmacc::math::Vector<ScalarResultType, T_dim>;
+
+        ALPAKA_FN_HOST_ACC auto operator()(
+            T_MathImpl const&,
+            ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1> const& vector1,
+            ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2> const& vector2) const -> ResultType
         {
-            /* Specialise min/max for vectors so that `pmacc::math::min`/`max` operate element-wise.
-             *
-             * Unlike the other math functions, these cannot be left to the element-wise overloads in
-             * VectorOps.hpp: the generic alpaka Min/Max trait falls back to the unconstrained
-             * `std::min`/`std::max` templates, which match whole vectors and break (ambiguity on the host,
-             * `Vector<bool>`-to-`bool` conversion on CUDA). Specialising the trait keeps the generic
-             * `pmacc::math::min`/`max` well-formed for vector arguments.
-             */
-            template<
-                typename T_Ctx,
-                typename T_ScalarType1,
-                typename T_ScalarType2,
-                uint32_t T_dim,
-                typename T_Storage1,
-                typename T_Storage2>
-            struct Min<
-                T_Ctx,
-                ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1>,
-                ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2>,
-                void>
-            {
-                using ScalarResultType = std::decay_t<decltype(alpaka::math::min(
-                    std::declval<T_Ctx>(),
-                    std::declval<T_ScalarType1>(),
-                    std::declval<T_ScalarType2>()))>;
-                using ResultType = ::pmacc::math::Vector<ScalarResultType, T_dim>;
+            PMACC_CASSERT(T_dim > 0);
+            ResultType tmp;
+            for(uint32_t i = 0; i < T_dim; ++i)
+                tmp[i] = alpaka::math::min(vector1[i], vector2[i]);
+            return tmp;
+        }
+    };
 
-                ALPAKA_FN_HOST_ACC auto operator()(
-                    T_Ctx const& mathConcept,
-                    ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1> const& vector1,
-                    ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage2> const& vector2) -> ResultType
-                {
-                    PMACC_CASSERT(T_dim > 0);
-                    ResultType tmp;
-                    for(uint32_t i = 0; i < T_dim; ++i)
-                        tmp[i] = alpaka::math::min(mathConcept, vector1[i], vector2[i]);
-                    return tmp;
-                }
-            };
-
-            template<
-                typename T_Ctx,
-                typename T_ScalarType1,
-                typename T_ScalarType2,
-                uint32_t T_dim,
-                typename T_Storage1,
-                typename T_Storage2>
-            struct Max<
-                T_Ctx,
-                ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1>,
-                ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2>,
-                void>
-            {
-                using ScalarResultType = std::decay_t<decltype(alpaka::math::max(
-                    std::declval<T_Ctx>(),
-                    std::declval<T_ScalarType1>(),
-                    std::declval<T_ScalarType2>()))>;
-                using ResultType = ::pmacc::math::Vector<ScalarResultType, T_dim>;
-
-                ALPAKA_FN_HOST_ACC auto operator()(
-                    T_Ctx const& mathConcept,
-                    ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1> const& vector1,
-                    ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage2> const& vector2) -> ResultType
-                {
-                    PMACC_CASSERT(T_dim > 0);
-                    ResultType tmp;
-                    for(uint32_t i = 0; i < T_dim; ++i)
-                        tmp[i] = alpaka::math::max(mathConcept, vector1[i], vector2[i]);
-                    return tmp;
-                }
-            };
-        } // namespace trait
-    } // namespace math
-
-    namespace trait
+    template<
+        typename T_MathImpl,
+        typename T_ScalarType1,
+        typename T_ScalarType2,
+        uint32_t T_dim,
+        typename T_Storage1,
+        typename T_Storage2>
+    struct Max::Op<
+        T_MathImpl,
+        ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1>,
+        ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2>>
     {
-        //! dimension get trait specialization
-        template<typename T_Type, uint32_t T_dim, typename T_Storage>
-        struct DimType<pmacc::math::Vector<T_Type, T_dim, T_Storage>>
+        using ScalarResultType
+            = std::decay_t<decltype(alpaka::math::max(std::declval<T_ScalarType1>(), std::declval<T_ScalarType2>()))>;
+        using ResultType = ::pmacc::math::Vector<ScalarResultType, T_dim>;
+
+        ALPAKA_FN_HOST_ACC auto operator()(
+            T_MathImpl const&,
+            ::pmacc::math::Vector<T_ScalarType1, T_dim, T_Storage1> const& vector1,
+            ::pmacc::math::Vector<T_ScalarType2, T_dim, T_Storage2> const& vector2) const -> ResultType
         {
-            using type = ::alpaka::DimInt<T_dim>;
-        };
-
-        //! element type trait specialization
-        template<typename T_Type, uint32_t T_dim, typename T_Storage>
-        struct ElemType<pmacc::math::Vector<T_Type, T_dim, T_Storage>>
-        {
-            using type = T_Type;
-        };
-
-        //! extent get trait specialization
-        template<typename T_Type, uint32_t T_dim, typename T_Storage>
-        struct GetExtents<pmacc::math::Vector<T_Type, T_dim, T_Storage>, std::enable_if_t<std::is_integral_v<T_Type>>>
-        {
-            ALPAKA_FN_HOST_ACC
-            constexpr auto operator()(pmacc::math::Vector<T_Type, T_dim, T_Storage> const& extents)
-                -> Vec<::alpaka::DimInt<T_dim>, T_Type>
-            {
-                Vec<::alpaka::DimInt<T_dim>, T_Type> result;
-                for(uint32_t i = 0u; i < T_dim; i++)
-                    result[T_dim - 1 - i] = extents[i];
-                return result;
-            }
-        };
-
-        //! offset get trait specialization
-        template<typename T_Type, uint32_t T_dim, typename T_Storage>
-        struct GetOffsets<pmacc::math::Vector<T_Type, T_dim, T_Storage>, std::enable_if_t<std::is_integral_v<T_Type>>>
-        {
-            ALPAKA_FN_HOST_ACC
-            constexpr auto operator()(pmacc::math::Vector<T_Type, T_dim, T_Storage> const& offsets)
-                -> Vec<::alpaka::DimInt<T_dim>, T_Type>
-            {
-                Vec<::alpaka::DimInt<T_dim>, T_Type> result;
-                for(uint32_t i = 0u; i < T_dim; i++)
-                    result[T_dim - 1 - i] = offsets[i];
-                return result;
-            }
-        };
-
-        //! size type trait specialization.
-        template<typename T_Type, uint32_t T_dim, typename T_Storage>
-        struct IdxType<pmacc::math::Vector<T_Type, T_dim, T_Storage>, std::enable_if_t<std::is_integral_v<T_Type>>>
-        {
-            using type = T_Type;
-        };
-
-    } // namespace trait
-
-} // namespace alpaka
+            PMACC_CASSERT(T_dim > 0);
+            ResultType tmp;
+            for(uint32_t i = 0; i < T_dim; ++i)
+                tmp[i] = alpaka::math::max(vector1[i], vector2[i]);
+            return tmp;
+        }
+    };
+} // namespace alpaka::math::internal
 
 namespace pmacc
 {

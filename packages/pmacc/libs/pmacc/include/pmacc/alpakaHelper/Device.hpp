@@ -25,10 +25,9 @@
 
 #include <alpaka/alpaka.hpp>
 
-#include <map>
-#include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 namespace pmacc
 {
@@ -48,9 +47,13 @@ namespace pmacc
                 return instance;
             }
 
-            auto getPlatform() const
+            auto getDeviceSelector() const
             {
-                return alpaka::Platform<DeviceType>{};
+                return []<alpaka::concepts::Api T_Api, alpaka::concepts::DeviceKind T_DeviceKind>(
+                           std::type_identity<::alpaka::onHost::Device<T_Api, T_DeviceKind>>)
+                {
+                    return ::alpaka::onHost::makeDeviceSelector(T_Api{}, T_DeviceKind{});
+                }(std::type_identity<DeviceType>{});
             }
 
             auto device(int idx = 0) -> DeviceType&
@@ -76,10 +79,9 @@ namespace pmacc
 
                     std::optional<DeviceType> dev;
 
-                    auto const platform = getPlatform();
                     try
                     {
-                        dev = std::make_optional<DeviceType>(alpaka::getDevByIdx(platform, idx));
+                        dev = std::make_optional<DeviceType>(getDeviceSelector().makeDevice(idx));
                     }
                     catch(std::runtime_error const& e)
                     {
@@ -124,8 +126,7 @@ namespace pmacc
 
             auto count() -> int
             {
-                auto const platform = alpaka::Platform<DeviceType>{};
-                return static_cast<int>(::alpaka::getDevCount(platform));
+                return static_cast<int>(getDeviceSelector().getDeviceCount());
             }
 
         protected:

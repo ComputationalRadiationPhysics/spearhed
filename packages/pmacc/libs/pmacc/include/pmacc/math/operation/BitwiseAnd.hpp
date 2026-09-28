@@ -47,7 +47,7 @@ namespace pmacc::math::operation
         template<>
         struct AlpakaAtomicOp<BitwiseAnd>
         {
-            using type = alpaka::AtomicAnd;
+            using type = alpaka::operation::And;
         };
 
         /**

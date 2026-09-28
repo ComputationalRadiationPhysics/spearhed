@@ -53,25 +53,23 @@ namespace pmacc
 
         if(!hostBuffer)
         {
-            hostBuffer = alpaka::allocMappedBufIfSupported<uint8_t, MemIdxType>(
-                manager::Device<HostDevice>::get().current(),
-                manager::Device<ComputeDevice>::get().getPlatform(),
-                alpakaBufferSize);
+            hostBuffer
+                = alpaka::onHost::allocMapped<uint8_t>(manager::Device<HostDevice>::get().current(), alpakaBufferSize);
 
             hostBufferOffset = static_cast<int64_t>(
-                reinterpret_cast<uint8_t*>(deviceHeapInfo.p) - alpaka::getPtrNative(*hostBuffer));
+                reinterpret_cast<uint8_t*>(deviceHeapInfo.p) - alpaka::onHost::data(*hostBuffer));
         }
         /* add event system hints */
         eventSystem::startOperation(ITask::TASK_DEVICE);
         eventSystem::startOperation(ITask::TASK_HOST);
 
-        auto devView = ::alpaka::ViewPlainPtr<ComputeDevice, uint8_t, AlpakaDim<DIM1>, pmacc::MemIdxType>(
-            (uint8_t*) deviceHeapInfo.p,
+        auto devView = alpaka::makeView(
             manager::Device<ComputeDevice>::get().current(),
+            (uint8_t*) deviceHeapInfo.p,
             alpakaBufferSize);
         auto alpakaStream = pmacc::eventSystem::getComputeDeviceQueue(ITask::TASK_DEVICE)->getAlpakaQueue();
-        alpaka::memcpy(alpakaStream, *hostBuffer, devView, alpakaBufferSize);
-        alpaka::wait(alpakaStream);
+        alpaka::onHost::memcpy(alpakaStream, *hostBuffer, devView, alpakaBufferSize);
+        alpaka::onHost::wait(alpakaStream);
     }
 
 } // namespace pmacc

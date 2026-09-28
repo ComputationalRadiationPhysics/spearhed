@@ -25,8 +25,8 @@
 #include "pmacc/memory/Array.hpp"
 #include "pmacc/types.hpp"
 
-#include <alpaka/intrinsic/Traits.hpp>
-#include <alpaka/warp/Traits.hpp>
+#include <alpaka/intrinsic.hpp>
+#include <alpaka/onAcc/warp.hpp>
 
 #include <climits>
 #include <type_traits>
@@ -43,11 +43,11 @@ namespace pmacc
                 template<typename T_Acc, typename T_Hierarchy>
                 HDINLINE T_Type operator()(T_Acc const& acc, T_Type* ptr, T_Hierarchy const& hierarchy)
                 {
-                    return ::alpaka::atomicOp<::alpaka::AtomicAdd>(acc, ptr, T_Type(1), hierarchy);
+                    return ::alpaka::onAcc::atomicOp<::alpaka::operation::Add>(acc, ptr, T_Type(1), hierarchy);
                 }
             };
 
-#if PMACC_DEVICE_COMPILE == 1 && (ALPAKA_LANG_CUDA || ALPAKA_COMP_HIP)
+#if PMACC_DEVICE_COMPILE == 1 && (ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP)
             /**
              * Trait that returns whether an optimized version of AtomicAllInc
              * exists for Kepler architectures (and up)
@@ -88,23 +88,23 @@ namespace pmacc
                      * On CUDA calling activemask again could result int different results because warps are not
                      * implicitly synchronized. This is different to HIP and old CUDA GPUs before Volta.
                      */
-                    auto const mask = alpaka::warp::activemask(acc);
-                    auto const leader = alpaka::ffs(acc, static_cast<std::make_signed_t<decltype(mask)>>(mask)) - 1;
+                    auto const mask = alpaka::onAcc::warp::activemask(acc);
+                    auto const leader = alpaka::ffs(static_cast<std::make_signed_t<decltype(mask)>>(mask)) - 1;
 
                     auto result = T_Type{};
                     int const laneId = getLaneId();
                     /* Get the start value for this warp */
                     if(laneId == leader)
-                        result = ::alpaka::atomicOp<::alpaka::AtomicAdd>(
+                        result = ::alpaka::onAcc::atomicOp<::alpaka::operation::Add>(
                             acc,
                             ptr,
-                            static_cast<T_Type>(alpaka::popcount(acc, mask)),
+                            static_cast<T_Type>(alpaka::popcount(mask)),
                             hierarchy);
                     result = warpBroadcast(mask, result, leader);
                     /* Add offset per thread */
                     return result
                            + static_cast<T_Type>(
-                               alpaka::popcount(acc, mask & ((static_cast<decltype(mask)>(1u) << laneId) - 1u)));
+                               alpaka::popcount(mask & ((static_cast<decltype(mask)>(1u) << laneId) - 1u)));
                 }
             };
 
@@ -151,26 +151,10 @@ namespace pmacc
         template<typename T, typename T_Worker, typename T_Hierarchy>
         HDINLINE T atomicAllInc(T_Worker const& worker, T* ptr, T_Hierarchy const& hierarchy)
         {
-            return detail::AtomicAllInc<T, (PMACC_CUDA_ARCH >= 300 || ALPAKA_COMP_HIP)>()(
+            return detail::AtomicAllInc<T, (PMACC_CUDA_ARCH >= 300 || ALPAKA_LANG_HIP)>()(
                 worker.getAcc(),
                 ptr,
                 hierarchy);
-        }
-
-        template<typename T>
-        HDINLINE T atomicAllInc(T* ptr)
-        {
-            /* Dirty hack to call an alpaka accelerator based function.
-             * Members of the fakeAcc will be uninitialized and must not be accessed.
-             *
-             * The id provider for particles is the only code where atomicAllInc is used without an accelerator.
-             * @todo remove the unsafe faked accelerator
-             */
-            pmacc::memory::Array<std::byte, sizeof(pmacc::Acc<DIM1>)> fakeAcc(std::byte(0));
-            return detail::AtomicAllInc<T, (PMACC_CUDA_ARCH >= 300 || ALPAKA_COMP_HIP)>()(
-                *reinterpret_cast<pmacc::Acc<DIM1>*>(fakeAcc.data()),
-                ptr,
-                ::alpaka::hierarchy::Grids());
         }
 
         /** optimized atomic value exchange
@@ -194,13 +178,12 @@ namespace pmacc
             T_Type const value,
             T_Hierarchy const& hierarchy)
         {
-#if PMACC_DEVICE_COMPILE == 1 && (ALPAKA_LANG_CUDA || ALPAKA_COMP_HIP)
-            const auto mask = alpaka::warp::activemask(worker.getAcc());
-            auto const leader
-                = alpaka::ffs(worker.getAcc(), static_cast<std::make_signed_t<decltype(mask)>>(mask)) - 1;
+#if PMACC_DEVICE_COMPILE == 1 && (ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP)
+            auto const mask = alpaka::onAcc::warp::activemask(worker.getAcc());
+            auto const leader = alpaka::ffs(static_cast<std::make_signed_t<decltype(mask)>>(mask)) - 1;
             if(getLaneId() == leader)
 #endif
-                ::alpaka::atomicOp<::alpaka::AtomicExch>(worker.getAcc(), ptr, value, hierarchy);
+                ::alpaka::onAcc::atomicOp<::alpaka::operation::Exch>(worker.getAcc(), ptr, value, hierarchy);
         }
     } // namespace kernel
 } // namespace pmacc

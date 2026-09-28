@@ -29,5 +29,5 @@
 namespace pmacc::math
 {
     //! Computes e (Euler's number, 2.7182818...) raised to the given power.
-    ALPAKA_UNARY_MATH_FN(exp, alpaka::math::ConceptMathExp, Exp)
+    ALPAKA_UNARY_MATH_FN(exp, Exp)
 } // namespace pmacc::math

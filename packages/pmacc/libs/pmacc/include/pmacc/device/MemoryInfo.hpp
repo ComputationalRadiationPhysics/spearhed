@@ -56,7 +56,7 @@ namespace pmacc
 
                 if(free != nullptr)
                 {
-                    size_t freeInternal = ::alpaka::getFreeMemBytes(device);
+                    size_t freeInternal = device.getFreeGlobalMemBytes();
                     if(reservedMem > freeInternal)
                         freeInternal = 0;
                     else
@@ -66,7 +66,7 @@ namespace pmacc
                 }
                 if(total != nullptr)
                 {
-                    size_t totalInternal = ::alpaka::getMemBytes(device);
+                    size_t totalInternal = device.getDeviceProperties().globalMemCapacityBytes;
                     if(reservedMem > totalInternal)
                         totalInternal = 0;
                     else
@@ -89,7 +89,7 @@ namespace pmacc
                 [[maybe_unused]] uint32_t const numRanksPerDevice,
                 [[maybe_unused]] MPI_Comm mpiComm) const
             {
-#if (!ALPAKA_ACC_GPU_CUDA_ENABLED && !ALPAKA_ACC_GPU_HIP_ENABLED)
+#if (!ALPAKA_LANG_CUDA && !ALPAKA_LANG_HIP)
                 return true;
 #else
                 if(numRanksPerDevice >= 2u)

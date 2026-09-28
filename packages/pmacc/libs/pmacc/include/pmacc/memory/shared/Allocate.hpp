@@ -50,14 +50,14 @@ namespace pmacc
                 template<typename T_Acc>
                 DINLINE static T_Type& get(T_Acc const& acc)
                 {
-                    auto& smem = ::alpaka::declareSharedVar<T_Type, T_uniqueId>(acc);
+                    auto& smem = ::alpaka::onAcc::declareSharedVar<T_Type, T_uniqueId>(acc);
                     return smem;
                 }
 
                 template<typename T_Acc, typename T_BlockCfg>
                 DINLINE static T_Type& get(pmacc::lockstep::Worker<T_Acc, T_BlockCfg> const& worker)
                 {
-                    auto& smem = ::alpaka::declareSharedVar<T_Type, T_uniqueId>(worker.getAcc());
+                    auto& smem = ::alpaka::onAcc::declareSharedVar<T_Type, T_uniqueId>(worker.getAcc());
                     return smem;
                 }
             };

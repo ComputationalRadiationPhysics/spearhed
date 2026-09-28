@@ -50,7 +50,7 @@ namespace pmacc
                 template<>
                 struct AlpakaAtomicOp<Sub>
                 {
-                    using type = alpaka::AtomicSub;
+                    using type = alpaka::operation::Sub;
                 };
             } // namespace traits
 

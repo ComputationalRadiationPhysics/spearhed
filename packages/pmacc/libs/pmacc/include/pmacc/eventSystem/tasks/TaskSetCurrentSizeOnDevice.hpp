@@ -75,15 +75,11 @@ namespace pmacc
             auto sizeBuff = destination->sizeOnDeviceBuffer();
 
             auto alpakaAllOne = DataSpace<DIM1>(1).toAlpakaKernelVec();
-            auto oneThread
-                = alpaka::WorkDivMembers<AlpakaDim<DIM1>, IdxType>{alpakaAllOne, alpakaAllOne, alpakaAllOne};
-            auto setValueKernel = alpaka::createTaskKernel<Acc<DIM1>>(
-                oneThread,
-                KernelSetValueOnDeviceMemory{},
-                alpaka::getPtrNative(sizeBuff),
-                size);
+            auto threadSpec = alpaka::onHost::ThreadSpec{alpakaAllOne, alpakaAllOne};
+            auto kernelBundle
+                = alpaka::KernelBundle{KernelSetValueOnDeviceMemory{}, alpaka::onHost::data(sizeBuff), size};
             auto queue = this->getAlpakaQueue();
-            alpaka::enqueue(queue, setValueKernel);
+            queue.enqueue(threadSpec, kernelBundle);
 
             activate();
         }

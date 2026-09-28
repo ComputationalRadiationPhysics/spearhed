@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include <alpaka/warp/Traits.hpp>
+#include <alpaka/onAcc/warp.hpp>
 
-#if (ALPAKA_LANG_CUDA || ALPAKA_COMP_HIP)
+#if (ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP)
 
 #    include "pmacc/types.hpp"
 
@@ -43,7 +43,7 @@ namespace pmacc
             asm("mov.u32 %0, %%laneid;" : "=r"(id));
             return id;
         }
-#    elif ALPAKA_COMP_HIP
+#    elif ALPAKA_LANG_HIP
         DINLINE uint32_t getLaneId()
         {
             return __lane_id();
@@ -51,7 +51,7 @@ namespace pmacc
 #    endif
 
 
-#    if (__CUDA_ARCH__ >= 300 || ALPAKA_COMP_HIP)
+#    if (__CUDA_ARCH__ >= 300 || ALPAKA_LANG_HIP)
 
         /** broadcast data within a warp without using shared memory
          *
@@ -122,7 +122,7 @@ namespace pmacc
                 /* we can not use alpaka warp shfl because it assumes that all threads of the warp participating in the
                  * call
                  */
-#        if (ALPAKA_COMP_HIP)
+#        if (ALPAKA_LANG_HIP)
                 return __shfl(data, srcLaneId);
 #        else
                 return __shfl_sync(mask, data, srcLaneId);

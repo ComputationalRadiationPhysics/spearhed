@@ -23,11 +23,11 @@
 
 #pragma once
 
-#include "TimeInterval.hpp"
 #include "pmacc/Environment.hpp"
 #include "pmacc/mappings/simulation/GridController.hpp"
 #include "pmacc/pluginSystem/IPlugin.hpp"
 #include "pmacc/pluginSystem/Slice.hpp"
+#include "pmacc/simulationControl/TimeInterval.hpp"
 #include "pmacc/types.hpp"
 
 #include <string>

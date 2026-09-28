@@ -141,7 +141,7 @@ namespace pmacc::lockstep
          */
         HDINLINE void sync() const
         {
-            alpaka::syncBlockThreads(m_acc);
+            alpaka::onAcc::syncBlockThreads(m_acc);
         }
 
         /** get the worker index

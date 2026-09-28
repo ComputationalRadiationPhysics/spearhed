@@ -50,14 +50,22 @@ namespace pmacc
     template<class T_Type, unsigned T_dim>
     class DeviceBuffer : public Buffer<T_Type, T_dim>
     {
-        using BufferType = ::alpaka::Buf<ComputeDevice, T_Type, AlpakaDim<DIM1>, MemIdxType>;
-        using ViewType = alpaka::ViewPlainPtr<ComputeDevice, T_Type, AlpakaDim<T_dim>, MemIdxType>;
-        using CurrentSizeBufferDevice = ::alpaka::Buf<ComputeDevice, size_t, AlpakaDim<DIM1>, MemIdxType>;
+        using BufferType = decltype(alpaka::onHost::alloc<T_Type>(
+            std::declval<ComputeDevice>(),
+            std::declval<alpaka::Vec<MemIdxType, 1u>>()));
+        using ViewType = decltype(alpaka::makeView(
+            std::declval<ComputeDevice>(),
+            std::declval<T_Type*>(),
+            std::declval<alpaka::Vec<MemIdxType, T_dim>>(),
+            std::declval<alpaka::Vec<MemIdxType, T_dim>>()));
+        using CurrentSizeBufferDevice = decltype(alpaka::onHost::alloc<size_t>(
+            std::declval<ComputeDevice>(),
+            std::declval<alpaka::Vec<MemIdxType, 1u>>()));
 
         void createSizeOnDeviceBuffers()
         {
             currentSizeBufferDevice.emplace(
-                alpaka::allocBuf<size_t, MemIdxType>(
+                alpaka::onHost::alloc<size_t>(
                     manager::Device<ComputeDevice>::get().current(),
                     MemSpace<DIM1>(1).toAlpakaMemVec()));
         }
@@ -68,25 +76,23 @@ namespace pmacc
         std::optional<ViewType> view;
         std::optional<CurrentSizeBufferDevice> currentSizeBufferDevice;
 
-        using BufferType1D = ::alpaka::ViewPlainPtr<ComputeDevice, T_Type, AlpakaDim<DIM1>, MemIdxType>;
-
-        BufferType1D as1DBuffer()
+        auto as1DBuffer()
         {
             auto numElements = this->size();
             eventSystem::startOperation(ITask::TASK_DEVICE);
-            return BufferType1D(
-                alpaka::getPtrNative(*view),
-                alpaka::getDev(*devBuffer),
+            return alpaka::makeView(
+                *devBuffer,
+                alpaka::onHost::data(*view),
                 MemSpace<DIM1>(numElements).toAlpakaMemVec());
         }
 
-        BufferType1D as1DBufferNElem(size_t const numElements)
+        auto as1DBufferNElem(size_t const numElements)
         {
             PMACC_ASSERT(numElements < this->size());
             eventSystem::startOperation(ITask::TASK_DEVICE);
-            return BufferType1D(
-                alpaka::getPtrNative(*view),
-                alpaka::getDev(*devBuffer),
+            return alpaka::makeView(
+                *devBuffer,
+                alpaka::onHost::data(*view),
                 MemSpace<DIM1>(numElements).toAlpakaMemVec());
         }
 
@@ -106,7 +112,7 @@ namespace pmacc
         DeviceBuffer(MemSpace<T_dim> const& size, bool sizeOnDevice = false)
             : Buffer<T_Type, T_dim>(size)
             , devBuffer(
-                  alpaka::allocBuf<T_Type, MemIdxType>(
+                  alpaka::onHost::alloc<T_Type>(
                       manager::Device<ComputeDevice>::get().current(),
                       MemSpace<DIM1>(size.productOfComponents()).toAlpakaMemVec()))
         {
@@ -114,11 +120,12 @@ namespace pmacc
             pitchInBytes.x() = sizeof(T_Type);
             for(uint32_t d = 1u; d < T_dim; ++d)
                 pitchInBytes[d] = pitchInBytes[d - 1u] * size[d - 1u];
-            view.emplace(ViewType(
-                alpaka::getPtrNative(*devBuffer),
-                alpaka::getDev(*devBuffer),
-                size.toAlpakaMemVec(),
-                pitchInBytes.toAlpakaMemVec()));
+            view.emplace(
+                alpaka::makeView(
+                    *devBuffer,
+                    alpaka::onHost::data(*devBuffer),
+                    size.toAlpakaMemVec(),
+                    pitchInBytes.toAlpakaMemVec()));
 
             if(sizeOnDevice)
             {
@@ -146,12 +153,7 @@ namespace pmacc
             : Buffer<T_Type, T_dim>(size)
             , devBuffer(source.devBuffer)
         {
-            auto subView = createSubView(*source.view, size.toAlpakaMemVec(), offset.toAlpakaMemVec());
-            view.emplace(ViewType(
-                alpaka::getPtrNative(subView),
-                alpaka::getDev(subView),
-                alpaka::getExtents(subView),
-                alpaka::getPitchesInBytes(subView)));
+            view.emplace(source.view->getSubView(offset.toAlpakaMemVec(), size.toAlpakaMemVec()));
             if(sizeOnDevice)
             {
                 createSizeOnDeviceBuffers();
@@ -185,14 +187,14 @@ namespace pmacc
         {
             eventSystem::startOperation(ITask::TASK_DEVICE);
             PMACC_ASSERT_MSG(this->isContiguous(), "Memory must be contiguous!");
-            return alpaka::getPtrNative(*view);
+            return alpaka::onHost::data(*view);
         }
 
         DataBoxType getDataBox() override
         {
-            auto pitchBytes = MemSpace<T_dim>(getPitchesInBytes(*view));
+            auto pitchBytes = MemSpace<T_dim>(view->getPitches());
             eventSystem::startOperation(ITask::TASK_DEVICE);
-            return DataBoxType(PitchedBox<T_Type, T_dim>(alpaka::getPtrNative(*view), pitchBytes));
+            return DataBoxType(PitchedBox<T_Type, T_dim>(alpaka::onHost::data(*view), pitchBytes));
         }
 
         /** Show if current size is stored on device.
@@ -284,7 +286,7 @@ namespace pmacc
             PMACC_ASSERT_MSG(this->isContiguous(), "Memory must be contiguous!");
             size_t const size = this->size();
             eventSystem::startOperation(ITask::TASK_DEVICE);
-            return {alpaka::getPtrNative(*view), size};
+            return {alpaka::onHost::data(*view), size};
         }
 
         typename Buffer<T_Type, T_dim>::CPtr getCPtrCapacity() final
@@ -292,7 +294,7 @@ namespace pmacc
             PMACC_ASSERT_MSG(this->isContiguous(), "Memory must be contiguous!");
             eventSystem::startOperation(ITask::TASK_DEVICE);
             size_t const size = this->capacityND().productOfComponents();
-            return {alpaka::getPtrNative(*view), size};
+            return {alpaka::onHost::data(*view), size};
         }
     };
 

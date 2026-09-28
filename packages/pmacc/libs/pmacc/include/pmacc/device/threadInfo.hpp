@@ -36,8 +36,8 @@ namespace pmacc::device
     template<typename T_Acc>
     ALPAKA_FN_HOST_ACC ALPAKA_FN_INLINE static auto getBlockSize(T_Acc const& acc)
     {
-        auto alpakaBlockExtent = ::alpaka::getWorkDiv<::alpaka::Block, ::alpaka::Threads>(acc);
-        constexpr uint32_t dim = ::alpaka::Dim<decltype(alpakaBlockExtent)>::value;
+        auto alpakaBlockExtent = acc.getExtentsOf(::alpaka::onAcc::origin::block, ::alpaka::onAcc::unit::threads);
+        constexpr uint32_t dim = std::decay_t<decltype(alpakaBlockExtent)>::dim();
         return DataSpace<dim>(alpakaBlockExtent);
     }
 
@@ -48,8 +48,8 @@ namespace pmacc::device
     template<typename T_Acc>
     ALPAKA_FN_HOST_ACC ALPAKA_FN_INLINE static auto getGridSize(T_Acc const& acc)
     {
-        auto alpakaGridExtent = ::alpaka::getWorkDiv<::alpaka::Grid, ::alpaka::Blocks>(acc);
-        constexpr uint32_t dim = ::alpaka::Dim<decltype(alpakaGridExtent)>::value;
+        auto alpakaGridExtent = acc.getExtentsOf(::alpaka::onAcc::origin::grid, ::alpaka::onAcc::unit::blocks);
+        constexpr uint32_t dim = std::decay_t<decltype(alpakaGridExtent)>::dim();
         return DataSpace<dim>(alpakaGridExtent);
     }
 
@@ -60,8 +60,8 @@ namespace pmacc::device
     template<typename T_Acc>
     ALPAKA_FN_HOST_ACC ALPAKA_FN_INLINE static auto getThreadIdx(T_Acc const& acc)
     {
-        auto alpakaThreadIdx = ::alpaka::getIdx<::alpaka::Block, ::alpaka::Threads>(acc);
-        constexpr uint32_t dim = ::alpaka::Dim<decltype(alpakaThreadIdx)>::value;
+        auto alpakaThreadIdx = acc.getIdxWithin(::alpaka::onAcc::origin::block, ::alpaka::onAcc::unit::threads);
+        constexpr uint32_t dim = std::decay_t<decltype(alpakaThreadIdx)>::dim();
         return DataSpace<dim>(alpakaThreadIdx);
     }
 
@@ -72,8 +72,8 @@ namespace pmacc::device
     template<typename T_Acc>
     ALPAKA_FN_HOST_ACC ALPAKA_FN_INLINE static auto getBlockIdx(T_Acc const& acc)
     {
-        auto alpakaBlockdIdx = ::alpaka::getIdx<::alpaka::Grid, ::alpaka::Blocks>(acc);
-        constexpr uint32_t dim = ::alpaka::Dim<decltype(alpakaBlockdIdx)>::value;
+        auto alpakaBlockdIdx = acc.getIdxWithin(::alpaka::onAcc::origin::grid, ::alpaka::onAcc::unit::blocks);
+        constexpr uint32_t dim = std::decay_t<decltype(alpakaBlockdIdx)>::dim();
         return DataSpace<dim>(alpakaBlockdIdx);
     }
 } // namespace pmacc::device

@@ -30,58 +30,58 @@ namespace pmacc
     using IdxType = uint32_t;
     using MemIdxType = size_t;
 
-    template<uint32_t T_dim>
-    using AlpakaDim = ::alpaka::DimInt<T_dim>;
-    using HostDevice = ::alpaka::DevCpu;
-
-#if (ALPAKA_ACC_GPU_CUDA_ENABLED)
-    using ComputeDevice = ::alpaka::DevCudaRt;
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccGpuCudaRt<AlpakaDim<T_dim>, IdxType>;
-#elif (ALPAKA_ACC_GPU_HIP_ENABLED)
-    using ComputeDevice = ::alpaka::DevHipRt;
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccGpuHipRt<AlpakaDim<T_dim>, IdxType>;
-#elif (                                                                                                               \
-    ALPAKA_ACC_CPU_B_SEQ_T_OMP2_ENABLED || ALPAKA_ACC_CPU_B_SEQ_T_THREADS_ENABLED                                     \
-    || ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED || ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED                                      \
-    || ALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLED)
-
-    using ComputeDevice = ::alpaka::DevCpu;
-
-#    if (ALPAKA_ACC_CPU_B_SEQ_T_OMP2_ENABLED)
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccCpuOmp2Threads<AlpakaDim<T_dim>, IdxType>;
-#    endif
-
-#    if (ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccCpuOmp2Blocks<AlpakaDim<T_dim>, IdxType>;
-#    endif
-
-#    if (ALPAKA_ACC_CPU_B_SEQ_T_THREADS_ENABLED)
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccCpuThreads<AlpakaDim<T_dim>, IdxType>;
-#    endif
-
-#    if (ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED)
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccCpuSerial<AlpakaDim<T_dim>, IdxType>;
-#    endif
-
-#    if (ALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLED)
-    template<uint32_t T_dim>
-    using Acc = ::alpaka::AccCpuTbbBlocks<AlpakaDim<T_dim>, IdxType>;
-#    endif
+    /* Compute backend
+     *
+     * A backend bundles the alpaka API and device kind (which device the code runs on) with the executor
+     * (how the parallelism on that device is organised). Exactly one backend is active per build; it is selected
+     * via the CMake option PMACC_BACKEND, which defines one of the PMACC_BACKEND_* macros below.
+     *
+     * - ComputeDevice: alpaka device type the code is built for
+     * - computeExec / ComputeExec: the executor (value and type) describing the parallelism on ComputeDevice
+     */
+#if defined(PMACC_BACKEND_GpuCuda)
+    inline constexpr auto computeApi = ::alpaka::api::cuda;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::nvidiaGpu;
+    inline constexpr auto computeExec = ::alpaka::exec::gpuCuda;
+#elif defined(PMACC_BACKEND_GpuHip)
+    inline constexpr auto computeApi = ::alpaka::api::hip;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::amdGpu;
+    inline constexpr auto computeExec = ::alpaka::exec::gpuHip;
+#elif defined(PMACC_BACKEND_OneApi)
+    inline constexpr auto computeApi = ::alpaka::api::oneApi;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::intelGpu;
+    inline constexpr auto computeExec = ::alpaka::exec::oneApi;
+#elif defined(PMACC_BACKEND_CpuOmpBlocks)
+    inline constexpr auto computeApi = ::alpaka::api::host;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::cpu;
+    inline constexpr auto computeExec = ::alpaka::exec::cpuOmpBlocks;
+#elif defined(PMACC_BACKEND_CpuTbbBlocks)
+    inline constexpr auto computeApi = ::alpaka::api::host;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::cpu;
+    inline constexpr auto computeExec = ::alpaka::exec::cpuTbbBlocks;
+#elif defined(PMACC_BACKEND_CpuSerial)
+    inline constexpr auto computeApi = ::alpaka::api::host;
+    inline constexpr auto computeDeviceKind = ::alpaka::deviceKind::cpu;
+    inline constexpr auto computeExec = ::alpaka::exec::cpuSerial;
+#else
+#    error                                                                                                            \
+        "No PMacc compute backend selected. Set the CMake option PMACC_BACKEND (CpuSerial, CpuOmpBlocks, CpuTbbBlocks, GpuCuda, GpuHip or OneApi)."
 #endif
+
+    using ComputeDevice = ::alpaka::onHost::Device<ALPAKA_TYPEOF(computeApi), ALPAKA_TYPEOF(computeDeviceKind)>;
+
+    //! type of the selected backend's executor
+    using ComputeExec = ALPAKA_TYPEOF(computeExec);
+
+    using HostDevice = ::alpaka::onHost::Device<::alpaka::api::Host, ::alpaka::deviceKind::Cpu>;
 
 #if (PMACC_USE_ASYNC_QUEUES == 1)
-    using ComputeDeviceQueue = ::alpaka::Queue<ComputeDevice, ::alpaka::NonBlocking>;
+    using ComputeDeviceQueue = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::queueKind::NonBlocking>;
 #else
-    using ComputeDeviceQueue = ::alpaka::Queue<ComputeDevice, ::alpaka::Blocking>;
+    using ComputeDeviceQueue = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::queueKind::Blocking>;
 #endif
 
-    using ComputeDeviceEvent = alpaka::Event<ComputeDeviceQueue>;
+    using ComputeDeviceEvent = ::alpaka::onHost::Event<ComputeDevice>;
 
     /*! device compile flag
      *
@@ -91,7 +91,9 @@ namespace pmacc
      *
      * Value is 1 if device path is compiled else 0
      */
-#if defined(__CUDA_ARCH__) || (defined(__HIP_DEVICE_COMPILE__) && __HIP_DEVICE_COMPILE__ == 1 && defined(__HIP__))
+#if ALPAKA_LANG_CUDA && (ALPAKA_COMP_CLANG_CUDA || ALPAKA_COMP_NVCC) && __CUDA_ARCH__
+#    define PMACC_DEVICE_COMPILE 1
+#elif ALPAKA_LANG_HIP && defined(__HIP_DEVICE_COMPILE__) && __HIP_DEVICE_COMPILE__ == 1
 #    define PMACC_DEVICE_COMPILE 1
 #else
 #    define PMACC_DEVICE_COMPILE 0

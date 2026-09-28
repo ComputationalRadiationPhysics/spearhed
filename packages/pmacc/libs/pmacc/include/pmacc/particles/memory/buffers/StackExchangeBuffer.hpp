@@ -73,11 +73,11 @@ namespace pmacc
             PMACC_ASSERT(stackIndexer.getDeviceBuffer().hasCurrentSizeOnDevice() == true);
             return ExchangePushDataBox<vint_t, FRAME, DIM>(
                 stack.getDeviceBuffer().data(),
-                (vint_t*) alpaka::getPtrNative(stack.getDeviceBuffer().sizeDeviceSideBuffer()),
+                (vint_t*) alpaka::onHost::data(stack.getDeviceBuffer().sizeDeviceSideBuffer()),
                 stack.getDeviceBuffer().capacityND().productOfComponents(),
                 PushDataBox<vint_t, FRAMEINDEX>(
                     stackIndexer.getDeviceBuffer().data(),
-                    (vint_t*) alpaka::getPtrNative(stackIndexer.getDeviceBuffer().sizeDeviceSideBuffer())));
+                    (vint_t*) alpaka::onHost::data(stackIndexer.getDeviceBuffer().sizeDeviceSideBuffer())));
         }
 
         /**

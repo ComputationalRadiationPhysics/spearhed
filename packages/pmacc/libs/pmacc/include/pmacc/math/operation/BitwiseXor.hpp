@@ -47,7 +47,7 @@ namespace pmacc::math::operation
         template<>
         struct AlpakaAtomicOp<BitwiseXor>
         {
-            using type = alpaka::AtomicXor;
+            using type = alpaka::operation::Xor;
         };
 
         /**

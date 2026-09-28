@@ -47,7 +47,7 @@ namespace pmacc
                     template<typename T_Worker>
                     DINLINE result_type operator()(T_Worker const& worker, StateType& state)
                     {
-                        return ::alpaka::rand::distribution::createNormalReal<T_Type>(worker.getAcc())(state);
+                        return ::alpaka::rand::distribution::NormalReal<T_Type>{}(state);
                     }
                 };
 

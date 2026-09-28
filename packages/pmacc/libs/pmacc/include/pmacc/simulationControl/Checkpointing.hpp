@@ -174,7 +174,7 @@ namespace pmacc::simulationControl
                  * @todo this should not be required but is kept because we do not know anymore why it is here
                  * maybe it should catch possible backend (CUDA/HIP) errors.
                  */
-                alpaka::wait(manager::Device<ComputeDevice>::get().current());
+                manager::Device<ComputeDevice>::get().current().wait();
 
                 if(gc.getGlobalRank() == 0)
                 {

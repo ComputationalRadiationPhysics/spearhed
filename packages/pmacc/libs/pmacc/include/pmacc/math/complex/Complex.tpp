@@ -27,7 +27,6 @@
 #include "pmacc/math/complex/Complex.hpp"
 #include "pmacc/mpi/GetMPI_StructAsArray.hpp"
 #include "pmacc/traits/GetComponentsType.hpp"
-#include "pmacc/traits/GetNComponents.hpp"
 
 #include <cmath>
 

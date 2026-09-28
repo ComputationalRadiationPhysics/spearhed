@@ -44,7 +44,7 @@ namespace pmacc
                 template<typename Dst, typename Src, typename T_Worker>
                 HDINLINE constexpr void operator()(T_Worker const& worker, Dst& dst, Src const& src) const
                 {
-                    dst = alpaka::math::min(worker.getAcc(), dst, src);
+                    dst = pmacc::math::min(dst, src);
                 }
             };
 
@@ -53,7 +53,7 @@ namespace pmacc
                 template<>
                 struct AlpakaAtomicOp<Min>
                 {
-                    using type = alpaka::AtomicMin;
+                    using type = alpaka::operation::Min;
                 };
 
                 /**

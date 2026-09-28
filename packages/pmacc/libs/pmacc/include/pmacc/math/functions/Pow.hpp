@@ -29,6 +29,6 @@
 namespace pmacc::math
 {
     //! Computes the value of base raised to the power exp.
-    ALPAKA_BINARY_MATH_FN(pow, alpaka::math::ConceptMathPow, Pow)
+    ALPAKA_BINARY_MATH_FN(pow, Pow)
 
 } // namespace pmacc::math

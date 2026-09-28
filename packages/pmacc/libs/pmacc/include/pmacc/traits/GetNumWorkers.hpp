@@ -21,48 +21,44 @@
 
 #pragma once
 
+#include "pmacc/alpakaHelper/acc.hpp"
 #include "pmacc/types.hpp"
 
-#include <type_traits>
+#include <algorithm>
 
 namespace pmacc
 {
     namespace traits
     {
+        namespace detail
+        {
+            /** Compile-time safe upper bound on workers for the build's executor.
+             *
+             * Delegates to alpaka::onHost::getMaxThreadsPerBlock, which returns the minimum guaranteed
+             * threads-per-block for the build's API/device-kind/executor combination. The runtime device may
+             * support more, but this is just a compile-time safety net for the ThreadSpec-based launch path.
+             */
+            inline constexpr uint32_t currentMaxWorkers
+                = ::alpaka::onHost::getMaxThreadsPerBlock(computeApi, computeDeviceKind, computeExec);
+        } // namespace detail
+
         /** Get number of workers
          *
          * the number of workers for a kernel depending on the used accelerator
          *
          * @tparam T_maxWorkers the maximum number of workers
-         * @tparam T_Acc the accelerator type
-         * @return @p ::value number of workers
+         * @return @p ::value number of workers, clamped to the backend's compile-time maximum
+         *
+         * @warning This keys on the build's global pmacc::ComputeExec, so it is only correct while
+         *          every launch uses that executor. This trait would ignore per-launch executors if/when they are
+         *          possible in the future and keep deciding based on ComputeExec, so a launch with a different
+         *          executor would be wrong. The fix is then to key the worker count on the *actual* executor used
+         *          for the launch.
          */
-        template<uint32_t T_maxWorkers, typename T_Acc = Acc<DIM1>>
+        template<uint32_t T_maxWorkers>
         struct GetNumWorkers
         {
-            static constexpr uint32_t value = T_maxWorkers;
+            static constexpr uint32_t value = std::min(T_maxWorkers, detail::currentMaxWorkers);
         };
-
-#if (ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
-        template<uint32_t T_maxWorkers, typename... T_Args>
-        struct GetNumWorkers<T_maxWorkers, alpaka::AccCpuOmp2Blocks<T_Args...>>
-        {
-            static constexpr uint32_t value = 1u;
-        };
-#endif
-#if (ALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLED)
-        template<uint32_t T_maxWorkers, typename... T_Args>
-        struct GetNumWorkers<T_maxWorkers, alpaka::AccCpuSerial<T_Args...>>
-        {
-            static constexpr uint32_t value = 1u;
-        };
-#endif
-#if (ALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLED)
-        template<uint32_t T_maxWorkers, typename... T_Args>
-        struct GetNumWorkers<T_maxWorkers, alpaka::AccCpuTbbBlocks<T_Args...>>
-        {
-            static constexpr uint32_t value = 1u;
-        };
-#endif
     } // namespace traits
 } // namespace pmacc

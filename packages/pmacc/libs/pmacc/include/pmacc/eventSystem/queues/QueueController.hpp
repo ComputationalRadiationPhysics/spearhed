@@ -70,7 +70,7 @@ namespace pmacc
 
             /* This is the single point in PIC where ALL CUDA work must be finished. */
             /* Accessing CUDA objects after this point may fail! */
-            alpaka::wait(manager::Device<ComputeDevice>::get().current());
+            manager::Device<ComputeDevice>::get().current().wait();
             manager::Device<ComputeDevice>::get().reset();
         }
 

@@ -102,13 +102,13 @@ namespace pmacc::lockstep
         template<typename T_Acc>
         HDINLINE static auto getWorker(T_Acc const& acc)
         {
-            auto const localThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-            auto const blockExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
+            auto const localThreadIdx = acc.getIdxWithin(alpaka::onAcc::origin::block, alpaka::onAcc::unit::threads);
+            auto const blockExtent = acc.getExtentsOf(alpaka::onAcc::origin::block, alpaka::onAcc::unit::threads);
 
             // validate that the kernel is started with the correct number of threads
-            ALPAKA_ASSERT_ACC(blockExtent.prod() == numWorkers());
+            ALPAKA_ASSERT_ACC(blockExtent.product() == numWorkers());
 
-            auto const linearThreadIdx = alpaka::mapIdx<1u>(localThreadIdx, blockExtent)[0];
+            auto const linearThreadIdx = alpaka::linearize(blockExtent, localThreadIdx);
             return Worker<T_Acc, BlockCfg>(acc, linearThreadIdx);
         }
 

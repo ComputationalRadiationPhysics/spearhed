@@ -63,10 +63,10 @@ namespace pmacc
                 auto src = source->as1DBuffer();
                 // no need to call methods of the PMacc buffer again which will only trigger the event system and is
                 // increasing the latency
-                auto size = alpaka::getExtents(src);
+                auto size = alpaka::onHost::getExtents(src);
                 destination->setSize(size[0]);
                 auto queue = this->getAlpakaQueue();
-                alpaka::memcpy(queue, destination->as1DBuffer(), src, size);
+                alpaka::onHost::memcpy(queue, destination->as1DBuffer(), src, size);
             }
             else
             {
@@ -74,7 +74,11 @@ namespace pmacc
                 destination->setSize(currentSize);
                 auto sizeND = source->sizeND(currentSize);
                 auto queue = this->getAlpakaQueue();
-                alpaka::memcpy(queue, destination->getAlpakaView(), source->getAlpakaView(), sizeND.toAlpakaMemVec());
+                alpaka::onHost::memcpy(
+                    queue,
+                    destination->getAlpakaView(),
+                    source->getAlpakaView(),
+                    sizeND.toAlpakaMemVec());
             }
 
             this->activate();

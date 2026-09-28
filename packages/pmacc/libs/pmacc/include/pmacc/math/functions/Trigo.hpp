@@ -29,41 +29,41 @@
 namespace pmacc::math
 {
     //! Computes the sine (measured in radians).
-    ALPAKA_UNARY_MATH_FN(sin, alpaka::math::ConceptMathSin, Sin)
+    ALPAKA_UNARY_MATH_FN(sin, Sin)
 
     //! Computes the cosine (measured in radians).
-    ALPAKA_UNARY_MATH_FN(cos, alpaka::math::ConceptMathCos, Cos)
+    ALPAKA_UNARY_MATH_FN(cos, Cos)
 
     //! Computes the tangent (measured in radians).
-    ALPAKA_UNARY_MATH_FN(tan, alpaka::math::ConceptMathTan, Tan)
+    ALPAKA_UNARY_MATH_FN(tan, Tan)
 
     //! Computes the principal value of the arc sine.
-    ALPAKA_UNARY_MATH_FN(asin, alpaka::math::ConceptMathAsin, Asin)
+    ALPAKA_UNARY_MATH_FN(asin, Asin)
 
     //! Computes the principal value of the arc cosine.
-    ALPAKA_UNARY_MATH_FN(acos, alpaka::math::ConceptMathAcos, Acos)
+    ALPAKA_UNARY_MATH_FN(acos, Acos)
 
     //! Computes the principal value of the arc tangent.
-    ALPAKA_UNARY_MATH_FN(atan, alpaka::math::ConceptMathAtan, Atan)
+    ALPAKA_UNARY_MATH_FN(atan, Atan)
 
     //! Computes the arc tangent of y/x using the signs of arguments to determine the correct quadrant.
-    ALPAKA_BINARY_MATH_FN(atan2, alpaka::math::ConceptMathAtan2, Atan2)
+    ALPAKA_BINARY_MATH_FN(atan2, Atan2)
 
     //! Computes the hyperbolic sine.
-    ALPAKA_UNARY_MATH_FN(sinh, alpaka::math::ConceptMathSinh, Sinh)
+    ALPAKA_UNARY_MATH_FN(sinh, Sinh)
 
     //! Computes the hyperbolic cosine.
-    ALPAKA_UNARY_MATH_FN(cosh, alpaka::math::ConceptMathCosh, Cosh)
+    ALPAKA_UNARY_MATH_FN(cosh, Cosh)
 
     //! Computes the hyperbolic tangent.
-    ALPAKA_UNARY_MATH_FN(tanh, alpaka::math::ConceptMathTanh, Tanh)
+    ALPAKA_UNARY_MATH_FN(tanh, Tanh)
 
     //! Computes the hyperbolic arc sine.
-    ALPAKA_UNARY_MATH_FN(asinh, alpaka::math::ConceptMathAsin, Asinh)
+    ALPAKA_UNARY_MATH_FN(asinh, Asinh)
 
     //! Computes the hyperbolic arc cosine.
-    ALPAKA_UNARY_MATH_FN(acosh, alpaka::math::ConceptMathAcosh, Acosh)
+    ALPAKA_UNARY_MATH_FN(acosh, Acosh)
 
     //! Computes the hyperbolic arc tangent.
-    ALPAKA_UNARY_MATH_FN(atanh, alpaka::math::ConceptMathAtanh, Atanh)
+    ALPAKA_UNARY_MATH_FN(atanh, Atanh)
 } // namespace pmacc::math

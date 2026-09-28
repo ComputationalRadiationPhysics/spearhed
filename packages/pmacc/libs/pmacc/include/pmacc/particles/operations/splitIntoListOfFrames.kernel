@@ -111,7 +111,7 @@ namespace pmacc
                                 /* apply for work for the full block, counter[0] contains the
                                  * offset in srcFrame to load N particles
                                  */
-                                sharedSrcParticleOffset = alpaka::atomicAdd(
+                                sharedSrcParticleOffset = alpaka::onAcc::atomicAdd(
                                     worker.getAcc(),
                                     &(counter[0]),
                                     particlesPerFrame,
@@ -301,7 +301,7 @@ namespace pmacc
                 constexpr uint32_t frameSize = T_SrcFrame::frameSize;
 
                 PMACC_LOCKSTEP_KERNEL(detail::KernelSplitIntoListOfFrames{})
-                    .template config<frameSize>(alpaka::core::divCeil(currentChunkSize, frameSize))(
+                    .template config<frameSize>(alpaka::divCeil(currentChunkSize, frameSize))(
                         counterBuffer.getDeviceBuffer().getDataBox(),
                         destSpecies.getDeviceParticlesBox(),
                         srcFrame,

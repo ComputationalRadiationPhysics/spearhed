@@ -23,32 +23,31 @@
 
 #include "pmacc/types.hpp"
 
+#include <alpaka/rand/engine/philox/philox.hpp>
+
 namespace pmacc
 {
     namespace random
     {
         namespace methods
         {
-            template<typename T_Acc = pmacc::Acc<DIM1>>
+            template<typename T_Acc = void>
             class AlpakaRand
             {
             public:
-                using StateType = decltype(::alpaka::rand::engine::createDefault(
-                    alpaka::core::declval<T_Acc const&>(),
-                    alpaka::core::declval<uint32_t&>(),
-                    alpaka::core::declval<uint32_t&>()));
+                using StateType = alpaka::rand::engine::Philox4x32x10;
 
                 template<typename T_Worker>
                 DINLINE void init(T_Worker const& worker, StateType& state, uint32_t seed, uint32_t subsequence = 0)
                     const
                 {
-                    state = ::alpaka::rand::engine::createDefault(worker.getAcc(), seed, subsequence);
+                    state = alpaka::rand::engine::Philox4x32x10{seed, subsequence};
                 }
 
                 template<typename T_Worker>
                 DINLINE uint32_t get32Bits(T_Worker const& worker, StateType& state) const
                 {
-                    return ::alpaka::rand::distribution::createUniformUint<uint32_t>(worker.getAcc())(state);
+                    return state();
                 }
 
                 template<typename T_Worker>

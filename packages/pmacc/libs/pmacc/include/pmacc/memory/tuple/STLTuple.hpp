@@ -36,8 +36,7 @@
 
 #include "pmacc/attribute/FunctionSpecifier.hpp"
 
-#include <alpaka/core/Common.hpp>
-#include <alpaka/core/Config.hpp>
+#include <boost/predef.h>
 
 #include <type_traits>
 #include <utility>

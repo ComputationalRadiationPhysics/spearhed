@@ -36,14 +36,14 @@ namespace pmacc
              * @tparam T_AlpakaOperation alpaka atomic operation [::alpaka::op]
              * @tparam T_AlpakaHierarchy alpaka atomic hierarchy [::alpaka::hierarchy]
              */
-            template<typename T_AlpakaOperation, typename T_AlpakaHierarchy = ::alpaka::hierarchy::Grids>
+            template<typename T_AlpakaOperation, typename T_AlpakaHierarchy = ::alpaka::onAcc::scope::Device>
             struct Atomic
             {
                 /** Execute generic atomic operation */
                 template<typename T_Worker, typename T_Dst, typename T_Src>
                 HDINLINE void operator()(T_Worker const& worker, T_Dst& dst, T_Src const& src) const
                 {
-                    ::alpaka::atomicOp<T_AlpakaOperation>(worker.getAcc(), &dst, src, T_AlpakaHierarchy{});
+                    ::alpaka::onAcc::atomicOp<T_AlpakaOperation>(worker.getAcc(), &dst, src, T_AlpakaHierarchy{});
                 }
 
                 /** Execute atomic operation for pmacc::math::Vector */
@@ -59,7 +59,11 @@ namespace pmacc
                     pmacc::math::Vector<T_Type, T_dim, T_SrcStorage> const& src) const
                 {
                     for(uint32_t i = 0; i < T_dim; ++i)
-                        ::alpaka::atomicOp<T_AlpakaOperation>(worker.getAcc(), &dst[i], src[i], T_AlpakaHierarchy{});
+                        ::alpaka::onAcc::atomicOp<T_AlpakaOperation>(
+                            worker.getAcc(),
+                            &dst[i],
+                            src[i],
+                            T_AlpakaHierarchy{});
                 }
             };
 
