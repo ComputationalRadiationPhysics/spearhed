@@ -110,7 +110,13 @@ if(SPEARHED_ENABLE_OPENPMD)
     find_package(openPMD REQUIRED)
 endif()
 
-add_subdirectory(include/llamaLite)
+option(SPEARHED_TESTING "Enable/Disable testing" OFF)
+set(LLAMALITE_BUILD_TESTING "${SPEARHED_TESTING}" CACHE BOOL "Build llamaLite's own tests")
+if(SPEARHED_TESTING OR LLAMALITE_BUILD_TESTING)
+    include(CTest)
+    enable_testing()
+endif()
+add_subdirectory(packages/pmacc/libs/llamaLite)
 ################################################################################
 # Compile & Link SPEARHED
 ################################################################################
@@ -121,10 +127,6 @@ add_subdirectory(include/spearhed)
 # Testing and Subdirectories
 ################################################################################
 
-option(SPEARHED_TESTING "Enable/Disable testing" OFF)
-
 if(SPEARHED_TESTING)
-    include(CTest)
-    enable_testing()
     add_subdirectory("${_spearhed_TESTING_DIR}")
 endif()

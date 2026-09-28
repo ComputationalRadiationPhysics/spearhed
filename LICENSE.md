@@ -26,12 +26,12 @@ SPMacc is licensed under the **LGPLv3+**. See
 If not stated otherwise explicitly, that affects:
  - `include/spmacc`
 
- ### llamaLite
- 
-LlamaLite is licensed under the **MPLv2+**. You can obtain a copy of the 
-license at https://mozilla.org/MPL/2.0/.
- - `include/llamaLite`
- - `tests/llamaLite`
+### llamaLite
+
+llamaLite is licensed under MPL-2.0; see
+`packages/pmacc/libs/llamaLite/LICENSE` and the notices in its source files.
+Its library and library-owned tests live in `packages/pmacc/libs/llamaLite`.
+The spmacc integration test remains in `tests/llama_lite/integration`.
 
 
 ### Documentation

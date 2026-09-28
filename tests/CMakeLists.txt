@@ -16,6 +16,8 @@ include(FetchContent)
 FetchContent_Declare(Catch2 GIT_REPOSITORY https://github.com/catchorg/Catch2.git GIT_TAG v3.5.3)
 FetchContent_MakeAvailable(Catch2)
 target_compile_features(Catch2 PUBLIC cxx_std_20)
+FetchContent_GetProperties(Catch2)
+list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
 
 # hide Catch2 cmake variables by default in cmake gui
@@ -90,7 +92,8 @@ function(add_test_target target_prefix layer_label folder)
     endforeach()
 endfunction()
 
-add_test_target(unit_test_llama_ "llamaLite" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
+# Integration with spmacc stays in spearhed; pure llamaLite tests live in the component.
+add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/integration/**)
 add_test_target(unit_test_spmacc_ "spmacc" ${CMAKE_CURRENT_SOURCE_DIR}/spmacc/unit/**)
 add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
 
