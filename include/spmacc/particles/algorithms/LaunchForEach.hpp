@@ -26,11 +26,13 @@
 #include "spmacc/particles/algorithms/FrameSchedule.hpp"
 #include "spmacc/particles/algorithms/HierarchyForEach.hpp"
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
-#include <pmacc/eventSystem/events/EventTask.hpp>
 
 #include <type_traits>
 #include <utility>
+
+#include <caravan/alpaka.hpp>
 
 /*
  * Launch distribution for the particle hierarchy: the host entry that dispatches a GPU kernel.
@@ -131,7 +133,7 @@ namespace pmacc::spearhed
         typename T_Body,
         typename... T_Args>
     requires(!IsHierarchyLevel<T_Cfg> && IsFrameIndexBuffer<T_Index>)
-    [[nodiscard]] pmacc::EventTask launchForEach(
+    [[nodiscard]] auto launchForEach(
         T_Cfg cfg,
         T_Target /*target*/,
         T_PRBuf& prBuf,
@@ -158,12 +160,7 @@ namespace pmacc::spearhed
     //! with a caller-built FrameIndexBuffer. Same asynchrony and lifetime contract as above.
     template<IsHierarchyLevel T_Target, typename T_PRBuf, typename T_Index, typename T_Body, typename... T_Args>
     requires IsFrameIndexBuffer<T_Index>
-    [[nodiscard]] pmacc::EventTask launchForEach(
-        T_Target target,
-        T_PRBuf& prBuf,
-        T_Index& index,
-        T_Body body,
-        T_Args&&... args)
+    [[nodiscard]] auto launchForEach(T_Target target, T_PRBuf& prBuf, T_Index& index, T_Body body, T_Args&&... args)
     {
         return launchForEach(defaultForEach, target, prBuf, index, body, std::forward<T_Args>(args)...);
     }
@@ -191,7 +188,11 @@ namespace pmacc::spearhed
             return;
         FrameIndexBuffer<typename std::remove_reference_t<decltype(prBuf)>::ParticleRegionType> index{prBuf};
         // Mandatory: index dies at the end of this scope, so the kernel must finish before that.
-        launchForEach(cfg, target, prBuf, index, body, std::forward<T_Args>(args)...).waitForFinished();
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        caravan::syncWait(
+            caravan::alpaka::withDevice(
+                device,
+                launchForEach(cfg, target, prBuf, index, body, std::forward<T_Args>(args)...)));
     }
 
     //! Convenience overload using the default decomposition (grid-stride over one block per frame)

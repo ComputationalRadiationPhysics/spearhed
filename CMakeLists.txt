@@ -23,7 +23,7 @@
 # Required cmake version
 ################################################################################
 
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.28)
 
 ################################################################################
 # Project
@@ -101,7 +101,6 @@ target_compile_options(
 # Dependencies
 ################################################################################
 
-find_package(PMacc REQUIRED CONFIG PATHS "${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/picongpu/include/pmacc")
 find_package(MPI REQUIRED)
 find_package(Boost 1.74.0 REQUIRED CONFIG COMPONENTS program_options)
 
@@ -111,12 +110,16 @@ if(SPEARHED_ENABLE_OPENPMD)
 endif()
 
 option(SPEARHED_TESTING "Enable/Disable testing" OFF)
-set(LLAMALITE_BUILD_TESTING "${SPEARHED_TESTING}" CACHE BOOL "Build llamaLite's own tests")
-if(SPEARHED_TESTING OR LLAMALITE_BUILD_TESTING)
+option(PMACC_BUILD_TESTING "Build PMacc tests" OFF)
+option(CARAVAN_BUILD_TESTING "Build Caravan tests" OFF)
+option(LLAMALITE_BUILD_TESTING "Build llamaLite's own tests" "${SPEARHED_TESTING}")
+if(SPEARHED_TESTING OR PMACC_BUILD_TESTING OR CARAVAN_BUILD_TESTING OR LLAMALITE_BUILD_TESTING)
     include(CTest)
     enable_testing()
 endif()
-add_subdirectory(packages/pmacc/libs/llamaLite)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/packages/pmacc/cmake/PMaccBackend.cmake")
+add_subdirectory(packages/pmacc)
 ################################################################################
 # Compile & Link SPEARHED
 ################################################################################

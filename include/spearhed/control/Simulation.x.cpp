@@ -42,10 +42,15 @@
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace spearhed
 {
-    Simulation::Simulation() = default;
+    Simulation::Simulation(caravan::MpiContext& mpiContext) : mpiContext{mpiContext}
+    {
+    }
 
     Simulation::~Simulation() = default;
 
@@ -93,7 +98,7 @@ namespace spearhed
             isPeriodic[i] = periodic[i];
         }
 
-        pmacc::Environment<simDim>::get().initDevices(gpus, isPeriodic);
+        pmacc::Environment<simDim>::get().initDevices(mpiContext, gpus, isPeriodic);
         pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
 
         if(gc.getGlobalRank() == 0)
@@ -154,9 +159,13 @@ namespace spearhed
                 pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
                 auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
                 auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
-                // bundle and index own device memory read by the still-queued kernels and die at the
-                // end of this scope, so this is the mandatory sync point for both passes.
-                (densityDone + hydroDone).waitForFinished();
+                // The hydro input depends on density; sequence them on the native queue, then wait
+                // before the bundle and index (which own referenced device memory) leave scope.
+                auto& device = pmacc::Environment<>::get().DeviceContext();
+                caravan::syncWait(
+                    caravan::alpaka::withDevice(
+                        device,
+                        std::move(densityDone) | caravan::alpaka::sequence(std::move(hydroDone))));
             });
 
         // Euler update: v += dvdt*dt, u += dudt*dt. The forces computed above persist on the device
@@ -284,7 +293,7 @@ namespace spearhed
         if(isDeviceSharedBetweenRanks)
         {
             // Synchronize to guarantee that all other MPI process on the same device allocated there memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         // free memory reported by the driver
@@ -305,23 +314,26 @@ namespace spearhed
             freeDeviceMemory /= numRanksPerDevice;
             // Synchronize to guarantee that all other MPI process on the same device see the same amount of free
             // memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         size_t allocatableMemory = freeDeviceMemory;
         bool memAlloced = false;
         // tmpBuffer avoids that the memory is freed before all other MPI ranks created there test buffer
-        std::optional<::alpaka::Buf<pmacc::ComputeDevice, std::byte, pmacc::AlpakaDim<1>, size_t>> tmpBuffer{};
+        using ProbeBuffer = decltype(::alpaka::onHost::alloc<std::byte>(
+            pmacc::manager::Device<pmacc::ComputeDevice>::get().current(),
+            size_t{1}));
+        std::optional<ProbeBuffer> tmpBuffer{};
 
         // Check how much memory can be allocated with a single allocation call.
         do
         {
             try
             {
-                auto testBuffer = alpaka::allocBuf<std::byte, size_t>(
+                auto testBuffer = ::alpaka::onHost::alloc<std::byte>(
                     pmacc::manager::Device<pmacc::ComputeDevice>::get().current(),
                     allocatableMemory);
-                tmpBuffer = testBuffer;
+                tmpBuffer = std::move(testBuffer);
                 memAlloced = true;
             }
             catch(...)
@@ -346,7 +358,7 @@ namespace spearhed
         if(isDeviceSharedBetweenRanks)
         {
             // Wait that all MPI processes had checked the available/allocatable memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         return allocatableMemory;

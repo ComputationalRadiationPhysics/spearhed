@@ -32,6 +32,8 @@
 
 #include <cstdio>
 
+#include <caravan/alpaka.hpp>
+
 namespace pmacc::spearhed
 {
     struct UpdateRegionBounds
@@ -177,7 +179,7 @@ namespace pmacc::spearhed
             auto& dc = pmacc::Environment<>::get().DataConnector();
 
             // Note: Ensure PRType is defined in this scope or passed as a template
-            using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
+            using BufferType = ParticleRegionBuffer<T_ParticleRegion>;
             using Species = typename T_ParticleRegion::Species;
 
             auto& prBuf = *dc.get<BufferType>(prBufId<Species>());
@@ -192,8 +194,13 @@ namespace pmacc::spearhed
             if(numBlocks == 0)
                 numBlocks = 1;
 
-            PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
-                .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(
+                caravan::alpaka::withDevice(
+                    device,
+                    PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
+                        .config<threadsPerBlock>(
+                            pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size)));
         }
     };
 } // namespace pmacc::spearhed

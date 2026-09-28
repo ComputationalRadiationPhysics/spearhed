@@ -31,7 +31,6 @@
 #include "spmacc/particles/regions/NeighbourEntry.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
-#include <pmacc/eventSystem/Manager.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Variable.hpp>
 #include <pmacc/math/functions/Root.hpp>
@@ -249,15 +248,14 @@ namespace pmacc::spearhed
                             smem.nbCache[slot].deepCopyFrom(nParticle);
                         // Pre-shifted geometry: shiftedPos = rel_j + (origin_neigh - origin_own).
                         auto const relView = nParticle[tags::relativePos].get();
-                        pmacc::spearhed::for_each_tag<CS>(
+                        for_each_tag<CS>(
                             [&](auto tag)
                             { smem.posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
                     }
                     else
                     {
                         // Dead slot: sentinel position; nbCache[slot] left garbage (never read).
-                        pmacc::spearhed::for_each_tag<CS>([&](auto tag)
-                                                          { smem.posCache[slot][tags::relativePos][tag] = sentinel; });
+                        for_each_tag<CS>([&](auto tag) { smem.posCache[slot][tags::relativePos][tag] = sentinel; });
                     }
                 });
             worker.sync();
@@ -278,7 +276,7 @@ namespace pmacc::spearhed
                     {
                         DistVec rVec;
                         Axis r2{0};
-                        pmacc::spearhed::for_each_tag<CS>(
+                        for_each_tag<CS>(
                             [&](auto tag)
                             {
                                 Axis const d = ownRel[tag] - smem.posCache[j][tags::relativePos][tag];

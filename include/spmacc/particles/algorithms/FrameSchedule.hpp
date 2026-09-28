@@ -65,7 +65,7 @@ namespace pmacc::spearhed
             using Region = std::remove_reference_t<decltype(prBox[0])>;
             using FrameListType = std::remove_cvref_t<decltype(prBox[0].particleFrameList)>;
             using FrameType = typename FrameListType::FrameType;
-            using FramePtr = pmacc::spearhed::memory::FramePointer<FrameType>;
+            using FramePtr = memory::FramePointer<FrameType>;
 
             /**
              * @brief What frameAt(g) yields: the owning region (for volume and other

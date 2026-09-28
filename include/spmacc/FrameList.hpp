@@ -163,7 +163,7 @@ namespace pmacc::spearhed
             return numParticles ? ((numParticles - 1u) % frameSize + 1u) : 0u;
         }
 
-        HDINLINE constexpr pmacc::spearhed::memory::FramePointer<FrameType> getEmptyFrame(auto const& worker)
+        HDINLINE constexpr memory::FramePointer<FrameType> getEmptyFrame(auto const& worker)
         {
             auto framePtr = list.getEmptyNode(worker);
             list.pushBack(worker, framePtr);
@@ -196,7 +196,7 @@ namespace pmacc::spearhed
         // Num particles must be set before we can call this
         HDINLINE constexpr uint32_t numFrames() const
         {
-            return alpaka::core::divCeil(numParticles, T_Frame::frameSize);
+            return alpaka::divCeil(numParticles, T_Frame::frameSize);
         }
 
         HDINLINE constexpr void setNumParticles(uint32_t n)
@@ -210,7 +210,7 @@ namespace pmacc::spearhed
         }
 
     private:
-        pmacc::spearhed::SingleLinkedListDevice<T_Frame, T_DeviceHeapHandle> list;
+        SingleLinkedListDevice<T_Frame, T_DeviceHeapHandle> list;
         PMACC_ALIGN(numParticles, uint32_t) { 0 };
     };
 

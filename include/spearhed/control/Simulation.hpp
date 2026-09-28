@@ -32,6 +32,8 @@
 #include <string>
 #include <vector>
 
+#include <caravan/mpi.hpp>
+
 namespace spearhed
 {
 
@@ -45,7 +47,7 @@ namespace spearhed
             pmacc::simulationControl::Checkpointing<pmacc::simulationControl::CheckpointingAvailability::DISABLED>>;
 
     public:
-        Simulation();
+        explicit Simulation(caravan::MpiContext& mpiContext);
         ~Simulation() override;
 
         void pluginRegisterHelp(pmacc::po::options_description& desc) override;
@@ -80,6 +82,7 @@ namespace spearhed
         void updateHydrodynamics();
 
     private:
+        caravan::MpiContext& mpiContext;
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
 
         // layout parameter

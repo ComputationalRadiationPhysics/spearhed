@@ -34,7 +34,6 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -90,7 +89,7 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
 
     // Validation
-    prBuf->buffer->deviceToHost();
+    spearhed::test::runDevice(prBuf->buffer->deviceToHost());
     auto dataBox = prBuf->buffer->getHostBuffer().getDataBox();
     auto const& region = dataBox(0);
 

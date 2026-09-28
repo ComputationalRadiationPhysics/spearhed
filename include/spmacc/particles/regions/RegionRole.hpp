@@ -23,7 +23,6 @@
 
 #include "spmacc/meta/String.hpp"
 #include "spmacc/particles/Predicate.hpp"
-#include "utility.hpp"
 
 #include <concepts>
 #include <string>
@@ -31,6 +30,8 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include <llamaLite/utility.hpp>
 
 /**
  * Roles and species.

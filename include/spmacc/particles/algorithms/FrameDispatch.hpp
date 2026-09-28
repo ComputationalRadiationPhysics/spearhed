@@ -21,18 +21,21 @@
 
 #pragma once
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/assert.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
-#include <pmacc/eventSystem/events/EventTask.hpp>
-#include <pmacc/eventSystem/tasks/TaskKernel.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/memory/shared/Allocate.hpp>
 
 #include <cstdint>
+#include <tuple>
+#include <utility>
+
+#include <caravan/alpaka.hpp>
 
 /*
  * Building blocks for dispatching GPU blocks across a ParticleRegionBuffer's frames.
@@ -91,12 +94,13 @@ namespace pmacc::spearhed
      */
     [[nodiscard]] inline uint32_t inclusiveScanOnHost(pmacc::HostDeviceBuffer<uint32_t, DIM1>& buf, int size)
     {
-        buf.deviceToHost();
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        caravan::syncWait(caravan::alpaka::withDevice(device, buf.deviceToHost()));
         auto data = buf.getHostBuffer().getDataBox();
         for(int i = 1; i < size; ++i)
             data[i] += data[i - 1];
         uint32_t const total = data[size - 1];
-        buf.hostToDevice();
+        caravan::syncWait(caravan::alpaka::withDevice(device, buf.hostToDevice()));
         return total;
     }
 
@@ -189,30 +193,40 @@ namespace pmacc::spearhed
      * @return EventTask for the enqueued kernel (an empty, already-finished event if totalFrames == 0).
      *         Wait on it with waitForFinished() before destroying any buffer the kernel touches.
      */
-    [[nodiscard]] pmacc::EventTask launchForEachFrameInBlockIndexed(
+    [[nodiscard]] auto launchForEachFrameInBlockIndexed(
         auto launchCfg,
         auto& prBuf,
         auto& index,
         auto processKernel,
         auto&&... args)
     {
-        if(index.totalFrames == 0)
-            return {};
-
         // A stale index (built against an older topology) holds dangling device frame pointers.
         PMACC_ASSERT(index.builtVersion == prBuf.topologyVersion);
 
         using Cfg = decltype(launchCfg);
+        uint32_t const totalFrames = index.totalFrames;
+        uint32_t const gridSize = launchCfg.grid.numBlocks(totalFrames);
+        auto storedArgs = std::tuple<std::decay_t<decltype(args)>...>{std::forward<decltype(args)>(args)...};
 
-        uint32_t const gridSize = launchCfg.grid.numBlocks(index.totalFrames);
-
-        return PMACC_LOCKSTEP_KERNEL(processKernel)
-            .template config<Cfg::processThreads>(pmacc::DataSpace<DIM1>(gridSize))(
-                prBuf.getDeviceDataBox(),
-                index.framePtrsBox(),
-                index.regionIdxBox(),
-                index.totalFrames,
-                std::forward<decltype(args)>(args)...);
+        // The references are borrowed until sender completion. Guard before accessing the index's
+        // optional buffers, which are disengaged for empty regions.
+        return caravan::alpaka::submit(
+            [&, totalFrames, gridSize, processKernel, storedArgs = std::move(storedArgs)](auto& queue) mutable
+            {
+                if(totalFrames == 0)
+                    return;
+                auto const prDeviceBox = prBuf.getDeviceDataBox();
+                auto const framePtrsBox = index.framePtrsBox();
+                auto const regionIdxBox = index.regionIdxBox();
+                auto launcher = PMACC_LOCKSTEP_KERNEL(processKernel)
+                                    .template config<Cfg::processThreads>(pmacc::DataSpace<DIM1>(gridSize));
+                std::apply(
+                    [&](auto&... values)
+                    {
+                        launcher.enqueueNative(queue, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, values...);
+                    },
+                    storedArgs);
+            });
     }
 
 } // namespace pmacc::spearhed

@@ -27,40 +27,43 @@
 #include <pmacc/alpakaHelper/acc.hpp>
 #include <pmacc/particles/IdProvider.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace spearhed::test
 {
+    template<typename T_Sender>
+    void runDevice(T_Sender&& sender)
+    {
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        caravan::syncWait(caravan::alpaka::withDevice(device, std::forward<T_Sender>(sender)));
+    }
+
     template<unsigned DIM>
     struct SpearhedParticleFixture
     {
-        static auto& initPMacc()
-        {
-            static pmacc::test::PMaccFixture<DIM> pmaccFixture;
-            return pmaccFixture;
-        }
-
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
         // Default species buffer
         std::shared_ptr<pmacc::spearhed::ParticleRegionBuffer<PRType>> prBuf;
 
         SpearhedParticleFixture()
         {
-            initPMacc();
             auto& env = pmacc::Environment<DIM>::get();
 
             // ID Provider Setup
             uint64_t maxRanks = env.GridController().getGpuNodes().productOfComponents();
             uint64_t rank = env.GridController().getScalarPosition();
             auto& dc = pmacc::Environment<DIM>::get().DataConnector();
-            dc.share(std::make_shared<pmacc::IdProvider>("globalId", rank, maxRanks));
+            auto idProvider = std::make_shared<pmacc::IdProvider>("globalId", rank, maxRanks);
+            dc.share(idProvider);
+            caravan::syncWait(caravan::alpaka::withDevice(env.DeviceContext(), idProvider->initialize()));
 
             // Device Heap Setup
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
@@ -75,8 +78,6 @@ namespace spearhed::test
             deviceHeap.emplace(DeviceHeap{});
 #endif
             dc.consume(std::make_unique<pmacc::MallocMCBuffer<DeviceHeap>>(*deviceHeap));
-
-            dc.template get<pmacc::IdProvider>("globalId")->reset();
 
             // Default species Particle Region Buffer
             prBuf = std::make_shared<pmacc::spearhed::ParticleRegionBuffer<PRType>>();

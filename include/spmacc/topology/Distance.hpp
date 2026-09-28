@@ -34,8 +34,8 @@ namespace pmacc::spearhed
 
     template<typename T_Distance, T_Dim Dim, typename StorageA, typename StorageB>
     [[nodiscard]] constexpr auto distance(
-        Point<pmacc::spearhed::Cartesian<T_Distance, Dim>, StorageA> pointA,
-        Point<pmacc::spearhed::Cartesian<T_Distance, Dim>, StorageB> pointB) noexcept -> T_Distance
+        Point<Cartesian<T_Distance, Dim>, StorageA> pointA,
+        Point<Cartesian<T_Distance, Dim>, StorageB> pointB) noexcept -> T_Distance
     {
         auto const dx = pointA[tags::x] - pointB[tags::x];
         auto const dy = pointA[tags::y] - pointB[tags::y];

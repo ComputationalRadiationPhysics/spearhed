@@ -30,7 +30,6 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/Definition.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
@@ -67,11 +66,11 @@ struct HierarchySumKernel
                     frame,
                     [&](auto particle)
                     {
-                        alpaka::atomicAdd(
+                        ::alpaka::onAcc::atomicAdd(
                             worker.getAcc(),
                             &sumBox(0),
                             static_cast<T_Sum>(particle[spearhed::particleId]),
-                            ::alpaka::hierarchy::Blocks{});
+                            ::alpaka::onAcc::scope::Device{});
                     });
             });
     }
@@ -83,11 +82,11 @@ struct AtomicSumParticleIds
 {
     DINLINE constexpr void operator()(auto const& worker, auto particle, auto sumBox) const
     {
-        alpaka::atomicAdd(
+        ::alpaka::onAcc::atomicAdd(
             worker.getAcc(),
             &sumBox(0),
             static_cast<T_Sum>(particle[spearhed::particleId]),
-            ::alpaka::hierarchy::Blocks{});
+            ::alpaka::onAcc::scope::Device{});
     }
 };
 
@@ -96,7 +95,10 @@ struct CountFrameOnce
     DINLINE constexpr void operator()(auto const& worker, auto /*frameView*/, auto countBox) const
     {
         pmacc::lockstep::makeMaster(worker)(
-            [&]() { alpaka::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::hierarchy::Blocks{}); });
+            [&]()
+            {
+                ::alpaka::onAcc::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::onAcc::scope::Device{});
+            });
     }
 };
 
@@ -130,15 +132,14 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         constexpr uint32_t blockThreads = spearhed::FrameType::frameSize;
-        PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
-            .config<blockThreads>(
-                pmacc::DataSpace<DIM1>(1))(sp::deviceSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
+        spearhed::test::runDevice(PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
+                                      .config<blockThreads>(pmacc::DataSpace<DIM1>(
+                                          1))(sp::deviceSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox()));
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 
@@ -188,7 +189,7 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         // The accumulator box is forwarded as a kernel argument (not captured): a captured box would
         // be const inside the const kernel body, so &box(0) could not feed atomicAdd's T*.
@@ -197,9 +198,8 @@ TEST_CASE_METHOD(
             *prBuf,
             AtomicSumParticleIds{},
             sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 
@@ -207,7 +207,7 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> frameCount(1u);
         frameCount.getHostBuffer().setValue(0);
-        frameCount.hostToDevice();
+        spearhed::test::runDevice(frameCount.hostToDevice());
 
         // Contiguous schedule over a bounded grid: same result, different decomposition policy.
         sp::launchForEach(
@@ -216,9 +216,8 @@ TEST_CASE_METHOD(
             *prBuf,
             CountFrameOnce{},
             frameCount.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
 
-        frameCount.deviceToHost();
+        spearhed::test::runDevice(frameCount.deviceToHost());
         REQUIRE(frameCount.getHostBuffer().data()[0] == expectedFrames);
     }
 
@@ -239,15 +238,15 @@ TEST_CASE_METHOD(
         // auto, so passing a MultiSpeciesView exercises the pmacc-tuple fold end-to-end on device.
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         constexpr uint32_t blockThreads = spearhed::FrameType::frameSize;
-        PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
-            .config<blockThreads>(
-                pmacc::DataSpace<DIM1>(1))(sp::deviceMultiSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
+        spearhed::test::runDevice(PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
+                                      .config<blockThreads>(pmacc::DataSpace<DIM1>(1))(
+                                          sp::deviceMultiSpecies(*prBuf),
+                                          sumBuffer.getDeviceBuffer().getDataBox()));
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 }
@@ -257,7 +256,11 @@ struct SumFunc
 {
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto sumBox) const
     {
-        alpaka::atomicAdd(worker.getAcc(), &sumBox(0), particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
+        ::alpaka::onAcc::atomicAdd(
+            worker.getAcc(),
+            &sumBox(0),
+            particle[spearhed::particleId],
+            ::alpaka::onAcc::scope::Device{});
     }
 };
 
@@ -278,11 +281,11 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         sp::launchForEach(cfg, sp::levels::particle, *prBuf, SumFunc{}, sumBuffer.getDeviceBuffer().getDataBox());
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         return sumBuffer.getHostBuffer().data()[0];
     };
 

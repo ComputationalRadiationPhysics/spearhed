@@ -179,7 +179,7 @@ namespace pmacc
             HDINLINE void derive(
                 T_Worker const& worker,
                 IdGenerator& idGen,
-                pmacc::spearhed::Particle<T_OtherFrameType, T_OtherValueTypeSeq> const& srcParticle)
+                Particle<T_OtherFrameType, T_OtherValueTypeSeq> const& srcParticle)
             {
                 using DestTypeSeq = typename Particle::ValueTypeSeq;
 
@@ -194,7 +194,7 @@ namespace pmacc
              *  The source particle must have at least the attributes this particle has.
              */
             template<typename T_OtherFrameType, typename T_OtherValueTypeSeq>
-            HDINLINE Particle& operator=(pmacc::spearhed::Particle<T_OtherFrameType, T_OtherValueTypeSeq> const& other)
+            HDINLINE Particle& operator=(Particle<T_OtherFrameType, T_OtherValueTypeSeq> const& other)
             {
                 /* create sequences with disjunctive attributes */
                 using UniqueInDestTypeSeq = mp_set_difference<ValueTypeSeq, T_OtherValueTypeSeq>;

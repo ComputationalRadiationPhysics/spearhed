@@ -40,7 +40,6 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -173,8 +172,8 @@ TEST_CASE_METHOD(
     neighbourRegions.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[0] = 0;
     regionOffsets.getHostBuffer().data()[1] = 1;
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
+    spearhed::test::runDevice(neighbourRegions.hostToDevice());
+    spearhed::test::runDevice(regionOffsets.hostToDevice());
 
     using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
     auto bundle = pmacc::spearhed::makeNeighbourBundle(
@@ -187,15 +186,15 @@ TEST_CASE_METHOD(
     auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
     using PRType = spearhed::PRType;
     pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
-    pmacc::spearhed::interact(
-        sources,
-        *prBuf,
-        index,
-        static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
-        spearhed::HydroInteraction<K>{spearhed::gamma_eos})
-        .waitForFinished();
+    spearhed::test::runDevice(
+        pmacc::spearhed::interact(
+            sources,
+            *prBuf,
+            index,
+            static_cast<spearhed::CS::T_Axis>(K::supportRadius) * TEST_H,
+            spearhed::HydroInteraction<K>{spearhed::gamma_eos}));
 
-    prBuf->buffer->deviceToHost();
+    spearhed::test::runDevice(prBuf->buffer->deviceToHost());
     int64_t const heapOffset = spearhed::syncHeapToHost();
     auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
     auto& frameList = hostRegions(0).particleFrameList;

@@ -25,12 +25,15 @@
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 #include "spmacc/particles/regions/NeighbourEntry.hpp"
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <cstdint>
 #include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace pmacc::spearhed
 {
@@ -103,8 +106,11 @@ namespace pmacc::spearhed
                     {
                         if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
                         {
-                            unsigned int pos
-                                = alpaka::atomicAdd(worker.getAcc(), &s_writePtr, 1u, ::alpaka::hierarchy::Threads{});
+                            unsigned int pos = ::alpaka::onAcc::atomicAdd(
+                                worker.getAcc(),
+                                &s_writePtr,
+                                1u,
+                                ::alpaka::onAcc::scope::Block{});
                             neighbourRegionsBox[pos] = static_cast<unsigned int>(otherIdx);
                         }
                     }
@@ -145,17 +151,26 @@ namespace pmacc::spearhed
 
             pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numTargetRegions + 1}};
             regionOffsets.getHostBuffer().setValue(0);
-            regionOffsets.hostToDevice();
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(caravan::alpaka::withDevice(device, regionOffsets.hostToDevice()));
+            if(numTargetRegions == 0)
+            {
+                pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{0});
+                return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
+            }
 
-            PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
-                    target.getDeviceDataBox(),
-                    numTargetRegions,
-                    sourcePRBuf.getDeviceDataBox(),
-                    numSourceRegions,
-                    regionOffsets.getDeviceBuffer().getDataBox(),
-                    nullptr,
-                    h);
+            caravan::syncWait(
+                caravan::alpaka::withDevice(
+                    device,
+                    PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
+                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                            target.getDeviceDataBox(),
+                            numTargetRegions,
+                            sourcePRBuf.getDeviceDataBox(),
+                            numSourceRegions,
+                            regionOffsets.getDeviceBuffer().getDataBox(),
+                            nullptr,
+                            h)));
 
             uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numTargetRegions + 1);
 
@@ -164,15 +179,18 @@ namespace pmacc::spearhed
             if(totalPairs > 0)
             {
                 auto writeKernel = detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{};
-                PMACC_LOCKSTEP_KERNEL(writeKernel)
-                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
-                        target.getDeviceDataBox(),
-                        numTargetRegions,
-                        sourcePRBuf.getDeviceDataBox(),
-                        numSourceRegions,
-                        regionOffsets.getDeviceBuffer().getDataBox(),
-                        neighbourRegions.getDeviceBuffer().getDataBox(),
-                        h);
+                caravan::syncWait(
+                    caravan::alpaka::withDevice(
+                        device,
+                        PMACC_LOCKSTEP_KERNEL(writeKernel)
+                            .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                                target.getDeviceDataBox(),
+                                numTargetRegions,
+                                sourcePRBuf.getDeviceDataBox(),
+                                numSourceRegions,
+                                regionOffsets.getDeviceBuffer().getDataBox(),
+                                neighbourRegions.getDeviceBuffer().getDataBox(),
+                                h)));
             }
 
             return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};

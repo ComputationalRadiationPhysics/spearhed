@@ -32,7 +32,6 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 

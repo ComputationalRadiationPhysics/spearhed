@@ -94,14 +94,14 @@ namespace pmacc::spearhed
         template<typename OtherStorage>
         constexpr Point& operator=(Point<CS, OtherStorage> const& other) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] = other[tag]; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] = other[tag]; });
             return *this;
         }
 
         template<typename OtherStorage>
         [[nodiscard]] friend constexpr bool operator==(Point const& lhs, Point<CS, OtherStorage> const& rhs) noexcept
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return lhs[tag] == rhs[tag]; });
+            return all_of_tag<CS>([&](auto tag) { return lhs[tag] == rhs[tag]; });
         }
 
         template<typename OtherStorage>
@@ -113,7 +113,7 @@ namespace pmacc::spearhed
         template<typename VecStorage>
         constexpr Point& operator+=(Vec<CS, VecStorage> const& v) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += v[tag]; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] += v[tag]; });
             return *this;
         }
 
@@ -123,7 +123,7 @@ namespace pmacc::spearhed
             Point<CS, OtherStorage> const& rhs) noexcept
         {
             Vec<CS, ValueStorage<CS>> result;
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { result[tag] = lhs[tag] - rhs[tag]; });
+            for_each_tag<CS>([&](auto tag) { result[tag] = lhs[tag] - rhs[tag]; });
             return result;
         }
 
@@ -150,8 +150,7 @@ namespace pmacc::spearhed
             Point<CS, OtherStorage> const& other,
             Scalar eps = std::numeric_limits<Scalar>::epsilon()) const noexcept
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
-                                                   { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
+            return all_of_tag<CS>([&](auto tag) { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
         }
 
         friend std::ostream& operator<<(std::ostream& os, Point const& p)

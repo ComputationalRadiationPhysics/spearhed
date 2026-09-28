@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include "Algorithm.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param.hpp"
@@ -31,9 +30,9 @@
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/assert.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -53,6 +52,7 @@
 #include <type_traits>
 #include <vector>
 
+#include <llamaLite/Algorithm.hpp>
 #include <unistd.h>
 
 namespace spearhed
@@ -369,12 +369,17 @@ namespace spearhed
             // Stores the num Frames in a scan/ prefix sum
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{numRegionsI});
-            PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
-                    slicedBox,
-                    numRegionsI,
-                    framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                    argsForNumParticles);
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(
+                caravan::alpaka::withDevice(
+                    device,
+                    PMACC_LOCKSTEP_KERNEL(
+                        init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
+                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
+                            slicedBox,
+                            numRegionsI,
+                            framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                            argsForNumParticles)));
 
             uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, numRegionsI);
 
@@ -382,17 +387,17 @@ namespace spearhed
             {
                 auto idProvider = dc.get<pmacc::IdProvider>("globalId");
 
-                auto event = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                                 .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                                     slicedBox,
-                                     numRegionsI,
-                                     framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                                     idProvider->getDeviceGenerator(),
-                                     placeParticle,
-                                     argsForPlaceParticle);
-
-                // wait because otherwise kernel args (framesPerParticleRegion) go out of scope
-                event.waitForFinished();
+                caravan::syncWait(
+                    caravan::alpaka::withDevice(
+                        device,
+                        PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
+                            .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
+                                slicedBox,
+                                numRegionsI,
+                                framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                                idProvider->getDeviceGenerator(),
+                                placeParticle,
+                                argsForPlaceParticle)));
             }
         }
     };

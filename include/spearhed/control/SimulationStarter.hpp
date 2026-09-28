@@ -35,6 +35,8 @@
 
 #include <iostream>
 
+#include <caravan/mpi.hpp>
+
 namespace spearhed
 {
 
@@ -42,11 +44,13 @@ namespace spearhed
     {
     private:
         using BoostOptionsList = std::list<boost::program_options::options_description>;
-        Simulation simulationClass{};
+        Simulation simulationClass;
         PluginController pluginClass{};
 
     public:
-        SimulationStarter() = default;
+        explicit SimulationStarter(caravan::MpiContext& mpiContext) : simulationClass{mpiContext}
+        {
+        }
 
         std::string pluginGetName() const override
         {

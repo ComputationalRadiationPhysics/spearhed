@@ -110,15 +110,13 @@ namespace spearhed
          *
          *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
          *  and index must outlive kernel completion (see interact()'s lifetime contract). */
-        [[nodiscard]] pmacc::EventTask operator()(
+        [[nodiscard]] auto operator()(
             pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
             auto& target,
             auto& index,
             typename CS::T_Axis h0) const
         {
-            // PMacc transaction ordering runs this zero/self-init kernel before the interaction
-            // kernels enqueued by interact() below on the device queue, so no host wait is needed
-            // between them -- only the caller's eventual wait on the combined event.
+            // Sequence on the native queue: pairwise accumulation must observe self density.
             auto zeroDone = pmacc::spearhed::launchForEach(
                 pmacc::spearhed::levels::particle,
                 target,
@@ -131,13 +129,14 @@ namespace spearhed
             // represented in the returned event. When both launches are live they share the compute
             // stream, so the combine is host-side bookkeeping with no added cross-stream sync.
             auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
-            return zeroDone
-                   + pmacc::spearhed::interact(
-                       sources,
-                       target,
-                       index,
-                       static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
-                       AccumulateDensity<KernelT>{});
+            return std::move(zeroDone)
+                   | caravan::alpaka::sequence(
+                       pmacc::spearhed::interact(
+                           sources,
+                           target,
+                           index,
+                           static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                           AccumulateDensity<KernelT>{}));
         }
     };
 

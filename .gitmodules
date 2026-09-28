@@ -1,6 +1,3 @@
-[submodule "thirdParty/picongpu"]
-	path = thirdParty/picongpu
-	url = git@github.com:ikbuibui/picongpu.git
 [submodule "packages/pmacc/thirdParty/alpaka"]
 	path = packages/pmacc/thirdParty/alpaka
 	url = https://github.com/alpaka-group/alpaka3

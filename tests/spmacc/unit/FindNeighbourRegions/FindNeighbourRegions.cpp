@@ -28,7 +28,6 @@
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -41,7 +40,7 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     spearhed::InitRegions{}(*deviceHeap, setup);
 
     // Initialize region volumes manually
-    prBuf->buffer->deviceToHost();
+    spearhed::test::runDevice(prBuf->buffer->deviceToHost());
     auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
 
     pmacc::spearhed::for_each_tag<spearhed::CS>(
@@ -61,7 +60,7 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
         });
 
 
-    prBuf->buffer->hostToDevice();
+    spearhed::test::runDevice(prBuf->buffer->hostToDevice());
 
     // Expected behavior with smoothingLength = 0.6f:
     // Region 0 expands to [-0.6, 1.6] -> Intersects Region 0 and 1
@@ -73,8 +72,8 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     auto& entry = bundle.bySpecies(pmacc::spearhed::species::default_);
 
     // Validation
-    entry.neighbourRegions.deviceToHost();
-    entry.regionOffsets.deviceToHost();
+    spearhed::test::runDevice(entry.neighbourRegions.deviceToHost());
+    spearhed::test::runDevice(entry.regionOffsets.deviceToHost());
 
     auto const& h_neighbours = entry.neighbourRegions.getHostBuffer().getDataBox();
     auto const& h_offsets = entry.regionOffsets.getHostBuffer().getDataBox();

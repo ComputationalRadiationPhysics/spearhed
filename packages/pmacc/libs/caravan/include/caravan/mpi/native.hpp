@@ -342,21 +342,21 @@ namespace caravan
                             {
                                 auto complete = [&]() -> decltype(auto)
                                 {
-                                    if constexpr(std::is_invocable_v<
-                                                     T_Complete&,
-                                                     T_State&,
-                                                     NativeMpiContext&,
-                                                     std::span<MPI_Status const>>)
+                                    if constexpr(
+                                        std::is_invocable_v<
+                                            T_Complete&,
+                                            T_State&,
+                                            NativeMpiContext&,
+                                            std::span<MPI_Status const>>)
                                         return detail::invokeNative(m_complete, m_state, context, statuses);
-                                    else if constexpr(std::is_invocable_v<
-                                                          T_Complete&,
-                                                          T_State&,
-                                                          std::span<MPI_Status const>>)
+                                    else if constexpr(
+                                        std::is_invocable_v<T_Complete&, T_State&, std::span<MPI_Status const>>)
                                         return detail::invokeNative(m_complete, m_state, statuses);
-                                    else if constexpr(std::is_invocable_v<
-                                                          T_Complete&,
-                                                          NativeMpiContext&,
-                                                          std::span<MPI_Status const>>)
+                                    else if constexpr(
+                                        std::is_invocable_v<
+                                            T_Complete&,
+                                            NativeMpiContext&,
+                                            std::span<MPI_Status const>>)
                                         return detail::invokeNative(m_complete, context, statuses);
                                     else
                                         return detail::invokeNative(m_complete, statuses);

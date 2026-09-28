@@ -31,7 +31,6 @@
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -55,7 +54,7 @@ struct InteractionCountFunc
         if(ctx.isSelf) [[unlikely]]
             return;
 
-        alpaka::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1), ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1));
     }
 };
 
@@ -99,11 +98,7 @@ struct StageDerivedFunc
         if(ctx.isSelf) [[unlikely]]
             return;
 
-        alpaka::atomicAdd(
-            worker.getAcc(),
-            &sum_db(0),
-            static_cast<uint64_t>(nb[stage_test::derivedId]),
-            ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &sum_db(0), static_cast<uint64_t>(nb[stage_test::derivedId]));
     }
 };
 
@@ -130,8 +125,8 @@ auto makeAllToAllEntry(auto* prBuf, int numRegions)
             h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
     }
     h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
-    neighbourRegions.hostToDevice();
-    regionOffsets.hostToDevice();
+    spearhed::test::runDevice(neighbourRegions.hostToDevice());
+    spearhed::test::runDevice(regionOffsets.hostToDevice());
 
     return pmacc::spearhed::NeighbourEntry<PRBufType>{prBuf, std::move(neighbourRegions), std::move(regionOffsets)};
 }
@@ -166,13 +161,13 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         // Set the final boundary offset
         h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
 
-        neighbourRegions.hostToDevice();
-        regionOffsets.hostToDevice();
+        spearhed::test::runDevice(neighbourRegions.hostToDevice());
+        spearhed::test::runDevice(regionOffsets.hostToDevice());
 
         using T_Count = uint64_t;
         pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
         countBuffer.getHostBuffer().setValue(0);
-        countBuffer.hostToDevice();
+        spearhed::test::runDevice(countBuffer.hostToDevice());
 
         auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
@@ -188,10 +183,10 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
-            .waitForFinished();
+        spearhed::test::runDevice(
+            pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count));
 
-        countBuffer.deviceToHost();
+        spearhed::test::runDevice(countBuffer.deviceToHost());
         T_Count const h_count = countBuffer.getHostBuffer().data()[0];
 
         // Calculate expected interactions analytically based on InitParticles logic
@@ -234,13 +229,13 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
                 h_neighbours[i * numRegions + j] = static_cast<unsigned int>(j);
         }
         h_offsets[numRegions] = static_cast<unsigned int>(totalNeighbours);
-        neighbourRegions.hostToDevice();
-        regionOffsets.hostToDevice();
+        spearhed::test::runDevice(neighbourRegions.hostToDevice());
+        spearhed::test::runDevice(regionOffsets.hostToDevice());
 
         using T_Sum = uint64_t;
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
         auto d_sum = sumBuffer.getDeviceBuffer().getDataBox();
 
         constexpr double interactionRadius = 1e9;
@@ -254,10 +249,10 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, StageDerivedFunc{}, d_sum)
-            .waitForFinished();
+        spearhed::test::runDevice(
+            pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, StageDerivedFunc{}, d_sum));
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         T_Sum const h_sum = sumBuffer.getHostBuffer().data()[0];
 
         // InitParticles assigns particle ids 0..N-1 across all regions (see HierarchyForEach). Each own
@@ -302,17 +297,17 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         using T_Count = uint64_t;
         pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
         countBuffer.getHostBuffer().setValue(0);
-        countBuffer.hostToDevice();
+        spearhed::test::runDevice(countBuffer.hostToDevice());
         auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
         constexpr double interactionRadius = 1e9;
 
         auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-        pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
-            .waitForFinished();
+        spearhed::test::runDevice(
+            pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count));
 
-        countBuffer.deviceToHost();
+        spearhed::test::runDevice(countBuffer.deviceToHost());
         T_Count const h_count = countBuffer.getHostBuffer().data()[0];
 
         uint64_t totalParticles = 0;
@@ -352,7 +347,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         using T_Count = uint64_t;
         pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
         countBuffer.getHostBuffer().setValue(0);
-        countBuffer.hostToDevice();
+        spearhed::test::runDevice(countBuffer.hostToDevice());
         auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
         constexpr double interactionRadius = 1e9;
@@ -361,17 +356,17 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         // Force per-source launches even though bundle size == 2.
-        pmacc::spearhed::interact(
-            pmacc::spearhed::perSource,
-            sources,
-            *prBuf,
-            index,
-            interactionRadius,
-            InteractionCountFunc{},
-            d_count)
-            .waitForFinished();
+        spearhed::test::runDevice(
+            pmacc::spearhed::interact(
+                pmacc::spearhed::perSource,
+                sources,
+                *prBuf,
+                index,
+                interactionRadius,
+                InteractionCountFunc{},
+                d_count));
 
-        countBuffer.deviceToHost();
+        spearhed::test::runDevice(countBuffer.deviceToHost());
         T_Count const h_count = countBuffer.getHostBuffer().data()[0];
 
         uint64_t totalParticles = 0;
@@ -408,7 +403,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         using T_Count = uint64_t;
         pmacc::HostDeviceBuffer<T_Count, 1> countBuffer(1u);
         countBuffer.getHostBuffer().setValue(0);
-        countBuffer.hostToDevice();
+        spearhed::test::runDevice(countBuffer.hostToDevice());
         auto d_count = countBuffer.getDeviceBuffer().getDataBox();
 
         constexpr double interactionRadius = 1e9;
@@ -417,17 +412,17 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         // Force unified kernel even though bundle size == 1.
-        pmacc::spearhed::interact(
-            pmacc::spearhed::unified,
-            sources,
-            *prBuf,
-            index,
-            interactionRadius,
-            InteractionCountFunc{},
-            d_count)
-            .waitForFinished();
+        spearhed::test::runDevice(
+            pmacc::spearhed::interact(
+                pmacc::spearhed::unified,
+                sources,
+                *prBuf,
+                index,
+                interactionRadius,
+                InteractionCountFunc{},
+                d_count));
 
-        countBuffer.deviceToHost();
+        spearhed::test::runDevice(countBuffer.deviceToHost());
         T_Count const h_count = countBuffer.getHostBuffer().data()[0];
 
         uint64_t totalParticles = 0;

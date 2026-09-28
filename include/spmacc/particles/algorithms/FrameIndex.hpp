@@ -34,6 +34,8 @@
 #include <cstdint>
 #include <optional>
 
+#include <caravan/alpaka.hpp>
+
 namespace pmacc::spearhed
 {
     namespace detail
@@ -210,11 +212,15 @@ namespace pmacc::spearhed
             ensureRegionCapacity(static_cast<uint32_t>(prBuf.size));
 
             // Count frames per region, then inclusive-scan on the host to get base offsets + total.
-            PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
-                .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                    prBuf.getDeviceDataBox(),
-                    prBuf.size,
-                    framesPerRegion->getDeviceBuffer().getDataBox());
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(
+                caravan::alpaka::withDevice(
+                    device,
+                    PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
+                        .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
+                            prBuf.getDeviceDataBox(),
+                            prBuf.size,
+                            framesPerRegion->getDeviceBuffer().getDataBox())));
 
             totalFrames = inclusiveScanOnHost(*framesPerRegion, prBuf.size);
             if(totalFrames == 0)
@@ -223,13 +229,16 @@ namespace pmacc::spearhed
             ensureFrameCapacity(totalFrames);
 
             // One list traversal per region: record each frame's device address and owning region.
-            PMACC_LOCKSTEP_KERNEL(detail::BuildFrameIndexKernel{})
-                .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                    prBuf.getDeviceDataBox(),
-                    prBuf.size,
-                    framesPerRegion->getDeviceBuffer().getDataBox(),
-                    framePtrs->getDeviceBuffer().getDataBox(),
-                    regionIdxPerFrame->getDeviceBuffer().getDataBox());
+            caravan::syncWait(
+                caravan::alpaka::withDevice(
+                    device,
+                    PMACC_LOCKSTEP_KERNEL(detail::BuildFrameIndexKernel{})
+                        .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
+                            prBuf.getDeviceDataBox(),
+                            prBuf.size,
+                            framesPerRegion->getDeviceBuffer().getDataBox(),
+                            framePtrs->getDeviceBuffer().getDataBox(),
+                            regionIdxPerFrame->getDeviceBuffer().getDataBox())));
         }
 
         /**

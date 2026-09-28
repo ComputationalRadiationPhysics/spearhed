@@ -46,7 +46,6 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -243,8 +242,8 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
         neighbourRegions.getHostBuffer().data()[0] = 0;
         regionOffsets.getHostBuffer().data()[0] = 0;
         regionOffsets.getHostBuffer().data()[1] = 1;
-        neighbourRegions.hostToDevice();
-        regionOffsets.hostToDevice();
+        spearhed::test::runDevice(neighbourRegions.hostToDevice());
+        spearhed::test::runDevice(regionOffsets.hostToDevice());
 
         using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
         auto bundle = pmacc::spearhed::makeNeighbourBundle(
@@ -255,10 +254,10 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
 
         using K = InitDensityTestSetup::SmoothingKernel;
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-        spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, TEST_H).waitForFinished();
+        spearhed::test::runDevice(spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, TEST_H));
 
         // Read densities back to host
-        prBuf->buffer->deviceToHost();
+        spearhed::test::runDevice(prBuf->buffer->deviceToHost());
         int64_t const heapOffset = spearhed::syncHeapToHost();
         auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
         auto& frameList = hostRegions(0).particleFrameList;
@@ -295,8 +294,8 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
         neighbourRegions2.getHostBuffer().data()[0] = 0;
         regionOffsets2.getHostBuffer().data()[0] = 0;
         regionOffsets2.getHostBuffer().data()[1] = 1;
-        neighbourRegions2.hostToDevice();
-        regionOffsets2.hostToDevice();
+        spearhed::test::runDevice(neighbourRegions2.hostToDevice());
+        spearhed::test::runDevice(regionOffsets2.hostToDevice());
 
         using PRBufType2 = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
         auto bundle2 = pmacc::spearhed::makeNeighbourBundle(
@@ -307,9 +306,9 @@ TEST_CASE_METHOD(ParticleFixture, "Density summation validation", "[sph][density
 
         using K = InitSpacedTestSetup::SmoothingKernel;
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-        spearhed::UpdateDensity<K>{}(bundle2, *prBuf, index, SPACED_H).waitForFinished();
+        spearhed::test::runDevice(spearhed::UpdateDensity<K>{}(bundle2, *prBuf, index, SPACED_H));
 
-        prBuf->buffer->deviceToHost();
+        spearhed::test::runDevice(prBuf->buffer->deviceToHost());
         int64_t const heapOffset = spearhed::syncHeapToHost();
         auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
         auto& frameList = hostRegions(0).particleFrameList;

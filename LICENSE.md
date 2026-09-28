@@ -44,58 +44,31 @@ If not stated otherwise explicitly, that affects files in:
 - `docs`
 
 
-### Third party software and other licenses
+### PMacc package components
 
-We include a list of (GPL-) compatible third party software for the sake
-of an easier install of `SPEARHED`. Contributions to these parts of the
-repository should *not* be made in the `thirdParty/` directory but in
-*their according repositories* (that we import).
+The PMacc, Caravan, and llamaLite source trees are maintained as sibling
+libraries in `packages/pmacc/libs/`; these are not PIConGPU submodules.
 
- - `- thirdParty/picongpu`:
-   The PIConGPU project is included as is, and is licensed as mentioned
-   in `thirdParty/picongpu/LICENSE.md`. PIConGPU code is not coupled with
-   SPEARHED and it is merely included for easy aggregation. Where ever
-   code is derived from PIConGPU, it is clearly mentioned and follows the
-   **GPLv3+** license of PIConGPU.
+- **PMacc** (`packages/pmacc/libs/pmacc`) is licensed under LGPL-3.0-or-later
+  OR GPL-3.0-or-later. See [COPYING](packages/pmacc/libs/pmacc/COPYING) and
+  [COPYING.LESSER](packages/pmacc/libs/pmacc/COPYING.LESSER).
+- **Caravan** (`packages/pmacc/libs/caravan`) is licensed under MPL-2.0; see
+  its [LICENSE](packages/pmacc/libs/caravan/LICENSE).
+- **llamaLite** (`packages/pmacc/libs/llamaLite`) is licensed under MPL-2.0;
+  see its [LICENSE](packages/pmacc/libs/llamaLite/LICENSE) and source notices.
 
- - `thirdParty/picongpu/include/pmacc`:
-   PMacc is the particle mesh acceleration framework used in PIConGPU.
-   PMacc is licensed under the **LGPLv3+**.
-   This project is continued as SPMacc in SPEARHED. SPMacc is strictly a 
-   part of the PMacc project, and may be merged into PMacc in the future.
+### Third-party dependencies
 
- - `thirdParty/picongpu/thirdParty/mallocMC`:
-   mallocMC is a fast memory allocator for many core accelerators and was
-   originally forked from the `ScatterAlloc` project.
-   It is licensed under the *MIT License*.
-   Please visit
-     https://github.com/ComputationalRadiationPhysics/mallocMC
-   for further details and contributions.
+The alpaka3 and mallocMC dependencies are Git submodules under
+`packages/pmacc/thirdParty/`. Their license terms, copyright notices, and
+upstream contribution guidance are provided by the respective upstream
+repositories and are present in each initialized submodule checkout:
 
- - `thirdParty/picongpu/thirdParty/cuda_memtest`:
-   CUDA MemTest is an *independent program* developed by the University
-   Illinois, published under the *Illinois Open Source License*.
-   Please refer to the file `thirdParty/cuda_memtest/README` for license information.
-   We redistribute this modified version of CUDA MemTest under the same license
-   [thirdParty/cuda_memtest/README](thirdParty/cuda_memtest/README).
-   The original release was published at
-     http://sourceforge.net/projects/cudagpumemtest
-   and our modified version is hosted at
-     https://github.com/ComputationalRadiationPhysics/cuda_memtest
-   for further reference.
+- alpaka3: MPL-2.0; see its [LICENSE](packages/pmacc/thirdParty/alpaka/LICENSE)
+  and <https://github.com/alpaka-group/alpaka3>.
+- mallocMC: MIT; see its [LICENSE](packages/pmacc/thirdParty/mallocMC/LICENSE)
+  and <https://github.com/ikbuibui/mallocMC>.
 
-- `thirdParty/picongpu/thirdParty/alpaka`:
-   The alpaka library is a header-only C++20 abstraction library for accelerator development.  
-   It aims to provide performance portability across accelerators through the abstraction (not hiding!)
-   of the underlying levels of parallelism.
-   Please visit
-     https://github.com/alpaka-group/alpaka
-   for further details and contributions.
-
-- `thirdParty/picongpu/thirdParty/nlohmann_json`:
-   nlohmann_json is a modern C++ library for working with JSON data, developed
-   by Niels Lohmann, published under the MIT License.
-   Please refer to the file `thirdParty/nlohmann_json/LICENSE.MIT` for license
-   information.
-   Please visit https://github.com/nlohmann/json for further details
-   and contributions.
+The spearhed repository owns the top-level `.gitmodules`; submodules are
+tracked at package-relative paths. No PIConGPU source tree, CUDA MemTest, or
+nlohmann_json submodule is included at those former paths in this checkout.
