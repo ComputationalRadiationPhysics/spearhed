@@ -32,7 +32,8 @@ namespace caravan::alpaka
 
     /** Default automatically growing device context for nonblocking alpaka queues. */
     template<typename T_Device>
-    using Context = QueuePool<::alpaka::onHost::Queue<T_Device, ::alpaka::queueKind::NonBlocking>>;
+    using Context = QueuePool<
+        ::alpaka::onHost::Queue<T_Device, ::alpaka::onHost::QueuePolicyList<::alpaka::queueKind::NonBlocking>>>;
 
     template<typename... T_Submits>
     class ManagedSubmitSender;

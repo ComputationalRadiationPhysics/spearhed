@@ -1,0 +1,56 @@
+# Copyright 2015-2024 Erik Zenker, Rene Widera, Axel Huebl, Jan Stephan
+# SPDX-License-Identifier: LGPL-3.0-or-later OR GPL-3.0-or-later
+# Include from the common ancestor before adding PMacc and compiling accelerator targets.
+include_guard(GLOBAL)
+set(PMACC_BACKEND CpuSerial CACHE STRING "PMacc backend")
+set(_pmacc_backends
+    CpuSerial
+    CpuOmpBlocks
+    CpuTbbBlocks
+    GpuCuda
+    GpuHip
+    OneApi
+)
+set_property(CACHE PMACC_BACKEND PROPERTY STRINGS ${_pmacc_backends})
+if(NOT PMACC_BACKEND IN_LIST _pmacc_backends)
+    message(FATAL_ERROR "Unsupported PMACC_BACKEND: ${PMACC_BACKEND}")
+endif()
+if(PMACC_BACKEND STREQUAL "GpuCuda")
+    set(_pmacc_device_api CUDA)
+elseif(PMACC_BACKEND STREQUAL "GpuHip")
+    set(_pmacc_device_api HIP)
+elseif(PMACC_BACKEND STREQUAL "OneApi")
+    set(_pmacc_device_api ONEAPI)
+else()
+    set(_pmacc_device_api "")
+endif()
+foreach(api IN ITEMS CUDA HIP ONEAPI)
+    if(NOT api STREQUAL _pmacc_device_api AND alpaka_DEP_${api})
+        message(FATAL_ERROR "PMACC_BACKEND=${PMACC_BACKEND} conflicts with alpaka_DEP_${api}=ON")
+    endif()
+endforeach()
+if(TARGET alpaka::alpaka)
+    if(_pmacc_device_api STREQUAL "CUDA" AND NOT TARGET alpaka::cuda)
+        message(FATAL_ERROR "Existing alpaka has no CUDA support")
+    elseif(_pmacc_device_api STREQUAL "HIP" AND NOT TARGET alpaka::hip)
+        message(FATAL_ERROR "Existing alpaka has no HIP support")
+    elseif(_pmacc_device_api STREQUAL "ONEAPI" AND NOT TARGET alpaka::oneapi)
+        message(FATAL_ERROR "Existing alpaka has no oneAPI support")
+    elseif(PMACC_BACKEND STREQUAL "CpuOmpBlocks" AND NOT alpaka_DEP_OMP)
+        message(FATAL_ERROR "Existing alpaka was configured without OpenMP support")
+    elseif(PMACC_BACKEND STREQUAL "CpuTbbBlocks" AND NOT alpaka_DEP_TBB)
+        message(FATAL_ERROR "Existing alpaka was configured without TBB support")
+    endif()
+endif()
+if(PMACC_BACKEND STREQUAL "CpuOmpBlocks")
+    set(alpaka_DEP_OMP ON CACHE BOOL "Enable alpaka OpenMP dependency" FORCE)
+elseif(PMACC_BACKEND STREQUAL "CpuTbbBlocks")
+    set(alpaka_DEP_TBB ON CACHE BOOL "Enable alpaka TBB dependency" FORCE)
+elseif(_pmacc_device_api)
+    set(alpaka_DEP_${_pmacc_device_api} ON CACHE BOOL "Enable alpaka device dependency" FORCE)
+    if(_pmacc_device_api STREQUAL "CUDA" AND NOT CMAKE_CUDA_COMPILER_LOADED)
+        enable_language(CUDA)
+    elseif(_pmacc_device_api STREQUAL "HIP" AND NOT CMAKE_HIP_COMPILER_LOADED)
+        enable_language(HIP)
+    endif()
+endif()

@@ -107,7 +107,7 @@ jobs:
               -DMPI_CXX_SKIP_MPICXX=ON \
               -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
               ${spearhed_cmake_flags} \
-              -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=ON \
+              -DPMACC_BACKEND=CpuOmpBlocks \
               ..
         ninja -j$NPROC
 

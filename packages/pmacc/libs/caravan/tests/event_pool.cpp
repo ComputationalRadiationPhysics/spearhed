@@ -34,7 +34,7 @@ namespace
     // Exercise actual alpaka events on the CPU backend.
     inline constexpr auto computeQueueKind = alpaka::queueKind::blocking;
 #endif
-    using Queue = alpaka::onHost::Queue<Device, ALPAKA_TYPEOF(computeQueueKind)>;
+    using Queue = alpaka::onHost::Queue<Device, alpaka::onHost::QueuePolicyList<ALPAKA_TYPEOF(computeQueueKind)>>;
     using Pool = caravan::alpaka::detail::EventPool<Queue>;
     using Event = alpaka::onHost::Event<Device>;
 

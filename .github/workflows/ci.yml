@@ -11,7 +11,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  spearhed_cmake_flags: "-DSPEARHED_TESTING=ON"
+  spearhed_cmake_flags: >-
+    -DSPEARHED_TESTING=ON
+    -DPMACC_BUILD_TESTING=ON
+    -DCARAVAN_BUILD_TESTING=ON
+    -DLLAMALITE_BUILD_TESTING=ON
 
 jobs:
   pre-commit:
@@ -31,33 +35,34 @@ jobs:
     strategy:
       matrix:
         config:
-          - { compiler: gcc, version: "12", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: gcc, version: "13", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "12", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "13", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "13", backend: "CpuOmpBlocks", cuda: "no", hip: "no", container: "ubuntu:24.04" }
           # tbb backend on
-          - { compiler: gcc, version: "13", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
-          - { compiler: gcc, version: "14", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: gcc, version: "13", backend: "CpuTbbBlocks", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
+          - { compiler: gcc, version: "14", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
           # clang host compiler
-          - { compiler: clang, version: "17", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "18", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "19", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "20", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "22", cuda: "no", hip: "no", container: "ubuntu:24.04" }
-          - { compiler: clang, version: "21", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
+          - { compiler: clang, version: "17", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "18", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "19", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "20", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "21", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "22", backend: "CpuSerial", cuda: "no", hip: "no", container: "ubuntu:24.04" }
+          - { compiler: clang, version: "21", backend: "CpuTbbBlocks", cuda: "no", hip: "no", container: "ubuntu:24.04", tbb: "on" }
           # nvcc CUDA
           # - { compiler: nvcc, version: "", cuda: "12.5", hip: "no", container: "nvidia/cuda:12.5.1-devel-ubuntu24.04" }
           # - { compiler: nvcc, version: "", cuda: "12.6", hip: "no", container: "nvidia/cuda:12.6.3-devel-ubuntu24.04" }
           # - { compiler: nvcc, version: "", cuda: "12.8", hip: "no", container: "nvidia/cuda:12.8.1-devel-ubuntu24.04" }
-          - { compiler: nvcc, version: "", cuda: "12.9", hip: "no", container: "nvidia/cuda:12.9.1-devel-ubuntu24.04" }
-          - { compiler: nvcc, version: "", cuda: "13.0", hip: "no", container: "nvidia/cuda:13.0.0-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", backend: "GpuCuda", cuda: "12.9", hip: "no", container: "nvidia/cuda:12.9.1-devel-ubuntu24.04" }
+          - { compiler: nvcc, version: "", backend: "GpuCuda", cuda: "13.0", hip: "no", container: "nvidia/cuda:13.0.0-devel-ubuntu24.04" }
           # clang-cuda (device compile with clang)
-          - { compiler: clang, version: "20", cuda: "12.9", hip: "no", container: "nvidia/cuda:12.9.1-devel-ubuntu24.04" }
-          - { compiler: clang, version: "22", cuda: "13.0", hip: "no", container: "nvidia/cuda:13.0.0-devel-ubuntu24.04" }
+          - { compiler: clang, version: "20", backend: "GpuCuda", cuda: "12.9", hip: "no", container: "nvidia/cuda:12.9.1-devel-ubuntu24.04" }
+          - { compiler: clang, version: "22", backend: "GpuCuda", cuda: "13.0", hip: "no", container: "nvidia/cuda:13.0.0-devel-ubuntu24.04" }
           # clang with ROCm HIP
-          - { compiler: clang, version: "18", cuda: "no", hip: "6.3.4", container: "rocm/dev-ubuntu-24.04:6.3.4" }
-          - { compiler: clang, version: "19", cuda: "no", hip: "6.4.2", container: "rocm/dev-ubuntu-24.04:6.4.2" }
-          - { compiler: clang, version: "20", cuda: "no", hip: "7.0", container: "rocm/dev-ubuntu-24.04:7.0" }
-          - { compiler: clang, version: "20", cuda: "no", hip: "7.1", container: "rocm/dev-ubuntu-24.04:7.1" }
+          - { compiler: clang, version: "18", backend: "GpuHip", cuda: "no", hip: "6.3.4", container: "rocm/dev-ubuntu-24.04:6.3.4" }
+          - { compiler: clang, version: "19", backend: "GpuHip", cuda: "no", hip: "6.4.2", container: "rocm/dev-ubuntu-24.04:6.4.2" }
+          - { compiler: clang, version: "20", backend: "GpuHip", cuda: "no", hip: "7.0", container: "rocm/dev-ubuntu-24.04:7.0" }
+          - { compiler: clang, version: "20", backend: "GpuHip", cuda: "no", hip: "7.1", container: "rocm/dev-ubuntu-24.04:7.1" }
           # Disabling HIP 7.2 https://github.com/alpaka-group/mallocMC/issues/299
           # - { compiler: clang, version: "22", cuda: "no", hip: "7.2", container: "rocm/dev-ubuntu-24.04:7.2" }
           # Disabling SYCL becuase PMACC doesnt currently support SYCL
@@ -189,13 +194,11 @@ jobs:
 
           cmake -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release -DMPI_CXX_SKIP_MPICXX=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
-                ${spearhed_cmake_flags} -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=ON \
-                ${{ matrix.config.compiler == 'icpx' && '-DCMAKE_CXX_COMPILER=icpx -Dalpaka_ACC_SYCL_ENABLE=ON -Dalpaka_SYCL_ONEAPI_CPU=ON -Dalpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE=OFF -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=OFF' || '' }} \
-                ${{ matrix.config.cuda != 'no' && '-Dalpaka_ACC_GPU_CUDA_ENABLE=ON -Dalpaka_ACC_GPU_CUDA_ONLY_MODE=ON -DCMAKE_CUDA_ARCHITECTURES=80 -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=OFF' || '' }} \
-                ${{ matrix.config.cuda != 'no' && matrix.config.compiler == 'clang' && '-Dalpaka_ACC_GPU_CUDA_ENABLE=ON -Dalpaka_ACC_GPU_CUDA_ONLY_MODE=ON -DCMAKE_CUDA_ARCHITECTURES=80 -DCMAKE_CUDA_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -Dalpaka_SUPPRESS_TARGET_WARNING=ON -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=OFF' || '' }} \
-                ${{ matrix.config.hip != 'no' && '-DCMAKE_CXX_COMPILER=clang++ -Dalpaka_ACC_GPU_HIP_ENABLE=ON -Dalpaka_ACC_GPU_HIP_ONLY_MODE=ON -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=OFF \
-                   -DCMAKE_HIP_ARCHITECTURES=gfx906 -DAMDGPU_TARGETS=gfx906' || '' }} \
-                ${{ matrix.config.tbb == 'on' && '-Dalpaka_ACC_CPU_B_TBB_T_SEQ_ENABLE=ON -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=OFF' || '' }} ..
+                ${spearhed_cmake_flags} -DPMACC_BACKEND=${{ matrix.config.backend }} \
+                ${{ matrix.config.cuda != 'no' && matrix.config.compiler == 'nvcc' && '-DCMAKE_CUDA_ARCHITECTURES=80' || '' }} \
+                ${{ matrix.config.cuda != 'no' && matrix.config.compiler == 'clang' && '-DCMAKE_CUDA_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_ARCHITECTURES=80' || '' }} \
+                ${{ matrix.config.hip != 'no' && '-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_HIP_ARCHITECTURES=gfx906 -DAMDGPU_TARGETS=gfx906' || '' }} \
+                ..
 
       # Build the project
       - name: Build

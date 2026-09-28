@@ -76,9 +76,11 @@ namespace pmacc
     using HostDevice = ::alpaka::onHost::Device<::alpaka::api::Host, ::alpaka::deviceKind::Cpu>;
 
 #if (PMACC_USE_ASYNC_QUEUES == 1)
-    using ComputeDeviceQueue = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::queueKind::NonBlocking>;
+    using ComputeDeviceQueue
+        = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::onHost::QueuePolicyList<::alpaka::queueKind::NonBlocking>>;
 #else
-    using ComputeDeviceQueue = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::queueKind::Blocking>;
+    using ComputeDeviceQueue
+        = ::alpaka::onHost::Queue<ComputeDevice, ::alpaka::onHost::QueuePolicyList<::alpaka::queueKind::Blocking>>;
 #endif
 
     using ComputeDeviceEvent = ::alpaka::onHost::Event<ComputeDevice>;

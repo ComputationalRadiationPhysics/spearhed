@@ -21,7 +21,7 @@ foreach(
     ITEMS accessSet dynSoa iterate one set tagPath
 )
     add_executable(llamaLite_test_${name} unit/${name}/${name}.cpp)
-    target_link_libraries(llamaLite_test_${name} PRIVATE llamaLite Catch2::Catch2WithMain)
+    target_link_libraries(llamaLite_test_${name} PRIVATE llamaLite::llamaLite Catch2::Catch2WithMain)
     catch_discover_tests(llamaLite_test_${name} TEST_PREFIX "llamaLite::")
 endforeach()
 

@@ -85,7 +85,8 @@ int main(int argc, char** argv)
 #endif
             constexpr auto computeQueueKind = alpaka::queueKind::nonBlocking;
             using Device = alpaka::onHost::Device<ALPAKA_TYPEOF(computeApi), ALPAKA_TYPEOF(computeDeviceKind)>;
-            using Queue = alpaka::onHost::Queue<Device, ALPAKA_TYPEOF(computeQueueKind)>;
+            using Queue
+                = alpaka::onHost::Queue<Device, alpaka::onHost::QueuePolicyList<ALPAKA_TYPEOF(computeQueueKind)>>;
             auto const device = alpaka::onHost::makeDeviceSelector(computeApi, computeDeviceKind).makeDevice(0u);
             auto const host
                 = alpaka::onHost::makeDeviceSelector(alpaka::api::host, alpaka::deviceKind::cpu).makeDevice(0u);
