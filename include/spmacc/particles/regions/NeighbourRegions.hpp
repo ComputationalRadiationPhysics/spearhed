@@ -30,7 +30,12 @@
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <memory>
+#include <optional>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include <caravan/alpaka.hpp>
@@ -130,73 +135,123 @@ namespace pmacc::spearhed
         };
     } // namespace detail
 
+    namespace detail
+    {
+        template<typename Target, typename Source, typename SmoothingLength>
+        [[nodiscard]] auto calculateNeighbourEntrySender(Target& target, Source& source, SmoothingLength h)
+        {
+            struct State
+            {
+                Target* target;
+                Source* source;
+                SmoothingLength smoothingLength;
+                int numTargetRegions;
+                int numSourceRegions;
+                uint32_t totalPairs = 0u;
+                pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets;
+                std::optional<pmacc::HostDeviceBuffer<unsigned int, DIM1>> neighbourRegions;
+
+                State(Target& targetRef, Source& sourceRef, SmoothingLength hValue)
+                    : target(&targetRef)
+                    , source(&sourceRef)
+                    , smoothingLength(hValue)
+                    , numTargetRegions(targetRef.size)
+                    , numSourceRegions(sourceRef.size)
+                    , regionOffsets(pmacc::DataSpace<DIM1>{numTargetRegions + 1})
+                {
+                    regionOffsets.getHostBuffer().setValue(0u);
+                }
+            };
+
+            auto state = std::make_shared<State>(target, source, h);
+            constexpr uint32_t threadsPerBlock = 32;
+            auto countKernel
+                = PMACC_LOCKSTEP_KERNEL(FindNeighbourRegionsFunctor<OpMode::Count>{})
+                      .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(std::max(state->numTargetRegions, 1)));
+            auto count = caravan::alpaka::submit(
+                [state, countKernel](auto& queue) mutable
+                {
+                    if(state->numTargetRegions > 0 && state->numSourceRegions > 0)
+                        countKernel.enqueueNative(
+                            queue,
+                            state->target->getDeviceDataBox(),
+                            state->numTargetRegions,
+                            state->source->getDeviceDataBox(),
+                            state->numSourceRegions,
+                            state->regionOffsets.getDeviceBuffer().getDataBox(),
+                            nullptr,
+                            state->smoothingLength);
+                });
+
+            return state->regionOffsets.hostToDevice() | caravan::alpaka::sequence(std::move(count))
+                   | caravan::alpaka::sequence(state->regionOffsets.deviceToHost())
+                   | caravan::letValue(
+                       [state]()
+                       {
+                           state->totalPairs = inclusiveScanHost(state->regionOffsets, state->numTargetRegions + 1);
+                           state->neighbourRegions.emplace(
+                               pmacc::DataSpace<DIM1>{static_cast<int>(state->totalPairs)});
+                           auto writeKernel = PMACC_LOCKSTEP_KERNEL(FindNeighbourRegionsFunctor<OpMode::Write>{})
+                                                  .template config<threadsPerBlock>(
+                                                      pmacc::DataSpace<DIM1>(std::max(state->numTargetRegions, 1)));
+                           auto write = caravan::alpaka::submit(
+                               [state, writeKernel](auto& queue) mutable
+                               {
+                                   if(state->numTargetRegions > 0 && state->totalPairs > 0u)
+                                       writeKernel.enqueueNative(
+                                           queue,
+                                           state->target->getDeviceDataBox(),
+                                           state->numTargetRegions,
+                                           state->source->getDeviceDataBox(),
+                                           state->numSourceRegions,
+                                           state->regionOffsets.getDeviceBuffer().getDataBox(),
+                                           state->neighbourRegions->getDeviceBuffer().getDataBox(),
+                                           state->smoothingLength);
+                               });
+                           return state->regionOffsets.hostToDevice() | caravan::alpaka::sequence(std::move(write))
+                                  | caravan::then(
+                                      [state]()
+                                      {
+                                          using Entry = NeighbourEntry<Source>;
+                                          return Entry{
+                                              state->source,
+                                              std::move(*state->neighbourRegions),
+                                              std::move(state->regionOffsets)};
+                                      });
+                       });
+        }
+    } // namespace detail
+
     /**
-     * @brief Compute neighbour-region lists for every source and return an owning bundle.
+     * @brief Lazily compute neighbour-region lists and deliver an owning bundle when ready.
      *
-     * @param target  The target ParticleRegionBuffer.
-     * @param h       Smoothing length (scalar) expanding each region's AABB.
-     * @param sources One or more source ParticleRegionBuffer objects.
-     * @return NeighbourBundle<true, NeighbourEntry<Sources>...>
+     * The sender borrows @p target and @p sources. Their objects, region counts, and backing storage
+     * must remain valid and unchanged through completion; counts are captured when this function is
+     * called. Region contents are read when the sender starts, so callers may update them before
+     * execution provided those updates are complete before the sender is started.
      */
     template<typename Target, typename SmoothingLength, typename... Sources>
-    auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources)
+    [[nodiscard]] auto calculateNeighboursSender(Target& target, SmoothingLength h, Sources&... sources)
     {
-        int const numTargetRegions = target.size;
-        static constexpr uint32_t threadsPerBlock = 32;
-
-        auto computeOneEntry = [&](auto& sourcePRBuf)
+        if constexpr(sizeof...(Sources) == 0u)
         {
-            using SrcType = std::remove_reference_t<decltype(sourcePRBuf)>;
-            int const numSourceRegions = sourcePRBuf.size;
+            return caravan::alpaka::submit([](auto&) {}) | caravan::then([] { return makeNeighbourBundle(); });
+        }
+        else
+            return caravan::whenAll(detail::calculateNeighbourEntrySender(target, sources, h)...)
+                   | caravan::then([](auto&&... entries)
+                                   { return makeNeighbourBundle(std::forward<decltype(entries)>(entries)...); });
+    }
 
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> regionOffsets{pmacc::DataSpace<DIM1>{numTargetRegions + 1}};
-            regionOffsets.getHostBuffer().setValue(0);
-            auto& device = pmacc::Environment<>::get().DeviceContext();
-            caravan::syncWait(caravan::alpaka::withDevice(device, regionOffsets.hostToDevice()));
-            if(numTargetRegions == 0)
-            {
-                pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{0});
-                return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
-            }
-
-            caravan::syncWait(
-                caravan::alpaka::withDevice(
-                    device,
-                    PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
-                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
-                            target.getDeviceDataBox(),
-                            numTargetRegions,
-                            sourcePRBuf.getDeviceDataBox(),
-                            numSourceRegions,
-                            regionOffsets.getDeviceBuffer().getDataBox(),
-                            nullptr,
-                            h)));
-
-            uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numTargetRegions + 1);
-
-            pmacc::HostDeviceBuffer<unsigned int, DIM1> neighbourRegions(pmacc::DataSpace<DIM1>{totalPairs});
-
-            if(totalPairs > 0)
-            {
-                auto writeKernel = detail::FindNeighbourRegionsFunctor<detail::OpMode::Write>{};
-                caravan::syncWait(
-                    caravan::alpaka::withDevice(
-                        device,
-                        PMACC_LOCKSTEP_KERNEL(writeKernel)
-                            .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
-                                target.getDeviceDataBox(),
-                                numTargetRegions,
-                                sourcePRBuf.getDeviceDataBox(),
-                                numSourceRegions,
-                                regionOffsets.getDeviceBuffer().getDataBox(),
-                                neighbourRegions.getDeviceBuffer().getDataBox(),
-                                h)));
-            }
-
-            return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
-        };
-
-        return makeNeighbourBundle(computeOneEntry(sources)...);
+    /** Compute neighbour-region lists synchronously for callers requiring an immediate bundle. */
+    template<typename Target, typename SmoothingLength, typename... Sources>
+    [[nodiscard]] auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources)
+    {
+        using Bundle
+            = decltype(makeNeighbourBundle(std::declval<NeighbourEntry<std::remove_reference_t<Sources>>>()...));
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        return caravan::syncWait<Bundle>(
+            caravan::alpaka::withDevice(device, calculateNeighboursSender(target, h, sources...)));
     }
 
 } // namespace pmacc::spearhed

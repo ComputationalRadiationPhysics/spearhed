@@ -108,8 +108,8 @@ namespace spearhed
          *  and timesteps while the frame-list topology is unchanged. The same index also drives the
          *  self-init launch below, so no separate index build/scan is paid for that pass either.
          *
-         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
-         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
+         *  Returns a lazy composed sender. The bundle, target, index, and any device arguments must
+         *  outlive sender completion (see interact()'s lifetime contract). */
         [[nodiscard]] auto operator()(
             pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
             auto& target,
@@ -123,11 +123,8 @@ namespace spearhed
                 index,
                 DensityInitSelf<KernelT>{});
 
-            // Combine both launches rather than returning interact()'s event alone: interact()
-            // short-circuits to an already-finished empty event when there are no source regions
-            // (numSources == 0), and then this self-init is the only real work -- it must still be
-            // represented in the returned event. When both launches are live they share the compute
-            // stream, so the combine is host-side bookkeeping with no added cross-stream sync.
+            // Preserve the self-init when interact() is a no-op for an empty source bundle. Native
+            // sequencing keeps dependent work ordered without a host-side synchronization.
             auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
             return std::move(zeroDone)
                    | caravan::alpaka::sequence(

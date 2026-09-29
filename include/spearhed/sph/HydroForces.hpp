@@ -189,8 +189,8 @@ namespace spearhed
          *  and timesteps while the frame-list topology is unchanged. The same index also drives the
          *  zeroing launch below, so no separate index build/scan is paid for that pass either.
          *
-         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
-         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
+         *  Returns a lazy composed sender. The bundle, target, index, and any device arguments must
+         *  outlive sender completion (see interact()'s lifetime contract). */
         [[nodiscard]] auto operator()(
             pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
             auto& target,

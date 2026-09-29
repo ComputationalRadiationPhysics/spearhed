@@ -40,6 +40,7 @@
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -157,19 +158,35 @@ namespace spearhed
             pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
             [&](auto&... sources)
             {
-                auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
-                // One frame index serves both passes: neither mutates frame-list topology, only
-                // particle attributes (see the FrameIndexBuffer invalidation contract).
-                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
-                auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
-                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
-                // The hydro input depends on density; sequence them on the native queue, then wait
-                // before the bundle and index (which own referenced device memory) leave scope.
                 auto& device = pmacc::Environment<>::get().DeviceContext();
-                caravan::syncWait(
-                    caravan::alpaka::withDevice(
-                        device,
-                        std::move(densityDone) | caravan::alpaka::sequence(std::move(hydroDone))));
+                auto index = std::make_shared<pmacc::spearhed::FrameIndexBuffer<PRType>>();
+                auto preparation
+                    = pmacc::spearhed::calculateNeighboursSender(defaultSpecies, interactionRadius, sources...);
+                auto hydrodynamics
+                    = std::move(preparation)
+                      | caravan::letValue(
+                          [this, &defaultSpecies, index](auto& bundle)
+                          {
+                              // Build-dependent launches only after totalFrames is available.
+                              return index->rebuildSender(defaultSpecies)
+                                     | caravan::letValue(
+                                         [this, &defaultSpecies, index, bundlePtr = &bundle]
+                                         {
+                                             auto sourceViews
+                                                 = bundlePtr->template selectByRole<pmacc::spearhed::roles::Source>();
+                                             auto densityDone = spearhed::UpdateDensity<K>{}(
+                                                 sourceViews,
+                                                 defaultSpecies,
+                                                 *index,
+                                                 h0);
+                                             auto hydroDone = spearhed::UpdateHydroForces<K>{
+                                                 gamma_eos}(sourceViews, defaultSpecies, *index, h0);
+                                             return std::move(densityDone)
+                                                    | caravan::alpaka::sequence(std::move(hydroDone));
+                                         });
+                          });
+                // The final boundary protects bundle/index storage through both dependent passes.
+                caravan::syncWait(caravan::alpaka::withDevice(device, std::move(hydrodynamics)));
             });
 
         // Euler update: v += dvdt*dt, u += dudt*dt. The forces computed above persist on the device
