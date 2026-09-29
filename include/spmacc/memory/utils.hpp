@@ -25,7 +25,7 @@
 #include <cstdint>
 #include <new>
 
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
 #    include <mallocMC/mallocMC.hpp>
 #endif
 
@@ -43,7 +43,7 @@ namespace pmacc::spearhed::memory
         for(int i = 0; i < allocationMaxRetries; ++i)
         {
             void* rawPtr = nullptr;
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
             rawPtr = deviceHeapHandle.malloc(worker.getAcc(), size);
 #else
             // Use nothrow to ensure nullptr is returned on failure,

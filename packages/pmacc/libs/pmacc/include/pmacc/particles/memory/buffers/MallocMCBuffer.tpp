@@ -21,7 +21,7 @@
 
 #pragma once
 
-#if (ALPAKA_ACC_GPU_CUDA_ENABLED || ALPAKA_ACC_GPU_HIP_ENABLED)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
 
 #    include "pmacc/alpakaHelper/Device.hpp"
 #    include "pmacc/math/Vector.hpp"
@@ -60,8 +60,9 @@ namespace pmacc
         auto devView
             = alpaka::makeView(manager::Device<ComputeDevice>::get().current(), (uint8_t*) deviceHeapInfo.p, extent);
 
-        return caravan::alpaka::submit([host = std::move(host), device, extent](auto& nativeQueue) mutable
-                                       { alpaka::onHost::memcpy(nativeQueue, host, device, extent); });
+        return caravan::alpaka::submit(
+            [host = std::move(host), devView = std::move(devView), extent](auto& nativeQueue) mutable
+            { alpaka::onHost::memcpy(nativeQueue, host, devView, extent); });
     }
 
 } // namespace pmacc

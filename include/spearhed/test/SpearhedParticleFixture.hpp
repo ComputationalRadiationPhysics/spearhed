@@ -66,14 +66,11 @@ namespace spearhed::test
             caravan::syncWait(caravan::alpaka::withDevice(env.DeviceContext(), idProvider->initialize()));
 
             // Device Heap Setup
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
             constexpr auto testHeapSize = 256ull * 1024 * 1024;
-            auto& deviceManager = pmacc::manager::Device<pmacc::ComputeDevice>::get();
-            auto alpakaDevice = deviceManager.current();
-            auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-
+            auto& alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
+            auto alpakaQueue = alpakaDevice.makeQueue();
             deviceHeap.emplace(alpakaDevice, alpakaQueue, testHeapSize);
-            alpaka::wait(alpakaQueue);
 #else
             deviceHeap.emplace(DeviceHeap{});
 #endif

@@ -31,7 +31,7 @@
 
 #include <caravan/alpaka.hpp>
 
-#if (ALPAKA_ACC_GPU_CUDA_ENABLED || ALPAKA_ACC_GPU_HIP_ENABLED)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
 
 #    include <memory>
 

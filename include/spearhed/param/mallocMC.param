@@ -31,7 +31,7 @@
 
 #include <cstdint>
 
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
 #    include <mallocMC/mallocMC.hpp>
 
 namespace spearhed
@@ -48,11 +48,11 @@ namespace spearhed
     };
 
     using DeviceHeap = mallocMC::Allocator<
-        alpaka::AccToTag<pmacc::Acc<DIM1>>,
+        pmacc::ComputeExec,
         mallocMC::CreationPolicies::FlatterScatter<DeviceHeapConfig>,
         mallocMC::DistributionPolicies::Noop,
         mallocMC::OOMPolicies::ReturnNull,
-        mallocMC::ReservePoolPolicies::AlpakaBuf<pmacc::Acc<DIM1>>,
+        mallocMC::ReservePoolPolicies::AlpakaBuf,
         mallocMC::AlignmentPolicies::Shrink<ShrinkConfig>>;
 
 } // namespace spearhed

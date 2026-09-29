@@ -105,7 +105,7 @@ namespace pmacc::spearhed
                 node->data.~T();
             }
 
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
             m_deviceHeapHandle.free(worker.getAcc(), (void*) node);
 #else
             operator delete(node, std::nothrow);

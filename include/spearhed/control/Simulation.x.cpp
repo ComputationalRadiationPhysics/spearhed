@@ -99,6 +99,10 @@ namespace spearhed
         }
 
         pmacc::Environment<simDim>::get().initDevices(mpiContext, gpus, isPeriodic);
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
+        // Configure concurrent queues before the shared pool receives its first submission.
+        pmacc::Environment<>::get().DeviceContext().addQueues(6);
+#endif
         pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
 
         if(gc.getGlobalRank() == 0)
@@ -210,28 +214,13 @@ namespace spearhed
             throw std::runtime_error(msg.str());
         }
 
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        size_t heapSize = freeGpuMem - reservedGpuMemorySize;
-        pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
-        if(pmacc::Environment<>::get().MemoryInfo().isSharedMemoryPool(
-               numRanksPerDevice,
-               gc.getCommunicator().getMPIComm()))
-        {
-            heapSize /= 2u;
-            pmacc::log<pmacc::PMaccVerbose::MEMORY>(
-                "Shared RAM between GPU and host detected - using only half of the 'device' memory.");
-        }
-        else
-            pmacc::log<pmacc::PMaccVerbose::MEMORY>("Device RAM is NOT shared between GPU and host.");
-
-        // initializing the heap for particles
-        // TODO use heapsize instead of the hard coded small heap
-        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
-
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
+        // TODO: derive the mallocMC heap size from available memory; retain the existing fixed-size policy for now.
+        auto& alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
+        auto alpakaQueue = alpakaDevice.makeQueue();
         size_t small_heap{2ull * 1024 * 1024 * 1024};
+        // mallocMC's FlatterScatter initializer waits for its kernel before returning.
         deviceHeap.emplace(alpakaDevice, alpakaQueue, small_heap);
-        alpaka::wait(alpakaQueue);
 #else
         deviceHeap.emplace(DeviceHeap{});
 #endif
@@ -248,11 +237,6 @@ namespace spearhed
             pmacc::log<pmacc::PMaccVerbose::MEMORY>("free mem after all mem is allocated %1% MiB")
                 % (freeGpuMem / 1024 / 1024);
         }
-
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        /* add CUDA streams to the QueueController for concurrent execution */
-        pmacc::Environment<>::get().QueueController().addQueues(6);
-#endif
     }
 
     /**
