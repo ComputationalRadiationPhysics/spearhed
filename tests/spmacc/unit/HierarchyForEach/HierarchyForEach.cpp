@@ -36,7 +36,9 @@
 #include <alpaka/alpaka.hpp>
 
 #include <cstdint>
+#include <utility>
 
+#include <caravan/core/sender/let_value.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
@@ -103,6 +105,53 @@ struct CountFrameOnce
 };
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "Frame index sender handles empty and populated topology",
+    "[integration][particles][index]")
+{
+    sp::FrameIndexBuffer<spearhed::PRType> index;
+
+    spearhed::test::runDevice(index.rebuildSender(*prBuf));
+    REQUIRE(index.totalFrames == 0u);
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::test::runDevice(index.rebuildSender(*prBuf));
+    REQUIRE(index.totalFrames == 0u);
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+
+    spearhed::InitParticles{}(setup);
+    prBuf->synchronize();
+    uint32_t expectedFrames = 0u;
+    auto const hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+    for(int region = 0; region < prBuf->size; ++region)
+        expectedFrames += hostRegions[region].particleFrameList.numFrames();
+    REQUIRE(expectedFrames > 0u);
+
+    pmacc::HostDeviceBuffer<T_Sum, 1> frameCount(1u);
+    frameCount.getHostBuffer().setValue(0u);
+    spearhed::test::runDevice(frameCount.hostToDevice());
+
+    auto preparation = index.rebuildSender(*prBuf);
+    REQUIRE(index.totalFrames == 0u);
+    auto dependent = std::move(preparation)
+                     | caravan::letValue(
+                         [&]
+                         {
+                             return sp::launchForEach(
+                                 sp::levels::frame,
+                                 *prBuf,
+                                 index,
+                                 CountFrameOnce{},
+                                 frameCount.getDeviceBuffer().getDataBox());
+                         });
+    spearhed::test::runDevice(std::move(dependent));
+    spearhed::test::runDevice(frameCount.deviceToHost());
+    REQUIRE(frameCount.getHostBuffer().data()[0] == expectedFrames);
+}
 
 TEST_CASE_METHOD(
     ParticleFixture,

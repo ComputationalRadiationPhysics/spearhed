@@ -103,11 +103,10 @@ namespace pmacc::spearhed
      * The decomposition ("which block gets which frame") is a swappable value object, while the
      * per-element work composes the hierarchy iterator with the lockstep slot combinator.
      *
-     * Asynchronous: does NOT synchronise -- the kernel is merely enqueued and this function returns
-     * immediately. Every device allocation reachable from the launch -- @p prBuf, @p index, and any
-     * buffer viewed by @p args -- must outlive kernel COMPLETION, not just this call (PMacc buffer
-     * destructors do not wait for in-flight kernels). The caller synchronises via the returned event
-     * at its natural sync point (see launchForEachFrameInBlockIndexed in FrameDispatch.hpp).
+     * Returns a lazy sender and does NOT synchronise. Every device allocation reachable from the launch --
+     * @p prBuf, @p index, and any buffer viewed by @p args -- must outlive sender completion (PMacc buffer
+     * destructors do not wait for in-flight kernels). Compose the sender with dependent work or execute it with
+     * syncWait at the caller's natural boundary.
      *
      * @param cfg    A constexpr ForEachConfig (schedule + grid + thread count); see forEachConfig /
      *               defaultForEach in FrameSchedule.hpp. This is the "better algorithm" knob, e.g.
@@ -122,8 +121,7 @@ namespace pmacc::spearhed
      * @param args   Extra kernel arguments forwarded by value to @p body. Prefer this over lambda
      *               capture for device data boxes: a captured box is const inside the (const)
      *               kernel body, whereas a forwarded argument arrives as a mutable parameter.
-     * @return EventTask for the enqueued kernel. Wait on it with waitForFinished() before destroying
-     *         any buffer the kernel touches.
+     * @return Lazy sender that enqueues the kernel when started.
      */
     template<
         typename T_Cfg,

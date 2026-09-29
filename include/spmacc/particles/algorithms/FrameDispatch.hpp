@@ -82,24 +82,31 @@ namespace pmacc::spearhed
 
     } // namespace detail
 
+    /** In-place inclusive prefix sum over values already present in the host buffer. */
+    [[nodiscard]] inline uint32_t inclusiveScanHost(pmacc::HostDeviceBuffer<uint32_t, DIM1>& buf, int size)
+    {
+        if(size <= 0)
+            return 0u;
+        auto data = buf.getHostBuffer().getDataBox();
+        for(int i = 1; i < size; ++i)
+            data[i] += data[i - 1];
+        return data[size - 1];
+    }
+
     /**
      * @brief In-place inclusive prefix sum on a HostDeviceBuffer<uint32_t> via the host.
      *
-     * Copies the buffer device to host, computes arr[i] += arr[i-1] for i in [1, size),
-     * then copies back host to device.
+     * Copies the buffer device to host, scans it, then copies the result back to device.
      *
      * @param buf   Buffer populated by a device kernel.
      * @param size  Number of elements to scan (must be <= buf capacity).
-     * @return      arr[size-1] after the scan (sum of all original counts).
+     * @return      Last inclusive-scan value, or zero when size is zero.
      */
     [[nodiscard]] inline uint32_t inclusiveScanOnHost(pmacc::HostDeviceBuffer<uint32_t, DIM1>& buf, int size)
     {
         auto& device = pmacc::Environment<>::get().DeviceContext();
         caravan::syncWait(caravan::alpaka::withDevice(device, buf.deviceToHost()));
-        auto data = buf.getHostBuffer().getDataBox();
-        for(int i = 1; i < size; ++i)
-            data[i] += data[i - 1];
-        uint32_t const total = data[size - 1];
+        uint32_t const total = inclusiveScanHost(buf, size);
         caravan::syncWait(caravan::alpaka::withDevice(device, buf.hostToDevice()));
         return total;
     }
@@ -180,18 +187,16 @@ namespace pmacc::spearhed
      *   (worker, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, args...)
      * and maps its block directly: rIdx = regionIdxBox[blockIdx]; ownFramePtr = framePtrsBox[blockIdx].
      *
-     * This does NOT synchronise: the kernel is merely enqueued and this function returns immediately.
-     * Every device allocation reachable from the launch -- @p prBuf, @p index, and any buffer viewed
-     * by @p args -- must outlive kernel COMPLETION, not just this call (PMacc buffer destructors do
-     * not wait for in-flight kernels). The caller synchronises via the returned event at its natural
-     * sync point; see interact() in NeighbourRegions.hpp.
+     * Returns a lazy sender and does not synchronise. Every device allocation reachable from the
+     * launch -- @p prBuf, @p index, and any buffer viewed by @p args -- must outlive sender completion
+     * (PMacc buffer destructors do not wait for in-flight kernels). Compose it with dependent work or
+     * execute it with syncWait at the caller's natural boundary.
      *
      * @param launchCfg     A constexpr LaunchConfig value (only its grid-sizing policy is used here).
      * @param prBuf         The particle region buffer (supplies the region device box + region volumes).
      * @param index         A rebuilt FrameIndexBuffer for @p prBuf.
      * @param processKernel The per-block kernel functor.
-     * @return EventTask for the enqueued kernel (an empty, already-finished event if totalFrames == 0).
-     *         Wait on it with waitForFinished() before destroying any buffer the kernel touches.
+     * @return Lazy sender that enqueues the kernel when started. It is a no-op when totalFrames is zero.
      */
     [[nodiscard]] auto launchForEachFrameInBlockIndexed(
         auto launchCfg,

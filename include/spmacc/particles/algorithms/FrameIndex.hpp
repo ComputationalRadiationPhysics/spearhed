@@ -30,6 +30,7 @@
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
+#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -103,7 +104,7 @@ namespace pmacc::spearhed
      *
      * Layout: frames are laid out region-contiguously. For global slot g, @c regionIdxPerFrame[g] is
      * the owning region index and @c framePtrs[g] is that frame's device heap address. rebuild()
-     * reuses detail::CountFramesKernel + inclusiveScanOnHost to compute the per-region base offsets,
+     * reuses detail::CountFramesKernel plus a host inclusive scan to compute the per-region base offsets,
      * then detail::BuildFrameIndexKernel populates both arrays with one list traversal per region.
      *
      * Invalidation contract:
@@ -156,7 +157,10 @@ namespace pmacc::spearhed
         //! refreshIfStale() to detect a stale index without a caller having to track it by hand.
         uint64_t builtVersion = 0;
 
-        //! Constructs an empty index and performs the initial build for @p prBuf.
+        //! Constructs an empty index without submitting device work.
+        FrameIndexBuffer() = default;
+
+        //! Constructs an index and synchronously builds it for @p prBuf.
         explicit FrameIndexBuffer(auto& prBuf)
         {
             rebuild(prBuf);
@@ -191,54 +195,64 @@ namespace pmacc::spearhed
         }
 
         /**
-         * @brief (Re)builds the index from the current frame lists of @p prBuf.
+         * @brief Lazily rebuild the index from the current frame lists of @p prBuf.
          *
-         * Must be called after any frame-list mutation (see the invalidation contract). Growth is
-         * handled by constructing fresh HostDeviceBuffers of the new size (the codebase's resize
-         * idiom, cf. ParticleRegionBuffer::create); the fill kernel overwrites every valid slot, so
-         * previous contents need not be preserved.
+         * The sender borrows both this index and @p prBuf; they must remain alive, and their topology
+         * must not be mutated, until it completes. Rebuilds of the same index must not overlap.
+         * Count -> download and upload -> fill are native queue sequences. Host scanning and capacity
+         * growth run only after the count download completes. @p builtVersion is published last.
          */
+        [[nodiscard]] auto rebuildSender(auto& prBuf)
+        {
+            uint64_t const targetVersion = prBuf.topologyVersion;
+            int const numRegions = prBuf.size;
+            ensureRegionCapacity(static_cast<uint32_t>(std::max(numRegions, 1)));
+
+            auto const countBox = framesPerRegion->getDeviceBuffer().getDataBox();
+            auto countKernel = PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
+                                   .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(std::max(numRegions, 1)));
+            auto count = caravan::alpaka::submit(
+                [&prBuf, countKernel, countBox, numRegions](auto& queue) mutable
+                {
+                    if(numRegions > 0)
+                        countKernel.enqueueNative(queue, prBuf.getDeviceDataBox(), numRegions, countBox);
+                });
+
+            return std::move(count) | caravan::alpaka::sequence(framesPerRegion->deviceToHost())
+                   | caravan::letValue(
+                       [this, &prBuf, numRegions, targetVersion]()
+                       {
+                           if(numRegions == 0)
+                               framesPerRegion->getHostBuffer().getDataBox()[0] = 0u;
+                           totalFrames = inclusiveScanHost(*framesPerRegion, numRegions);
+                           ensureFrameCapacity(std::max(totalFrames, 1u));
+
+                           auto buildKernel
+                               = PMACC_LOCKSTEP_KERNEL(detail::BuildFrameIndexKernel{})
+                                     .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(std::max(numRegions, 1)));
+                           auto const scanBox = framesPerRegion->getDeviceBuffer().getDataBox();
+                           auto fill = caravan::alpaka::submit(
+                               [this, &prBuf, buildKernel, scanBox, numRegions](auto& queue) mutable
+                               {
+                                   if(numRegions > 0 && totalFrames > 0u)
+                                       buildKernel.enqueueNative(
+                                           queue,
+                                           prBuf.getDeviceDataBox(),
+                                           numRegions,
+                                           scanBox,
+                                           framePtrs->getDeviceBuffer().getDataBox(),
+                                           regionIdxPerFrame->getDeviceBuffer().getDataBox());
+                               });
+                           return framesPerRegion->hostToDevice() | caravan::alpaka::sequence(std::move(fill))
+                                  | caravan::then([this, targetVersion] { builtVersion = targetVersion; });
+                       });
+        }
+
+        /** Synchronously rebuild for callers that require ready index metadata immediately. */
         void rebuild(auto& prBuf)
         {
-            // Recorded first, before any early return, so an index rebuilt against an empty buffer
-            // is still considered fresh (builtVersion tracks the topology it was built against, not
-            // whether that topology happened to contain any frames).
-            builtVersion = prBuf.topologyVersion;
-
-            totalFrames = 0;
-            if(prBuf.size == 0)
-                return;
-
-            ensureRegionCapacity(static_cast<uint32_t>(prBuf.size));
-
-            // Count frames per region, then inclusive-scan on the host to get base offsets + total.
             auto& device = pmacc::Environment<>::get().DeviceContext();
-            caravan::syncWait(
-                caravan::alpaka::withDevice(
-                    device,
-                    PMACC_LOCKSTEP_KERNEL(detail::CountFramesKernel{})
-                        .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                            prBuf.getDeviceDataBox(),
-                            prBuf.size,
-                            framesPerRegion->getDeviceBuffer().getDataBox())));
-
-            totalFrames = inclusiveScanOnHost(*framesPerRegion, prBuf.size);
-            if(totalFrames == 0)
-                return;
-
-            ensureFrameCapacity(totalFrames);
-
-            // One list traversal per region: record each frame's device address and owning region.
-            caravan::syncWait(
-                caravan::alpaka::withDevice(
-                    device,
-                    PMACC_LOCKSTEP_KERNEL(detail::BuildFrameIndexKernel{})
-                        .template config<kIndexThreads>(pmacc::DataSpace<DIM1>(prBuf.size))(
-                            prBuf.getDeviceDataBox(),
-                            prBuf.size,
-                            framesPerRegion->getDeviceBuffer().getDataBox(),
-                            framePtrs->getDeviceBuffer().getDataBox(),
-                            regionIdxPerFrame->getDeviceBuffer().getDataBox())));
+            caravan::syncWait(caravan::alpaka::withDevice(device, rebuildSender(prBuf)));
         }
 
         /**
@@ -246,9 +260,9 @@ namespace pmacc::spearhed
          *
          * A cheap host integer compare (builtVersion vs. prBuf.topologyVersion) when the index is
          * already fresh -- this is the preferred call-site idiom over unconditionally rebuilding.
-         * It is deliberately called explicitly at call sites rather than hidden inside launchers, so
-         * that the device-to-host sync point rebuild() incurs (see inclusiveScanOnHost) stays visible
-         * at the point where it happens.
+         * It is deliberately called explicitly at call sites rather than hidden inside launchers. Use
+         * rebuildSender() when the preparation should compose with dependent device work; rebuild() is
+         * retained as a synchronous compatibility wrapper.
          */
         void refreshIfStale(auto& prBuf)
         {
