@@ -141,8 +141,8 @@ namespace spearhed
             BaseType::startSimulation();
     }
 
-    template<SphKernel K>
-    void Simulation::updateHydrodynamics()
+    template<SphKernel K, typename T_BoundsSender>
+    void Simulation::updateHydrodynamics(T_BoundsSender boundsDone)
     {
         auto& dc = pmacc::Environment<>::get().DataConnector();
         // The integration target: the (single) species advanced in time and used as the bundle target.
@@ -160,8 +160,15 @@ namespace spearhed
             {
                 auto& device = pmacc::Environment<>::get().DeviceContext();
                 auto index = std::make_shared<pmacc::spearhed::FrameIndexBuffer<PRType>>();
-                auto preparation
-                    = pmacc::spearhed::calculateNeighboursSender(defaultSpecies, interactionRadius, sources...);
+                auto preparation = std::move(boundsDone)
+                                   | caravan::letValue(
+                                       [&defaultSpecies, interactionRadius, &sources...]()
+                                       {
+                                           return pmacc::spearhed::calculateNeighboursSender(
+                                               defaultSpecies,
+                                               interactionRadius,
+                                               sources...);
+                                       });
                 auto hydrodynamics
                     = std::move(preparation)
                       | caravan::letValue(
@@ -208,10 +215,10 @@ namespace spearhed
         // order of operations? which species to start with?
         // force calculation first? or pusher or something else?
         ParticlePush{}(currentStep);
-        pmacc::spearhed::UpdateVolumes<PRType>{}();
+        auto boundsDone = pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         using SmoothingKernel = typename Setup::SmoothingKernel;
-        updateHydrodynamics<SmoothingKernel>();
+        updateHydrodynamics<SmoothingKernel>(std::move(boundsDone));
     }
 
     void Simulation::init()

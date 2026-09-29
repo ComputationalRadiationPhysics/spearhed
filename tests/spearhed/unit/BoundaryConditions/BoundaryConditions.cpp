@@ -64,6 +64,8 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
@@ -432,20 +434,39 @@ TEST_CASE_METHOD(
         for(uint32_t step = 0; step < 5u; ++step)
         {
             spearhed::ParticlePush{}(step);
-            pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-            auto bundle = pmacc::spearhed::calculateNeighbours(
-                *prBuf,
-                interactionRadius,
-                *prBuf,
-                *this->template prBufFor<species::Boundary>());
-            // One frame index serves both passes: neither mutates frame-list topology, only
-            // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
-            // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
-            pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-            auto densityDone = spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0);
-            auto hydroDone = spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, *prBuf, index, spearhed::h0);
-            // Preserve density-before-hydro ordering and keep bundle/index alive through completion.
-            spearhed::test::runDevice(std::move(densityDone) | caravan::alpaka::sequence(std::move(hydroDone)));
+            auto boundsDone = pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+            auto index = std::make_shared<pmacc::spearhed::FrameIndexBuffer<spearhed::PRType>>();
+            auto hydrodynamics
+                = std::move(boundsDone)
+                  | caravan::letValue(
+                      [&]
+                      {
+                          return pmacc::spearhed::calculateNeighboursSender(
+                              *prBuf,
+                              interactionRadius,
+                              *prBuf,
+                              *this->template prBufFor<species::Boundary>());
+                      })
+                  | caravan::letValue(
+                      [this, index](auto& bundle)
+                      {
+                          // ParticlePush can mutate frame-list topology between steps, so rebuild each iteration.
+                          return index->rebuildSender(*prBuf)
+                                 | caravan::letValue(
+                                     [this, index, bundlePtr = &bundle]
+                                     {
+                                         auto sourceViews
+                                             = bundlePtr->template selectByRole<pmacc::spearhed::roles::Source>();
+                                         auto densityDone
+                                             = spearhed::UpdateDensity<K>{}(sourceViews, *prBuf, *index, spearhed::h0);
+                                         auto hydroDone = spearhed::UpdateHydroForces<K>{
+                                             spearhed::gamma_eos}(sourceViews, *prBuf, *index, spearhed::h0);
+                                         return std::move(densityDone)
+                                                | caravan::alpaka::sequence(std::move(hydroDone));
+                                     });
+                      });
+            // Bounds precede neighbour counting; bundle and index storage survive both hydrodynamics passes.
+            spearhed::test::runDevice(std::move(hydrodynamics));
             pmacc::spearhed::launchForEach(
                 pmacc::spearhed::levels::particle,
                 *prBuf,

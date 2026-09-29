@@ -165,11 +165,18 @@ namespace pmacc::spearhed
     };
 
     // Update region bounds after particles in a region move
+    /**
+     * @brief Lazily recompute region bounds from live particle positions.
+     *
+     * The returned sender borrows the registered particle-region buffer. Its object, region count,
+     * frame topology, and backing storage must remain stable through completion. Empty buffers produce
+     * a no-op sender without accessing optional device storage.
+     */
     template<typename T_ParticleRegion>
     struct UpdateVolumes
     {
         // Allow customizing the buffer name if needed
-        void operator()() const
+        [[nodiscard]] auto operator()() const
         {
             // Tuning constants
             constexpr uint32_t threadsPerBlock = 256;
@@ -194,13 +201,16 @@ namespace pmacc::spearhed
             if(numBlocks == 0)
                 numBlocks = 1;
 
-            auto& device = pmacc::Environment<>::get().DeviceContext();
-            caravan::syncWait(
-                caravan::alpaka::withDevice(
-                    device,
-                    PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
-                        .config<threadsPerBlock>(
-                            pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size)));
+            int const numRegions = prBuf.size;
+            auto kernel = PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
+                              .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks));
+            return caravan::alpaka::submit(
+                [&prBuf, kernel, numRegions](auto& queue)
+                {
+                    // Empty species buffers may not have allocated region storage.
+                    if(numRegions > 0)
+                        kernel.enqueueNative(queue, prBuf.getDeviceDataBox(), numRegions);
+                });
         }
     };
 } // namespace pmacc::spearhed

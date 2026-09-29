@@ -77,9 +77,11 @@ namespace spearhed
         /** Update density, hydrodynamic forces, and thermodynamic state.
          *
          * @tparam K Compile-time smoothing kernel selected by Setup::SmoothingKernel.
+         * @param boundsDone Sender for the preceding region-bounds update; neighbour preparation starts after it
+         *                   completes.
          */
-        template<SphKernel K>
-        void updateHydrodynamics();
+        template<SphKernel K, typename T_BoundsSender>
+        void updateHydrodynamics(T_BoundsSender boundsDone);
 
     private:
         caravan::MpiContext& mpiContext;
