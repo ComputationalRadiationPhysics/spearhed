@@ -358,6 +358,9 @@ namespace spearhed
             auto placeParticle = typename Block::PlaceParticle{};
             auto argsForPlaceParticle = pmacc::memory::tuple::fromStlTuple(block.placeParticleArgs());
 
+            if(numRegions == 0)
+                return;
+
             // Restrict the kernels to this block's slice by shifting the device box to its first region.
             // Region-local indices (frame offsets, global particle idx) are unchanged by the shift.
             auto slicedBox = prBuf.getDeviceDataBox().shift(pmacc::DataSpace<DIM1>{static_cast<int>(regionBegin)});
@@ -370,35 +373,61 @@ namespace spearhed
             // stores the num particles in a frame list
             pmacc::HostDeviceBuffer<unsigned int, DIM1> framesPerParticleRegion(pmacc::DataSpace<DIM1>{numRegionsI});
             auto& device = pmacc::Environment<>::get().DeviceContext();
-            caravan::syncWait(
-                caravan::alpaka::withDevice(
-                    device,
-                    PMACC_LOCKSTEP_KERNEL(
-                        init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
-                        .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI))(
-                            slicedBox,
-                            numRegionsI,
-                            framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                            argsForNumParticles)));
+            auto countKernel
+                = PMACC_LOCKSTEP_KERNEL(init::detail::CalculateFramesPerRegion<typename Block::NumParticlesToCreate>{})
+                      .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numRegionsI));
+            auto count = caravan::alpaka::submit(
+                [countKernel,
+                 slicedBox,
+                 numRegionsI,
+                 countBox = framesPerParticleRegion.getDeviceBuffer().getDataBox(),
+                 argsForNumParticles](auto& queue) mutable
+                { countKernel.enqueueNative(queue, slicedBox, numRegionsI, countBox, argsForNumParticles); });
+            auto const scanBox = framesPerParticleRegion.getDeviceBuffer().getDataBox();
+            auto initialize
+                = std::move(count) | caravan::alpaka::sequence(framesPerParticleRegion.deviceToHost())
+                  | caravan::letValue(
+                      [&framesPerParticleRegion,
+                       &dc,
+                       slicedBox,
+                       numRegionsI,
+                       scanBox,
+                       placeParticle,
+                       argsForPlaceParticle]() mutable
+                      {
+                          uint32_t const totalBlocks
+                              = pmacc::spearhed::inclusiveScanHost(framesPerParticleRegion, numRegionsI);
+                          pmacc::IdGenerator idGenerator{nullptr};
+                          if(totalBlocks > 0u)
+                              idGenerator = dc.get<pmacc::IdProvider>("globalId")->getDeviceGenerator();
 
-            uint32_t const totalBlocks = pmacc::spearhed::inclusiveScanOnHost(framesPerParticleRegion, numRegionsI);
-
-            if(totalBlocks > 0)
-            {
-                auto idProvider = dc.get<pmacc::IdProvider>("globalId");
-
-                caravan::syncWait(
-                    caravan::alpaka::withDevice(
-                        device,
-                        PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
-                            .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(totalBlocks))(
-                                slicedBox,
-                                numRegionsI,
-                                framesPerParticleRegion.getDeviceBuffer().getDataBox(),
-                                idProvider->getDeviceGenerator(),
-                                placeParticle,
-                                argsForPlaceParticle)));
-            }
+                          // TODO even if totalBlocks == 0, we still upload the scan and submit a no-op sender.
+                          auto initKernel = PMACC_LOCKSTEP_KERNEL(init::detail::InitParticleRegions{})
+                                                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(
+                                                    static_cast<int>(totalBlocks == 0u ? 1u : totalBlocks)));
+                          auto init = caravan::alpaka::submit(
+                              [initKernel,
+                               slicedBox,
+                               numRegionsI,
+                               scanBox,
+                               idGenerator,
+                               totalBlocks,
+                               placeParticle,
+                               argsForPlaceParticle](auto& queue) mutable
+                              {
+                                  if(totalBlocks > 0u)
+                                      initKernel.enqueueNative(
+                                          queue,
+                                          slicedBox,
+                                          numRegionsI,
+                                          scanBox,
+                                          idGenerator,
+                                          placeParticle,
+                                          argsForPlaceParticle);
+                              });
+                          return framesPerParticleRegion.hostToDevice() | caravan::alpaka::sequence(std::move(init));
+                      });
+            caravan::syncWait(caravan::alpaka::withDevice(device, std::move(initialize)));
         }
     };
 
