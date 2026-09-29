@@ -65,8 +65,8 @@ namespace pmacc::spearhed
      * Copy all particle data from a ParticleRegionBuffer into a DynSoA.
      *
      * Calls prBuf.synchronize() internally. For GPU builds the caller must also
-     * call mallocMCBuffer->synchronize() and pass the resulting heap offset;
-     * on CPU serial backends heapOffset = 0 is correct.
+     * complete the MallocMCBuffer heap-copy sender and pass the resulting heap
+     * offset; on CPU serial backends heapOffset = 0 is correct.
      *
      * All frames are assumed fully packed except for one frame of each region, which may be partially filled (it isnt
      * necessarily the last frame since adding frames is done in parallel).

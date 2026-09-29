@@ -67,7 +67,7 @@ namespace pmacc
             return hostBufferOffset;
         }
 
-        auto synchronize();
+        [[nodiscard]] auto synchronize();
 
     private:
         std::optional<BufferType> hostBuffer;
@@ -109,7 +109,7 @@ namespace pmacc
             return 0u;
         }
 
-        auto synchronize()
+        [[nodiscard]] auto synchronize()
         {
             return caravan::alpaka::submit([](auto&) {});
         }

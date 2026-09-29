@@ -46,7 +46,7 @@ namespace pmacc
     }
 
     template<typename T_DeviceHeap>
-    auto MallocMCBuffer<T_DeviceHeap>::synchronize()
+    [[nodiscard]] auto MallocMCBuffer<T_DeviceHeap>::synchronize()
     {
         auto const extent = pmacc::math::Vector<pmacc::MemIdxType, 1>(deviceHeapInfo.size).toAlpakaMemVec();
         if(!hostBuffer)
