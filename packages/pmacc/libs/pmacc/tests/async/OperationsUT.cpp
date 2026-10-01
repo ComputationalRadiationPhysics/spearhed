@@ -24,6 +24,14 @@
 #include <caravan/core.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+namespace operations_ut
+{
+    struct LargeValue
+    {
+        int values[40];
+    };
+} // namespace operations_ut
+
 namespace
 {
     struct MockField
@@ -150,11 +158,6 @@ TEST_CASE("PMacc size copies synchronize buffer size storage", "[async][memory]"
 
 TEST_CASE("DeviceBuffer value fill is a lazy sender", "[async][memory]")
 {
-    struct LargeValue
-    {
-        int values[40];
-    };
-
     auto& device = pmacc::Environment<>::get().DeviceContext();
     auto const extent = pmacc::MemSpace<DIM1>{3u};
 
@@ -166,8 +169,8 @@ TEST_CASE("DeviceBuffer value fill is a lazy sender", "[async][memory]")
     for(size_t i = 0u; i < 3u; ++i)
         CHECK(small.getHostBuffer().data()[i] == 42);
 
-    pmacc::HostDeviceBuffer<LargeValue, DIM1> large(extent);
-    LargeValue value{};
+    pmacc::HostDeviceBuffer<operations_ut::LargeValue, DIM1> large(extent);
+    operations_ut::LargeValue value{};
     value.values[0] = 17;
     value.values[39] = 23;
     caravan::syncWait(caravan::alpaka::withDevice(device, large.getDeviceBuffer().setValue(value)));

@@ -75,7 +75,7 @@ function(add_test_target target_prefix layer_label folder)
 
                     add_executable(${_test_target_name} ${source_file} TestMain.cpp)
                     get_filename_component(src_dir ${source_file} DIRECTORY)
-                    target_include_directories(${_test_target_name} PRIVATE ${src_dir})
+                    target_include_directories(${_test_target_name} PRIVATE ${src_dir} ${CMAKE_CURRENT_SOURCE_DIR})
                     if(EXISTS "${test_folder}/include")
                         message(STATUS "  add include folder: ${test_folder}/include")
                         target_include_directories(${_test_target_name} PRIVATE ${test_folder}/include)
@@ -95,7 +95,11 @@ function(add_test_target target_prefix layer_label folder)
                         target_include_directories(${_test_target_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
                     endif()
                     pmacc_finalize(${_test_target_name})
-                    catch_discover_tests(${_test_target_name} TEST_PREFIX "${layer_label}::")
+                    catch_discover_tests(
+                        ${_test_target_name}
+                        TEST_PREFIX "${layer_label}::"
+                        DISCOVERY_MODE PRE_TEST
+                    )
                 endif()
             endforeach()
         endif()

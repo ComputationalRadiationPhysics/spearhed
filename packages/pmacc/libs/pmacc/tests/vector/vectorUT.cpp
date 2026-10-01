@@ -48,6 +48,21 @@
  *  This file is testing vector functionality
  */
 
+struct VectorConstructorGeneratorKernel
+{
+    template<typename T_Acc>
+    DINLINE void operator()(T_Acc const&, pmacc::math::Vector<uint32_t, TEST_DIM>* data) const
+    {
+        using pmacc::math::Vector;
+
+        // constexpr lambda generator
+        constexpr auto vec = Vector<uint32_t, TEST_DIM>([](uint32_t const i) constexpr { return i; });
+        data[0] = vec;
+        // non constexpr lambda generator
+        data[1] = Vector<uint32_t, TEST_DIM>([](uint32_t const i) { return i * 2u; });
+    }
+};
+
 TEST_CASE("vector constructor generator", "[vector]")
 {
     using namespace pmacc;
@@ -57,17 +72,9 @@ TEST_CASE("vector constructor generator", "[vector]")
 
     auto hostDeviceBuffer = HostDeviceBuffer<VecType, DIM1>(DataSpace<DIM1>{numElements});
 
-    auto const testKernel = [] ALPAKA_FN_ACC(auto const& acc, VecType* data)
-    {
-        // constexpr lambda generator
-        constexpr auto vec = Vector<uint32_t, TEST_DIM>([](uint32_t const i) constexpr { return i; });
-        data[0] = vec;
-        // non constexpr lambda generator
-        data[1] = Vector<uint32_t, TEST_DIM>([](uint32_t const i) { return i * 2u; });
-    };
     auto& device = Environment<>::get().DeviceContext();
     caravan::ControlContext context;
-    auto kernel = PMACC_KERNEL(testKernel)(1, 1)(caravan::retain(
+    auto kernel = PMACC_KERNEL(VectorConstructorGeneratorKernel{})(1, 1)(caravan::retain(
         hostDeviceBuffer.getDeviceBuffer().data(),
         hostDeviceBuffer.getDeviceBuffer().getOwnedAlpakaView()));
     auto copy = hostDeviceBuffer.deviceToHost();

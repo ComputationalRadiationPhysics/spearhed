@@ -11,7 +11,8 @@ foreach(dim IN ITEMS 2 3)
         set(target "pmacc-${name}-${dim}D")
         add_executable(${target} "${source}" TestMain.cpp)
         target_compile_definitions(${target} PRIVATE TEST_DIM=${dim})
-        target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+        get_filename_component(source_dir "${source}" DIRECTORY)
+        target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${source_dir}")
         target_link_libraries(${target} PRIVATE Catch2::Catch2 pmacc::pmacc)
         alpaka_finalize(${target})
         add_test(
@@ -27,7 +28,10 @@ foreach(dim IN ITEMS 2 3)
                     ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${target}>
                     ${MPIEXEC_POSTFLAGS}
             )
-            set_tests_properties(${target}-4-ranks PROPERTIES PROCESSORS 4 TIMEOUT 30)
+            set_tests_properties(
+                ${target}-4-ranks
+                PROPERTIES PROCESSORS 4 TIMEOUT 30 ENVIRONMENT "OMPI_MCA_rmaps_base_oversubscribe=1"
+            )
         endif()
     endforeach()
 endforeach()

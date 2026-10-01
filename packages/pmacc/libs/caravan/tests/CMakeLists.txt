@@ -64,6 +64,9 @@ if(TARGET caravan::mpi)
                 ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks} ${MPIEXEC_PREFLAGS}
                 $<TARGET_FILE:caravan-mpi-test> ${MPIEXEC_POSTFLAGS}
         )
-        set_tests_properties(caravan-mpi-${ranks}-ranks PROPERTIES PROCESSORS ${ranks} TIMEOUT 30)
+        set_tests_properties(
+            caravan-mpi-${ranks}-ranks
+            PROPERTIES PROCESSORS ${ranks} TIMEOUT 30 ENVIRONMENT "OMPI_MCA_rmaps_base_oversubscribe=1"
+        )
     endforeach()
 endif()
