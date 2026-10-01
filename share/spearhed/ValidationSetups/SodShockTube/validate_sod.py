@@ -193,7 +193,7 @@ def load_snapshot_openpmd(path_pattern, step):
             arr = rc.load_chunk()
             s.flush()
             return arr
-        except Exception:
+        except KeyError:
             return None
 
     x = load_component("position", "x")
