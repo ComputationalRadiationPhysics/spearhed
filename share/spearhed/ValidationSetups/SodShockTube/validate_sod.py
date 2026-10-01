@@ -15,8 +15,8 @@ import argparse
 import os
 import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -193,7 +193,7 @@ def load_snapshot_openpmd(path_pattern, step):
             arr = rc.load_chunk()
             s.flush()
             return arr
-        except Exception:
+        except KeyError:
             return None
 
     x = load_component("position", "x")
