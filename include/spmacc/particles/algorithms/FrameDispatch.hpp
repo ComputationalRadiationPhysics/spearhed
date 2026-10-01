@@ -205,8 +205,10 @@ namespace pmacc::spearhed
         auto processKernel,
         auto&&... args)
     {
-        // A stale index (built against an older topology) holds dangling device frame pointers.
-        PMACC_ASSERT(index.builtVersion == prBuf.topologyVersion);
+        // A stale or foreign index may hold invalid device frame pointers.
+        PMACC_ASSERT(
+            index.hasBuild && index.builtBuffer == static_cast<void const*>(&prBuf)
+            && index.builtVersion == prBuf.topologyVersion);
 
         using Cfg = decltype(launchCfg);
         uint32_t const totalFrames = index.totalFrames;

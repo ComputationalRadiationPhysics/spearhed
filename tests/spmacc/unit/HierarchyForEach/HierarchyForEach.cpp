@@ -113,13 +113,32 @@ TEST_CASE_METHOD(
 {
     sp::FrameIndexBuffer<spearhed::PRType> index;
 
-    spearhed::test::runDevice(index.rebuildSender(*prBuf));
+    // Version zero is a valid topology version, not evidence that an index was built.
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
+    REQUIRE(index.hasBuild);
     REQUIRE(index.totalFrames == 0u);
     REQUIRE(index.builtVersion == prBuf->topologyVersion);
+    index.framesPerRegion.reset(); // Probe whether the fresh path actually enters the rebuild sender.
+    index.regionCapacity = 0u;
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
+    REQUIRE_FALSE(index.framesPerRegion.has_value()); // Fresh path does not recreate scratch storage.
+
+    // Freshness is checked at start, so changes after sender construction are observed.
+    auto delayedRefresh = index.refreshIfStaleSender(*prBuf);
+    ++prBuf->topologyVersion;
+    spearhed::test::runDevice(std::move(delayedRefresh));
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+
+    // Equal versions on different buffers must not alias the cached index.
+    pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType> otherBuffer;
+    otherBuffer.topologyVersion = index.builtVersion;
+    spearhed::test::runDevice(index.refreshIfStaleSender(otherBuffer));
+    REQUIRE(index.builtBuffer == &otherBuffer);
+    REQUIRE(index.builtVersion == otherBuffer.topologyVersion);
 
     auto setup = spearhed::EmptyNRegions<1>{};
     spearhed::InitRegions{}(*deviceHeap, setup);
-    spearhed::test::runDevice(index.rebuildSender(*prBuf));
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
     REQUIRE(index.totalFrames == 0u);
     REQUIRE(index.builtVersion == prBuf->topologyVersion);
 

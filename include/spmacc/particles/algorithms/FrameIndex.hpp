@@ -117,16 +117,16 @@ namespace pmacc::spearhed
      *     even the live/dead multiMask of a slot) does NOT invalidate the index -- only the frame-list
      *     topology matters.
      *   - Staleness is now machine-checked rather than a purely mental caller obligation: the index
-     *     records the ParticleRegionBuffer::topologyVersion it was built against in builtVersion.
-     *     Call refreshIfStale(prBuf) at call sites to rebuild only when the counters disagree, and
+     *     records whether a build completed, its source ParticleRegionBuffer identity, and the
+     *     topologyVersion it was built against. Call refreshIfStale(prBuf) at call sites to rebuild
+     *     only when the source or version differs, and
      *     the launcher (launchForEachFrameInBlockIndexed, see FrameDispatch.hpp) additionally
      *     PMACC_ASSERTs builtVersion == prBuf.topologyVersion so a stale index is caught before it
      *     can dereference dangling device frame pointers.
      *
      * @note Callers always build the index explicitly. A caller that runs several interaction passes
      *       with no intervening frame-list mutation should build one index and share it across the
-     *       passes (see Simulation::updateHydrodynamics, which shares one index between the density and
-     *       hydro-force passes).
+     *       passes (e.g. density and hydro-force passes in the simulation timestep).
      *
      * @tparam T_PRType The ParticleRegion type stored in the buffer (supplies FrameType).
      */
@@ -156,6 +156,10 @@ namespace pmacc::spearhed
         //! ParticleRegionBuffer::topologyVersion this index was built against; compared by
         //! refreshIfStale() to detect a stale index without a caller having to track it by hand.
         uint64_t builtVersion = 0;
+        //! Source buffer associated with the last completed build.
+        void const* builtBuffer = nullptr;
+        //! Distinguishes a completed build at version zero from a never-built index.
+        bool hasBuild = false;
 
         //! Constructs an empty index without submitting device work.
         FrameIndexBuffer() = default;
@@ -244,8 +248,29 @@ namespace pmacc::spearhed
                                            regionIdxPerFrame->getDeviceBuffer().getDataBox());
                                });
                            return framesPerRegion->hostToDevice() | caravan::alpaka::sequence(std::move(fill))
-                                  | caravan::then([this, targetVersion] { builtVersion = targetVersion; });
+                                  | caravan::then(
+                                      [this, targetVersion, buffer = static_cast<void const*>(&prBuf)]
+                                      {
+                                          builtVersion = targetVersion;
+                                          builtBuffer = buffer;
+                                          hasBuild = true;
+                                      });
                        });
+        }
+
+        /** Lazily rebuild only when this index is unbuilt, belongs to another buffer, or is stale.
+         *
+         * Freshness is checked when the sender starts, so a preceding sender may update topology
+         * before this decision. The sender borrows this index and @p prBuf; both objects must retain
+         * stable addresses and remain alive through completion. Refresh/rebuild/use on the same index
+         * must not overlap, nor may the buffer topology mutate during a rebuild or indexed use. Reset
+         * cached indices when a buffer is destroyed/replaced (address identity alone cannot detect
+         * destruction followed by allocation at the same address). The fast path completes immediately
+         * without submitting queue work.
+         */
+        [[nodiscard]] auto refreshIfStaleSender(auto& prBuf)
+        {
+            return RefreshSender<std::remove_reference_t<decltype(prBuf)>>{*this, prBuf};
         }
 
         /** Synchronously rebuild for callers that require ready index metadata immediately. */
@@ -256,21 +281,99 @@ namespace pmacc::spearhed
         }
 
         /**
-         * @brief Rebuilds the index only if it is stale against @p prBuf's current topology.
+         * @brief Rebuilds the index only if it is unbuilt or stale against @p prBuf.
          *
-         * A cheap host integer compare (builtVersion vs. prBuf.topologyVersion) when the index is
-         * already fresh -- this is the preferred call-site idiom over unconditionally rebuilding.
+         * A cheap host comparison (source identity and builtVersion vs. prBuf.topologyVersion) when
+         * the index is already fresh -- this is the preferred call-site idiom over unconditionally rebuilding.
          * It is deliberately called explicitly at call sites rather than hidden inside launchers. Use
          * rebuildSender() when the preparation should compose with dependent device work; rebuild() is
          * retained as a synchronous compatibility wrapper.
          */
         void refreshIfStale(auto& prBuf)
         {
-            if(builtVersion != prBuf.topologyVersion)
+            if(!hasBuild || builtBuffer != static_cast<void const*>(&prBuf) || builtVersion != prBuf.topologyVersion)
                 rebuild(prBuf);
         }
 
     private:
+        template<typename T_PRBuf>
+        class RefreshSender
+        {
+            template<typename T_Receiver>
+            class Operation
+            {
+                struct ChildReceiver
+                {
+                    void set_value() noexcept
+                    {
+                        receiver->set_value();
+                    }
+
+                    decltype(auto) get_env() const noexcept(noexcept(std::declval<T_Receiver const&>().get_env()))
+                        requires requires(T_Receiver const& output) { output.get_env(); }
+                    {
+                        return receiver->get_env();
+                    }
+
+                    T_Receiver* receiver;
+                };
+
+                using ChildSender
+                    = decltype(std::declval<FrameIndexBuffer&>().rebuildSender(std::declval<T_PRBuf&>()));
+                using ChildOperation = caravan::detail::ConnectedOperation<ChildSender, ChildReceiver>;
+
+            public:
+                Operation(FrameIndexBuffer& index, T_PRBuf& prBuf, T_Receiver receiver)
+                    : m_index(index)
+                    , m_prBuf(prBuf)
+                    , m_receiver(std::move(receiver))
+                    , m_childReceiver{&m_receiver}
+                {
+                }
+
+                Operation(Operation const&) = delete;
+                Operation& operator=(Operation const&) = delete;
+                Operation(Operation&&) = delete;
+                Operation& operator=(Operation&&) = delete;
+
+                void start() & noexcept
+                {
+                    if(m_index.hasBuild && m_index.builtBuffer == static_cast<void const*>(&m_prBuf)
+                       && m_index.builtVersion == m_prBuf.topologyVersion)
+                    {
+                        m_receiver.set_value();
+                        return;
+                    }
+                    m_child.emplace(m_index.rebuildSender(m_prBuf), m_childReceiver);
+                    m_child->start();
+                }
+
+            private:
+                FrameIndexBuffer& m_index;
+                T_PRBuf& m_prBuf;
+                T_Receiver m_receiver;
+                ChildReceiver m_childReceiver;
+                std::optional<ChildOperation> m_child;
+            };
+
+        public:
+            using completion_signatures = caravan::CompletionSignatures<caravan::ValueSignature<>>;
+
+            RefreshSender(FrameIndexBuffer& index, T_PRBuf& prBuf) : m_index(index), m_prBuf(prBuf)
+            {
+            }
+
+            template<typename T_Receiver>
+            auto connect(T_Receiver&& receiver) &&
+            {
+                return Operation<std::decay_t<T_Receiver>>{m_index, m_prBuf, std::forward<T_Receiver>(receiver)};
+            }
+
+        private:
+            FrameIndexBuffer& m_index;
+            T_PRBuf& m_prBuf;
+        };
+
         //! Grow framesPerRegion to hold at least @p needed regions (exact fit).
         void ensureRegionCapacity(uint32_t needed)
         {
@@ -306,6 +409,9 @@ namespace pmacc::spearhed
         t.framePtrsBox();
         t.regionIdxBox();
         { t.totalFrames } -> std::convertible_to<uint32_t>;
+        { t.hasBuild } -> std::convertible_to<bool>;
+        { t.builtBuffer } -> std::convertible_to<void const*>;
+        { t.builtVersion } -> std::convertible_to<uint64_t>;
     };
 
 } // namespace pmacc::spearhed

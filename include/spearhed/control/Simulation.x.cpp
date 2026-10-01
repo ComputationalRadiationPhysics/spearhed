@@ -38,6 +38,7 @@
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <pmacc/verify.hpp>
 
 #include <iostream>
 #include <memory>
@@ -49,6 +50,56 @@
 
 namespace spearhed
 {
+    namespace detail
+    {
+        template<typename T, typename T_Tuple>
+        struct TupleContains;
+
+        template<typename T, typename... T_Values>
+        struct TupleContains<T, std::tuple<T_Values...>> : std::bool_constant<(std::is_same_v<T, T_Values> || ...)>
+        {
+        };
+
+        template<pmacc::spearhed::RoleTag... T_Roles>
+        auto selectBuffers(auto& buffers)
+        {
+            return std::apply(
+                [](auto&... buffer)
+                {
+                    return std::tuple_cat((
+                        [&]()
+                        {
+                            using Species = typename std::remove_cvref_t<decltype(buffer)>::Species;
+                            if constexpr((pmacc::spearhed::hasRole(Species{}, T_Roles{}) && ...))
+                                return std::tie(buffer);
+                            else
+                                return std::tuple<>{};
+                        }())...);
+                },
+                buffers);
+        }
+
+        auto selectTimestepBuffers(auto& buffers)
+        {
+            return std::apply(
+                [](auto&... buffer)
+                {
+                    return std::tuple_cat((
+                        [&]()
+                        {
+                            using Species = typename std::remove_cvref_t<decltype(buffer)>::Species;
+                            if constexpr(
+                                pmacc::spearhed::hasRole(Species{}, pmacc::spearhed::roles::Movable{})
+                                || std::same_as<Species, pmacc::spearhed::species::Default>)
+                                return std::tie(buffer);
+                            else
+                                return std::tuple<>{};
+                        }())...);
+                },
+                buffers);
+        }
+    } // namespace detail
+
     Simulation::Simulation(caravan::MpiContext& mpiContext) : mpiContext{mpiContext}
     {
     }
@@ -120,6 +171,7 @@ namespace spearhed
     void Simulation::pluginUnload()
     {
         pmacc::DataConnector& dc = pmacc::Environment<>::get().DataConnector();
+        frameIndices = FrameIndices{};
 
         BaseType::pluginUnload();
 
@@ -141,84 +193,120 @@ namespace spearhed
             BaseType::startSimulation();
     }
 
-    template<SphKernel K, typename T_BoundsSender>
-    void Simulation::updateHydrodynamics(T_BoundsSender boundsDone)
-    {
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        // The integration target: the (single) species advanced in time and used as the bundle target.
-        auto& defaultSpecies = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-            pmacc::spearhed::prBufId(pmacc::spearhed::species::default_));
-
-        auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
-
-        // Every present species that contributes to neighbour sums is a source; the boundary wall is
-        // included automatically when the setup created it, with no hardcoded species list.
-        pmacc::spearhed::withSpeciesBufsWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
-            [&](auto&... sources)
-            {
-                auto& device = pmacc::Environment<>::get().DeviceContext();
-                auto index = std::make_shared<pmacc::spearhed::FrameIndexBuffer<PRType>>();
-                auto preparation = std::move(boundsDone)
-                                   | caravan::letValue(
-                                       [&defaultSpecies, interactionRadius, &sources...]()
-                                       {
-                                           return pmacc::spearhed::calculateNeighboursSender(
-                                               defaultSpecies,
-                                               interactionRadius,
-                                               sources...);
-                                       });
-                auto hydrodynamics
-                    = std::move(preparation)
-                      | caravan::letValue(
-                          [this, &defaultSpecies, index](auto& bundle)
-                          {
-                              // Build-dependent launches only after totalFrames is available.
-                              return index->rebuildSender(defaultSpecies)
-                                     | caravan::letValue(
-                                         [this, &defaultSpecies, index, bundlePtr = &bundle]
-                                         {
-                                             auto sourceViews
-                                                 = bundlePtr->template selectByRole<pmacc::spearhed::roles::Source>();
-                                             auto densityDone = spearhed::UpdateDensity<K>{}(
-                                                 sourceViews,
-                                                 defaultSpecies,
-                                                 *index,
-                                                 h0);
-                                             auto hydroDone = spearhed::UpdateHydroForces<K>{
-                                                 gamma_eos}(sourceViews, defaultSpecies, *index, h0);
-                                             return std::move(densityDone)
-                                                    | caravan::alpaka::sequence(std::move(hydroDone));
-                                         });
-                          });
-                // The final boundary protects bundle/index storage through both dependent passes.
-                caravan::syncWait(caravan::alpaka::withDevice(device, std::move(hydrodynamics)));
-            });
-
-        // Euler update: v += dvdt*dt, u += dudt*dt. The forces computed above persist on the device
-        // buffers, so this runs as a separate phase. Only species that are both advanced in time
-        // (Movable) and carry thermodynamic accumulators (Thermodynamic) are integrated here, so
-        // Frozen wall species are skipped even though they may still be Thermodynamic sources.
-        pmacc::spearhed::forEachSpeciesBufWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::
-                withAllRoles<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>,
-            [&](auto& buf)
-            {
-                pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);
-            });
-    }
-
     void Simulation::runOneStep(uint32_t currentStep)
     {
-        // order of operations? which species to start with?
-        // force calculation first? or pusher or something else?
-        ParticlePush{}(currentStep);
-        auto boundsDone = pmacc::spearhed::UpdateVolumes<PRType>{}();
-
+        static_cast<void>(currentStep);
         using SmoothingKernel = typename Setup::SmoothingKernel;
-        updateHydrodynamics<SmoothingKernel>(std::move(boundsDone));
+        using DefaultBuffer = pmacc::spearhed::ParticleRegionBuffer<PRType>;
+        using DefaultIndex = pmacc::spearhed::FrameIndexBuffer<PRType>;
+
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+        PMACC_VERIFY_MSG(
+            dc.hasId(pmacc::spearhed::prBufId(pmacc::spearhed::species::default_)),
+            "The default species buffer is required to run a simulation step");
+
+        // Keep the runtime presence decision outside the sender graph. Inside this callback, the
+        // concrete buffer pack gives every composition stage a compile-time sender type.
+        pmacc::spearhed::withSpeciesBufsWithPred(
+            allSpecies,
+            pmacc::spearhed::pred::always,
+            [&](auto&... presentBuffers)
+            {
+                auto buffers = std::tie(presentBuffers...);
+                if constexpr(detail::TupleContains<DefaultBuffer&, decltype(buffers)>::value)
+                {
+                    auto& defaultBuffer = std::get<DefaultBuffer&>(buffers);
+                    auto& defaultIndex = std::get<DefaultIndex>(frameIndices);
+                    auto const movable = detail::selectBuffers<pmacc::spearhed::roles::Movable>(buffers);
+                    auto const sources = detail::selectBuffers<pmacc::spearhed::roles::Source>(buffers);
+                    auto const relevant = detail::selectTimestepBuffers(buffers);
+                    auto const integrable = detail::
+                        selectBuffers<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>(buffers);
+
+                    auto indexFor = [this](auto& buffer) -> auto&
+                    {
+                        using Buffer = std::remove_cvref_t<decltype(buffer)>;
+                        return std::get<pmacc::spearhed::FrameIndexBuffer<typename Buffer::ParticleRegionType>>(
+                            frameIndices);
+                    };
+
+                    auto refresh = std::apply(
+                        [&](auto&... buffer)
+                        { return caravan::whenAll(indexFor(buffer).refreshIfStaleSender(buffer)...); },
+                        relevant);
+
+                    auto timestep
+                        = std::move(refresh)
+                          | caravan::letValue(
+                              [&, this]
+                              {
+                                  auto push = std::apply(
+                                      [&](auto&... buffer)
+                                      {
+                                          return caravan::whenAll(
+                                              pmacc::spearhed::launchForEach(
+                                                  pmacc::spearhed::levels::particle,
+                                                  buffer,
+                                                  indexFor(buffer),
+                                                  spearhed::PushVelocity<
+                                                      typename std::remove_cvref_t<decltype(buffer)>::Species>{},
+                                                  dt)...);
+                                      },
+                                      movable);
+                                  return std::move(push)
+                                         | caravan::sequence(pmacc::spearhed::UpdateVolumes<PRType>{}())
+                                         | caravan::letValue(
+                                             [&, this]
+                                             {
+                                                 auto const interactionRadius
+                                                     = static_cast<CS::T_Axis>(SmoothingKernel::supportRadius) * h0;
+                                                 return std::apply(
+                                                     [&](auto&... source)
+                                                     {
+                                                         return pmacc::spearhed::calculateNeighboursSender(
+                                                             defaultBuffer,
+                                                             interactionRadius,
+                                                             source...);
+                                                     },
+                                                     sources);
+                                             })
+                                         | caravan::letValue(
+                                             [&, this](auto& bundle)
+                                             {
+                                                 auto sourceViews
+                                                     = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+                                                 auto densityDone = spearhed::UpdateDensity<SmoothingKernel>{}(
+                                                     sourceViews,
+                                                     defaultBuffer,
+                                                     defaultIndex,
+                                                     h0);
+                                                 auto hydroDone = spearhed::UpdateHydroForces<SmoothingKernel>{
+                                                     gamma_eos}(sourceViews, defaultBuffer, defaultIndex, h0);
+                                                 auto integration = std::apply(
+                                                     [&](auto&... buffer)
+                                                     {
+                                                         return caravan::whenAll(
+                                                             pmacc::spearhed::launchForEach(
+                                                                 pmacc::spearhed::levels::particle,
+                                                                 buffer,
+                                                                 indexFor(buffer),
+                                                                 spearhed::EulerIntegrate{},
+                                                                 dt)...);
+                                                     },
+                                                     integrable);
+                                                 return std::move(densityDone)
+                                                        | caravan::sequence(std::move(hydroDone))
+                                                        | caravan::sequence(std::move(integration));
+                                             });
+                              });
+
+                    auto& device = pmacc::Environment<>::get().DeviceContext();
+                    // The simulation loop measures the step and invokes plugins after this function;
+                    // this single wait keeps that synchronous outer contract while allowing all stages
+                    // in the timestep to share their queue dependencies and cached indices.
+                    caravan::syncWait(caravan::alpaka::withDevice(device, std::move(timestep)));
+                }
+            });
     }
 
     void Simulation::init()
@@ -277,6 +365,7 @@ namespace spearhed
         // load density description from param file. How is this independent from the domain size?
         //
         auto setup = Setup{};
+        frameIndices = FrameIndices{};
 
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 
@@ -288,6 +377,8 @@ namespace spearhed
 
     void Simulation::resetAll(uint32_t currentStep)
     {
+        static_cast<void>(currentStep);
+        frameIndices = FrameIndices{};
     }
 
     void Simulation::movingWindowCheck(uint32_t currentStep)

@@ -85,6 +85,15 @@ function(add_test_target target_prefix layer_label folder)
                         ${_test_target_name}
                         PRIVATE Catch2::Catch2 alpaka::alpaka spearhed-hostonly pmacc::pmacc
                     )
+                    if(_test_target_name STREQUAL "unit_test_spearhed_SimulationTimestep_SimulationTimestep")
+                        # Register the production GPU-containing translation unit before alpaka finalizes
+                        # source languages; adding it afterward leaves it compiled as ordinary C++.
+                        target_sources(
+                            ${_test_target_name}
+                            PRIVATE ${PROJECT_SOURCE_DIR}/include/spearhed/control/Simulation.x.cpp
+                        )
+                        target_include_directories(${_test_target_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+                    endif()
                     pmacc_finalize(${_test_target_name})
                     catch_discover_tests(${_test_target_name} TEST_PREFIX "${layer_label}::")
                 endif()

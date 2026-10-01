@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Tapish Narwal
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include "TestMpiContext.hpp"
 #include "spearhed/param.hpp"
 
 #include <pmacc/Environment.hpp>
@@ -16,11 +17,13 @@ int main(int argc, char** argv)
         argv,
         [&](caravan::MpiContext& mpi)
         {
+            spearhed::test::activeMpiContext = &mpi;
             struct EnvironmentFinalizer
             {
                 ~EnvironmentFinalizer()
                 {
                     pmacc::Environment<>::get().finalize();
+                    spearhed::test::activeMpiContext = nullptr;
                 }
             } finalizer;
 
