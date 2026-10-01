@@ -26,10 +26,13 @@ namespace caravan
                     owner->transferValue(std::forward<T>(values)...);
                 }
 
-                decltype(auto) get_env() const noexcept(noexcept(std::declval<T_Receiver const&>().get_env()))
-                    requires requires(T_Receiver const& receiver) { receiver.get_env(); }
+                // Keep return-type substitution dependent until the enclosing operation is complete.
+                template<typename T_EnvironmentReceiver = T_Receiver>
+                auto get_env() const noexcept(noexcept(std::declval<T_EnvironmentReceiver const&>().get_env()))
+                    -> decltype(std::declval<T_EnvironmentReceiver const&>().get_env())
+                        requires std::is_same_v<T_EnvironmentReceiver, T_Receiver>
                 {
-                    return owner->m_receiver.get_env();
+                    return std::as_const(owner->m_receiver).get_env();
                 }
 
                 ContinuesOnOperation* owner;
@@ -42,10 +45,13 @@ namespace caravan
                     owner->complete();
                 }
 
-                decltype(auto) get_env() const noexcept(noexcept(std::declval<T_Receiver const&>().get_env()))
-                    requires requires(T_Receiver const& receiver) { receiver.get_env(); }
+                // Keep return-type substitution dependent until the enclosing operation is complete.
+                template<typename T_EnvironmentReceiver = T_Receiver>
+                auto get_env() const noexcept(noexcept(std::declval<T_EnvironmentReceiver const&>().get_env()))
+                    -> decltype(std::declval<T_EnvironmentReceiver const&>().get_env())
+                        requires std::is_same_v<T_EnvironmentReceiver, T_Receiver>
                 {
-                    return owner->m_receiver.get_env();
+                    return std::as_const(owner->m_receiver).get_env();
                 }
 
                 ContinuesOnOperation* owner;

@@ -193,12 +193,13 @@ namespace
             *output = value;
         }
 
-        int get_env() const noexcept
+        int const& get_env() const noexcept
         {
-            return 10;
+            return environment;
         }
 
         int* output;
+        int environment = 10;
     };
 
     struct EnvironmentSender
@@ -220,12 +221,47 @@ namespace
         template<typename T_Receiver>
         auto connect(T_Receiver&& receiver) &&
         {
+            static_assert(
+                std::is_same_v<decltype(std::declval<std::decay_t<T_Receiver> const&>().get_env()), int const&>);
             *observed += receiver.get_env();
             return Operation<std::decay_t<T_Receiver>>{value, std::forward<T_Receiver>(receiver)};
         }
 
         int value;
         int* observed;
+    };
+
+    struct EnvironmentScheduleSender
+    {
+        using completion_signatures = caravan::detail::DefaultCompletionSignatures<caravan::ValueSignature<>>;
+
+        template<typename T_Receiver>
+        struct Operation
+        {
+            void start() & noexcept
+            {
+                receiver.set_value();
+            }
+
+            T_Receiver receiver;
+        };
+
+        template<typename T_Receiver>
+        auto connect(T_Receiver&& receiver) &&
+        {
+            static_assert(
+                std::is_same_v<decltype(std::declval<std::decay_t<T_Receiver> const&>().get_env()), int const&>);
+            static_cast<void>(receiver.get_env());
+            return Operation<std::decay_t<T_Receiver>>{std::forward<T_Receiver>(receiver)};
+        }
+    };
+
+    struct EnvironmentScheduler
+    {
+        EnvironmentScheduleSender schedule() const
+        {
+            return {};
+        }
     };
 
     struct GetMarker
@@ -648,6 +684,32 @@ namespace
         assert(observations == 10 && output == 0);
         operation.start();
         assert(observations == 20 && output == 42);
+    }
+
+    void testAdaptorEnvironmentForwarding()
+    {
+        static_assert(std::is_same_v<decltype(std::declval<EnvironmentReceiver const&>().get_env()), int const&>);
+        int observations = 0;
+        int output = 0;
+        auto thenWork = caravan::then(EnvironmentSender{1, &observations}, [](int value) { return value + 1; });
+        auto thenOperation = std::move(thenWork).connect(EnvironmentReceiver{&output});
+        assert(observations == 10);
+        thenOperation.start();
+        assert(output == 2);
+
+        observations = 0;
+        output = 0;
+        auto continuesWork = EnvironmentSender{2, &observations} | caravan::continuesOn(EnvironmentScheduler{});
+        auto continuesOperation = std::move(continuesWork).connect(EnvironmentReceiver{&output});
+        assert(observations == 10);
+        continuesOperation.start();
+        assert(output == 2);
+
+        auto noEnvironment = caravan::asSender(caravan::readyEvent());
+        auto noEnvironmentThen = noEnvironment | caravan::then([] {});
+        auto noEnvironmentTransfer = noEnvironment | caravan::continuesOn(caravan::InlineScheduler{});
+        static_assert(caravan::SenderTo<decltype(noEnvironmentThen), EventReceiver>);
+        static_assert(caravan::SenderTo<decltype(noEnvironmentTransfer), EventReceiver>);
     }
 
     void testRepeatUntil()
@@ -1365,6 +1427,7 @@ int main()
     testSyncWait();
     testLetValue();
     testSequence();
+    testAdaptorEnvironmentForwarding();
     testRepeatUntil();
     testTypedSenderVocabulary();
     testEagerSenderBridgesAndOperationLifetime();
