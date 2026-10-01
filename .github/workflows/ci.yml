@@ -210,6 +210,9 @@ jobs:
       # Run tests
       - name: Run Tests
         if: matrix.config.cuda == 'no' && matrix.config.hip == 'no'
+        env:
+          OMPI_ALLOW_RUN_AS_ROOT: "1"
+          OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
         run: |
           cd build
           ctest --output-on-failure
