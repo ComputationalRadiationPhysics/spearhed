@@ -38,6 +38,7 @@
 
 #include <boost/predef.h>
 
+#include <concepts>
 #include <type_traits>
 #include <utility>
 
@@ -74,17 +75,19 @@ namespace pmacc
             struct Tuple<T, Ts...>
             {
                 template<typename U, typename... Us>
-                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts))
-                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept
+                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts)
+                         && std::is_constructible_v<T, U&&> && std::is_constructible_v<Tuple<Ts...>, Us&&...>)
+                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept(
+                    std::is_nothrow_constructible_v<T, U&&> && std::is_nothrow_constructible_v<Tuple<Ts...>, Us&&...>)
                     : head(std::forward<U>(u))
                     , tail(std::forward<Us>(us)...)
                 {
                 }
 
-                constexpr Tuple(Tuple const&) noexcept = default;
-                constexpr Tuple(Tuple&&) noexcept = default;
-                constexpr Tuple& operator=(Tuple const&) noexcept = default;
-                constexpr Tuple& operator=(Tuple&&) noexcept = default;
+                constexpr Tuple(Tuple const&) = default;
+                constexpr Tuple(Tuple&&) = default;
+                constexpr Tuple& operator=(Tuple const&) = default;
+                constexpr Tuple& operator=(Tuple&&) = default;
 
                 T head;
                 Tuple<Ts...> tail;
