@@ -38,6 +38,8 @@
 
 #include <boost/predef.h>
 
+#include <concepts>
+#include <functional>
 #include <type_traits>
 #include <utility>
 
@@ -61,33 +63,128 @@ namespace pmacc
             /// @struct Tuple
             /// @brief A fixed-size collection of heterogeneous values, implemented using recursive templates.
             /// This structure allows accessing elements by index, and supports various utilities like concatenation
-            /// and removal of types.
+            /// and removal of types. Tuples containing references are not necessarily standard-layout, and
+            /// `forward_as_tuple` does not extend the lifetime of referenced temporaries. Empty elements may still
+            /// require storage to preserve distinct addresses, and alignment can introduce padding.
             /// @tparam Ts...  Types of the elements that the tuple stores. Empty list is supported.
             template<typename... Ts>
             struct Tuple;
 
-            /// @brief Specialization of the @ref Tuple class when the tuple has at least one element.
-            /// This recursive structure stores the first element (`head`) and delegates the rest to the `tail`.
-            /// @tparam T The type of the first element in the tuple.
-            /// @tparam Ts... The types of the remaining elements in the tuple.
+            /// @brief Value tuple specialization, which keeps its special-member operations defaulted.
             template<typename T, typename... Ts>
+            requires(!std::is_reference_v<T> && (!std::is_reference_v<Ts> && ...))
             struct Tuple<T, Ts...>
             {
                 template<typename U, typename... Us>
-                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts))
-                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept
+                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts)
+                         && std::is_constructible_v<T, U&&> && std::is_constructible_v<Tuple<Ts...>, Us&&...>)
+                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept(
+                    std::is_nothrow_constructible_v<T, U&&> && std::is_nothrow_constructible_v<Tuple<Ts...>, Us&&...>)
                     : head(std::forward<U>(u))
                     , tail(std::forward<Us>(us)...)
                 {
                 }
 
-                HDINLINE constexpr Tuple(Tuple const&) noexcept = default;
-                HDINLINE constexpr Tuple(Tuple&&) noexcept = default;
-                HDINLINE constexpr Tuple& operator=(Tuple const&) noexcept = default;
-                HDINLINE constexpr Tuple& operator=(Tuple&&) noexcept = default;
+                constexpr Tuple(Tuple const&) = default;
+                constexpr Tuple(Tuple&&) = default;
+                constexpr Tuple& operator=(Tuple const&) = default;
+                constexpr Tuple& operator=(Tuple&&) = default;
 
-                T head;
-                Tuple<Ts...> tail;
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U const&> && (std::is_assignable_v<Ts&, Us const&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...> const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Us const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U&&> && (std::is_assignable_v<Ts&, Us&&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...>&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U&&> && (std::is_nothrow_assignable_v<Ts&, Us&&> && ...))
+                {
+                    head = std::forward<U>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
+
+                [[no_unique_address]] T head;
+                [[no_unique_address]] Tuple<Ts...> tail;
+            };
+
+            // Keep separate: NVCC 13.4 misclassifies value tuples as non-trivially copyable when
+            // defaulted and constrained write-through assignment operators share one specialization.
+            /// @brief Reference tuple specialization, which assigns through stored references.
+            template<typename T, typename... Ts>
+            requires(std::is_reference_v<T> || (std::is_reference_v<Ts> || ...))
+            struct Tuple<T, Ts...>
+            {
+                template<typename U, typename... Us>
+                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts)
+                         && std::is_constructible_v<T, U&&> && std::is_constructible_v<Tuple<Ts...>, Us&&...>)
+                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept(
+                    std::is_nothrow_constructible_v<T, U&&> && std::is_nothrow_constructible_v<Tuple<Ts...>, Us&&...>)
+                    : head(std::forward<U>(u))
+                    , tail(std::forward<Us>(us)...)
+                {
+                }
+
+                constexpr Tuple(Tuple const&) = default;
+                constexpr Tuple(Tuple&&) = default;
+
+                HDINLINE constexpr Tuple& operator=(Tuple const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, T const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Ts const&> && ...))
+                    requires(std::is_assignable_v<T&, T const&> && (std::is_assignable_v<Ts&, Ts const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                HDINLINE constexpr Tuple& operator=(Tuple&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, T&&> && (std::is_nothrow_assignable_v<Ts&, Ts&&> && ...))
+                    requires(std::is_assignable_v<T&, T&&> && (std::is_assignable_v<Ts&, Ts&&> && ...))
+                {
+                    head = std::forward<T>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U const&> && (std::is_assignable_v<Ts&, Us const&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...> const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Us const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U&&> && (std::is_assignable_v<Ts&, Us&&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...>&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U&&> && (std::is_nothrow_assignable_v<Ts&, Us&&> && ...))
+                {
+                    head = std::forward<U>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
+
+                [[no_unique_address]] T head;
+                [[no_unique_address]] Tuple<Ts...> tail;
             };
 
             // Base case for empty tuple
@@ -96,9 +193,22 @@ namespace pmacc
             {
             };
 
+            template<typename T>
+            struct is_tuple : std::false_type
+            {
+            };
+
+            template<typename... Ts>
+            struct is_tuple<Tuple<Ts...>> : std::true_type
+            {
+            };
+
+            template<typename T>
+            inline constexpr bool is_tuple_v = is_tuple<std::remove_cvref_t<T>>::value;
+
             // Deduction guide for Tuple to contruct with values
             template<typename T, typename... Ts>
-            Tuple(T&&, Ts&&...) -> Tuple<std::remove_cvref_t<T>, std::remove_cvref_t<Ts>...>;
+            Tuple(T&&, Ts&&...) -> Tuple<std::decay_t<T>, std::decay_t<Ts>...>;
 
             /// @brief Extracts the Kth element from the tuple.
             /// @tparam K The index of the element to extract (0-based).
@@ -111,7 +221,9 @@ namespace pmacc
             {
                 if constexpr(k == 0)
                 {
-                    return t.head;
+                    // Avoid older GCC misdeducing decltype(auto) for rvalue-reference members
+                    // otherwise simply `return (t.head)`, should work.
+                    return static_cast<T&>(t.head);
                 }
                 else
                 {
@@ -125,11 +237,39 @@ namespace pmacc
             {
                 if constexpr(k == 0)
                 {
-                    return t.head;
+                    return static_cast<std::add_const_t<T>&>(t.head);
                 }
                 else
                 {
                     return get<k - 1>(t.tail);
+                }
+            }
+
+            /// Rvalue version of `get`
+            template<size_t k, typename T, typename... Ts>
+            HDINLINE constexpr decltype(auto) get(Tuple<T, Ts...>&& t)
+            {
+                if constexpr(k == 0)
+                {
+                    return std::forward<T>(t.head);
+                }
+                else
+                {
+                    return get<k - 1>(std::move(t.tail));
+                }
+            }
+
+            /// Const rvalue version of `get`
+            template<size_t k, typename T, typename... Ts>
+            HDINLINE constexpr decltype(auto) get(Tuple<T, Ts...> const&& t)
+            {
+                if constexpr(k == 0)
+                {
+                    return std::forward<std::add_const_t<T>>(t.head);
+                }
+                else
+                {
+                    return get<k - 1>(std::move(t.tail));
                 }
             }
 
@@ -141,7 +281,7 @@ namespace pmacc
             template<typename... Args>
             HDINLINE constexpr auto make_tuple(Args&&... args)
             {
-                return Tuple<std::remove_cvref_t<Args>...>(std::forward<Args>(args)...);
+                return Tuple<std::unwrap_ref_decay_t<Args>...>(std::forward<Args>(args)...);
             }
 
             /// @brief Creates a tuple of forwarding references to the provided arguments.
@@ -166,17 +306,6 @@ namespace pmacc
                 return Tuple<Args&...>(args...);
             }
 
-            /// @brief Creates a tuple of references to the provided const variables.
-            /// This is a const reference version for constant variables.
-            /// @tparam Args Types of the arguments to construct the tuple from.
-            /// @param args Variables to create the tuple of references from.
-            /// @return Tuple<Args&...> A tuple of references to the provided const variables.
-            template<typename... Args>
-            HDINLINE constexpr auto tie(Args const&... args)
-            {
-                return Tuple<Args const&...>(args...);
-            }
-
             /// @struct tuple_size
             /// @brief A helper structure to get the size of a tuple. Handles cv-qualifiers and refs
             template<typename T>
@@ -194,48 +323,46 @@ namespace pmacc
             template<typename T>
             constexpr std::size_t tuple_size_v = tuple_size<T>::value;
 
-            template<typename Tuple, typename T, std::size_t... Is>
-            HDINLINE constexpr auto append_base(Tuple&& t, T&& a, std::index_sequence<Is...>)
+            template<typename TTuple, typename T, std::size_t... Is>
+            HDINLINE constexpr auto append_element_base(TTuple&& t, T&& a, std::index_sequence<Is...>)
             {
-                return make_tuple(get<Is>(std::forward<Tuple>(t))..., std::forward<T>(a));
+                return ::pmacc::memory::tuple::make_tuple(get<Is>(std::forward<TTuple>(t))..., std::forward<T>(a));
             }
 
-            /// @brief A function to append a new element to the end of a tuple.
-            /// @tparam Args... The types of the elements inside the tuple.
-            /// @tparam T The type of the new element to append.
-            /// @param t The tuple to which the new element will be added.
-            /// @param a The new element to add.
-            /// @return A new tuple containing all elements from the original tuple followed by the new element.
-            template<typename... Args, typename T>
-            HDINLINE constexpr auto append(Tuple<Args...>& t, T&& a)
+            /// @brief Appends an element to the end of a tuple.
+            template<typename TTuple, typename T>
+            requires(is_tuple_v<TTuple> && !is_tuple_v<T>)
+            HDINLINE constexpr auto append(TTuple&& t, T&& a)
             {
-                return append_base(t, std::forward<T>(a), std::make_index_sequence<sizeof...(Args)>{});
-            }
-
-            template<typename... Args1, typename... Args2, std::size_t... Is1, std::size_t... Is2>
-            HDINLINE constexpr auto append_base(
-                Tuple<Args1...>& t1,
-                Tuple<Args2...>& t2,
-                std::index_sequence<Is1...>,
-                std::index_sequence<Is2...>)
-            {
-                return make_tuple(get<Is1>(t1)..., get<Is2>(t2)...);
+                return append_element_base(
+                    std::forward<TTuple>(t),
+                    std::forward<T>(a),
+                    std::make_index_sequence<tuple_size_v<TTuple>>{});
             }
 
             /// @brief Concatenates two tuples into one tuple.
-            /// @tparam Args1... The types of the elements inside the first tuple.
-            /// @tparam Args2... The types of the elements inside the second tuple.
-            /// @param t1 The first tuple to append.
-            /// @param t2 The second tuple to append.
-            /// @return A new tuple that contains all elements from both input tuples.
-            template<typename... Args1, typename... Args2>
-            HDINLINE constexpr auto append(Tuple<Args1...>& t1, Tuple<Args2...>& t2)
+            template<typename TTuple1, typename TTuple2, std::size_t... Is1, std::size_t... Is2>
+            HDINLINE constexpr auto append_tuples_base(
+                TTuple1&& t1,
+                TTuple2&& t2,
+                std::index_sequence<Is1...>,
+                std::index_sequence<Is2...>)
             {
-                return append_base(
-                    t1,
-                    t2,
-                    std::make_index_sequence<sizeof...(Args1)>{},
-                    std::make_index_sequence<sizeof...(Args2)>{});
+                return ::pmacc::memory::tuple::make_tuple(
+                    get<Is1>(std::forward<TTuple1>(t1))...,
+                    get<Is2>(std::forward<TTuple2>(t2))...);
+            }
+
+            /// @brief Concatenates two tuples into one tuple.
+            template<typename TTuple1, typename TTuple2>
+            requires(is_tuple_v<TTuple1> && is_tuple_v<TTuple2>)
+            HDINLINE constexpr auto append(TTuple1&& t1, TTuple2&& t2)
+            {
+                return append_tuples_base(
+                    std::forward<TTuple1>(t1),
+                    std::forward<TTuple2>(t2),
+                    std::make_index_sequence<tuple_size_v<TTuple1>>{},
+                    std::make_index_sequence<tuple_size_v<TTuple2>>{});
             }
 
         } // namespace tuple
