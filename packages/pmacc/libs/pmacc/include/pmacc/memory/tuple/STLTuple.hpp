@@ -100,6 +100,19 @@ namespace pmacc
             {
             };
 
+            template<typename T>
+            struct is_tuple : std::false_type
+            {
+            };
+
+            template<typename... Ts>
+            struct is_tuple<Tuple<Ts...>> : std::true_type
+            {
+            };
+
+            template<typename T>
+            inline constexpr bool is_tuple_v = is_tuple<std::remove_cvref_t<T>>::value;
+
             // Deduction guide for Tuple to contruct with values
             template<typename T, typename... Ts>
             Tuple(T&&, Ts&&...) -> Tuple<std::decay_t<T>, std::decay_t<Ts>...>;
@@ -228,48 +241,46 @@ namespace pmacc
             template<typename T>
             constexpr std::size_t tuple_size_v = tuple_size<T>::value;
 
-            template<typename Tuple, typename T, std::size_t... Is>
-            HDINLINE constexpr auto append_base(Tuple&& t, T&& a, std::index_sequence<Is...>)
+            template<typename TTuple, typename T, std::size_t... Is>
+            HDINLINE constexpr auto append_element_base(TTuple&& t, T&& a, std::index_sequence<Is...>)
             {
-                return make_tuple(get<Is>(std::forward<Tuple>(t))..., std::forward<T>(a));
+                return ::pmacc::memory::tuple::make_tuple(get<Is>(std::forward<TTuple>(t))..., std::forward<T>(a));
             }
 
-            /// @brief A function to append a new element to the end of a tuple.
-            /// @tparam Args... The types of the elements inside the tuple.
-            /// @tparam T The type of the new element to append.
-            /// @param t The tuple to which the new element will be added.
-            /// @param a The new element to add.
-            /// @return A new tuple containing all elements from the original tuple followed by the new element.
-            template<typename... Args, typename T>
-            HDINLINE constexpr auto append(Tuple<Args...>& t, T&& a)
+            /// @brief Appends an element to the end of a tuple.
+            template<typename TTuple, typename T>
+            requires(is_tuple_v<TTuple> && !is_tuple_v<T>)
+            HDINLINE constexpr auto append(TTuple&& t, T&& a)
             {
-                return append_base(t, std::forward<T>(a), std::make_index_sequence<sizeof...(Args)>{});
-            }
-
-            template<typename... Args1, typename... Args2, std::size_t... Is1, std::size_t... Is2>
-            HDINLINE constexpr auto append_base(
-                Tuple<Args1...>& t1,
-                Tuple<Args2...>& t2,
-                std::index_sequence<Is1...>,
-                std::index_sequence<Is2...>)
-            {
-                return make_tuple(get<Is1>(t1)..., get<Is2>(t2)...);
+                return append_element_base(
+                    std::forward<TTuple>(t),
+                    std::forward<T>(a),
+                    std::make_index_sequence<tuple_size_v<TTuple>>{});
             }
 
             /// @brief Concatenates two tuples into one tuple.
-            /// @tparam Args1... The types of the elements inside the first tuple.
-            /// @tparam Args2... The types of the elements inside the second tuple.
-            /// @param t1 The first tuple to append.
-            /// @param t2 The second tuple to append.
-            /// @return A new tuple that contains all elements from both input tuples.
-            template<typename... Args1, typename... Args2>
-            HDINLINE constexpr auto append(Tuple<Args1...>& t1, Tuple<Args2...>& t2)
+            template<typename TTuple1, typename TTuple2, std::size_t... Is1, std::size_t... Is2>
+            HDINLINE constexpr auto append_tuples_base(
+                TTuple1&& t1,
+                TTuple2&& t2,
+                std::index_sequence<Is1...>,
+                std::index_sequence<Is2...>)
             {
-                return append_base(
-                    t1,
-                    t2,
-                    std::make_index_sequence<sizeof...(Args1)>{},
-                    std::make_index_sequence<sizeof...(Args2)>{});
+                return ::pmacc::memory::tuple::make_tuple(
+                    get<Is1>(std::forward<TTuple1>(t1))...,
+                    get<Is2>(std::forward<TTuple2>(t2))...);
+            }
+
+            /// @brief Concatenates two tuples into one tuple.
+            template<typename TTuple1, typename TTuple2>
+            requires(is_tuple_v<TTuple1> && is_tuple_v<TTuple2>)
+            HDINLINE constexpr auto append(TTuple1&& t1, TTuple2&& t2)
+            {
+                return append_tuples_base(
+                    std::forward<TTuple1>(t1),
+                    std::forward<TTuple2>(t2),
+                    std::make_index_sequence<tuple_size_v<TTuple1>>{},
+                    std::make_index_sequence<tuple_size_v<TTuple2>>{});
             }
 
         } // namespace tuple
