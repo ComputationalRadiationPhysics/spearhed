@@ -81,10 +81,10 @@ namespace pmacc
                 {
                 }
 
-                HDINLINE constexpr Tuple(Tuple const&) noexcept = default;
-                HDINLINE constexpr Tuple(Tuple&&) noexcept = default;
-                HDINLINE constexpr Tuple& operator=(Tuple const&) noexcept = default;
-                HDINLINE constexpr Tuple& operator=(Tuple&&) noexcept = default;
+                constexpr Tuple(Tuple const&) noexcept = default;
+                constexpr Tuple(Tuple&&) noexcept = default;
+                constexpr Tuple& operator=(Tuple const&) noexcept = default;
+                constexpr Tuple& operator=(Tuple&&) noexcept = default;
 
                 T head;
                 Tuple<Ts...> tail;
