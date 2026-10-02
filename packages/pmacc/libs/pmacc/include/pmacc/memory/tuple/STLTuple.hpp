@@ -111,7 +111,9 @@ namespace pmacc
             {
                 if constexpr(k == 0)
                 {
-                    return t.head;
+                    // Avoid older GCC misdeducing decltype(auto) for rvalue-reference members
+                    // otherwise simply `return (t.head)`, should work.
+                    return static_cast<T&>(t.head);
                 }
                 else
                 {
@@ -125,11 +127,39 @@ namespace pmacc
             {
                 if constexpr(k == 0)
                 {
-                    return t.head;
+                    return static_cast<std::add_const_t<T>&>(t.head);
                 }
                 else
                 {
                     return get<k - 1>(t.tail);
+                }
+            }
+
+            /// Rvalue version of `get`
+            template<size_t k, typename T, typename... Ts>
+            HDINLINE constexpr decltype(auto) get(Tuple<T, Ts...>&& t)
+            {
+                if constexpr(k == 0)
+                {
+                    return std::forward<T>(t.head);
+                }
+                else
+                {
+                    return get<k - 1>(std::move(t.tail));
+                }
+            }
+
+            /// Const rvalue version of `get`
+            template<size_t k, typename T, typename... Ts>
+            HDINLINE constexpr decltype(auto) get(Tuple<T, Ts...> const&& t)
+            {
+                if constexpr(k == 0)
+                {
+                    return std::forward<std::add_const_t<T>>(t.head);
+                }
+                else
+                {
+                    return get<k - 1>(std::move(t.tail));
                 }
             }
 
