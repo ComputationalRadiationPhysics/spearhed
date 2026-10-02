@@ -63,16 +63,15 @@ namespace pmacc
             /// @struct Tuple
             /// @brief A fixed-size collection of heterogeneous values, implemented using recursive templates.
             /// This structure allows accessing elements by index, and supports various utilities like concatenation
-            /// and removal of types.
+            /// and removal of types. Tuples containing references are not necessarily standard-layout, and
+            /// `forward_as_tuple` does not extend the lifetime of referenced temporaries.
             /// @tparam Ts...  Types of the elements that the tuple stores. Empty list is supported.
             template<typename... Ts>
             struct Tuple;
 
-            /// @brief Specialization of the @ref Tuple class when the tuple has at least one element.
-            /// This recursive structure stores the first element (`head`) and delegates the rest to the `tail`.
-            /// @tparam T The type of the first element in the tuple.
-            /// @tparam Ts... The types of the remaining elements in the tuple.
+            /// @brief Value tuple specialization, which keeps its special-member operations defaulted.
             template<typename T, typename... Ts>
+            requires(!std::is_reference_v<T> && (!std::is_reference_v<Ts> && ...))
             struct Tuple<T, Ts...>
             {
                 template<typename U, typename... Us>
@@ -89,6 +88,99 @@ namespace pmacc
                 constexpr Tuple(Tuple&&) = default;
                 constexpr Tuple& operator=(Tuple const&) = default;
                 constexpr Tuple& operator=(Tuple&&) = default;
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U const&> && (std::is_assignable_v<Ts&, Us const&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...> const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Us const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U&&> && (std::is_assignable_v<Ts&, Us&&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...>&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U&&> && (std::is_nothrow_assignable_v<Ts&, Us&&> && ...))
+                {
+                    head = std::forward<U>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
+
+                T head;
+                Tuple<Ts...> tail;
+            };
+
+            // Keep separate: NVCC 13.4 misclassifies value tuples as non-trivially copyable when
+            // defaulted and constrained write-through assignment operators share one specialization.
+            /// @brief Reference tuple specialization, which assigns through stored references.
+            template<typename T, typename... Ts>
+            requires(std::is_reference_v<T> || (std::is_reference_v<Ts> || ...))
+            struct Tuple<T, Ts...>
+            {
+                template<typename U, typename... Us>
+                requires(!std::same_as<std::remove_cvref_t<U>, Tuple> && sizeof...(Us) == sizeof...(Ts)
+                         && std::is_constructible_v<T, U&&> && std::is_constructible_v<Tuple<Ts...>, Us&&...>)
+                HDINLINE constexpr Tuple(U&& u, Us&&... us) noexcept(
+                    std::is_nothrow_constructible_v<T, U&&> && std::is_nothrow_constructible_v<Tuple<Ts...>, Us&&...>)
+                    : head(std::forward<U>(u))
+                    , tail(std::forward<Us>(us)...)
+                {
+                }
+
+                constexpr Tuple(Tuple const&) = default;
+                constexpr Tuple(Tuple&&) = default;
+
+                HDINLINE constexpr Tuple& operator=(Tuple const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, T const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Ts const&> && ...))
+                    requires(std::is_assignable_v<T&, T const&> && (std::is_assignable_v<Ts&, Ts const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                HDINLINE constexpr Tuple& operator=(Tuple&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, T&&> && (std::is_nothrow_assignable_v<Ts&, Ts&&> && ...))
+                    requires(std::is_assignable_v<T&, T&&> && (std::is_assignable_v<Ts&, Ts&&> && ...))
+                {
+                    head = std::forward<T>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U const&> && (std::is_assignable_v<Ts&, Us const&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...> const& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U const&>
+                    && (std::is_nothrow_assignable_v<Ts&, Us const&> && ...))
+                {
+                    head = other.head;
+                    tail = other.tail;
+                    return *this;
+                }
+
+                template<typename U, typename... Us>
+                requires(
+                    sizeof...(Us) == sizeof...(Ts) && !std::same_as<Tuple<U, Us...>, Tuple>
+                    && std::is_assignable_v<T&, U&&> && (std::is_assignable_v<Ts&, Us&&> && ...))
+                HDINLINE constexpr Tuple& operator=(Tuple<U, Us...>&& other) noexcept(
+                    std::is_nothrow_assignable_v<T&, U&&> && (std::is_nothrow_assignable_v<Ts&, Us&&> && ...))
+                {
+                    head = std::forward<U>(other.head);
+                    tail = std::move(other.tail);
+                    return *this;
+                }
 
                 T head;
                 Tuple<Ts...> tail;
@@ -211,17 +303,6 @@ namespace pmacc
             HDINLINE constexpr auto tie(Args&... args)
             {
                 return Tuple<Args&...>(args...);
-            }
-
-            /// @brief Creates a tuple of references to the provided const variables.
-            /// This is a const reference version for constant variables.
-            /// @tparam Args Types of the arguments to construct the tuple from.
-            /// @param args Variables to create the tuple of references from.
-            /// @return Tuple<Args&...> A tuple of references to the provided const variables.
-            template<typename... Args>
-            HDINLINE constexpr auto tie(Args const&... args)
-            {
-                return Tuple<Args const&...>(args...);
             }
 
             /// @struct tuple_size
