@@ -64,7 +64,8 @@ namespace pmacc
             /// @brief A fixed-size collection of heterogeneous values, implemented using recursive templates.
             /// This structure allows accessing elements by index, and supports various utilities like concatenation
             /// and removal of types. Tuples containing references are not necessarily standard-layout, and
-            /// `forward_as_tuple` does not extend the lifetime of referenced temporaries.
+            /// `forward_as_tuple` does not extend the lifetime of referenced temporaries. Empty elements may still
+            /// require storage to preserve distinct addresses, and alignment can introduce padding.
             /// @tparam Ts...  Types of the elements that the tuple stores. Empty list is supported.
             template<typename... Ts>
             struct Tuple;
@@ -114,8 +115,8 @@ namespace pmacc
                     return *this;
                 }
 
-                T head;
-                Tuple<Ts...> tail;
+                [[no_unique_address]] T head;
+                [[no_unique_address]] Tuple<Ts...> tail;
             };
 
             // Keep separate: NVCC 13.4 misclassifies value tuples as non-trivially copyable when
@@ -182,8 +183,8 @@ namespace pmacc
                     return *this;
                 }
 
-                T head;
-                Tuple<Ts...> tail;
+                [[no_unique_address]] T head;
+                [[no_unique_address]] Tuple<Ts...> tail;
             };
 
             // Base case for empty tuple
