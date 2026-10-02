@@ -98,40 +98,40 @@ namespace pmacc::spearhed
         template<typename OtherStorage>
         constexpr Vec& operator=(Vec<CS, OtherStorage> const& other) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] = other[tag]; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] = other[tag]; });
             return *this;
         }
 
         template<typename OtherStorage>
         constexpr Vec& operator+=(Vec<CS, OtherStorage> const& other) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] += other[tag]; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] += other[tag]; });
             return *this;
         }
 
         template<typename OtherStorage>
         constexpr Vec& operator-=(Vec<CS, OtherStorage> const& other) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] -= other[tag]; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] -= other[tag]; });
             return *this;
         }
 
         constexpr Vec& operator*=(Scalar const val) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] *= val; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] *= val; });
             return *this;
         }
 
         constexpr Vec& operator/=(Scalar const val) noexcept
         {
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { (*this)[tag] /= val; });
+            for_each_tag<CS>([&](auto tag) { (*this)[tag] /= val; });
             return *this;
         }
 
         [[nodiscard]] friend constexpr Vec<CS, ValueStorage<CS>> operator-(Vec const& v) noexcept
         {
             Vec<CS, ValueStorage<CS>> result = v;
-            pmacc::spearhed::for_each_tag<CS>([&](auto tag) { result[tag] = -result[tag]; });
+            for_each_tag<CS>([&](auto tag) { result[tag] = -result[tag]; });
             return result;
         }
 
@@ -174,7 +174,7 @@ namespace pmacc::spearhed
         template<typename OtherStorage>
         [[nodiscard]] friend constexpr bool operator==(Vec const& lhs, Vec<CS, OtherStorage> const& rhs) noexcept
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag) { return lhs[tag] == rhs[tag]; });
+            return all_of_tag<CS>([&](auto tag) { return lhs[tag] == rhs[tag]; });
         }
 
         template<typename OtherStorage>
@@ -188,8 +188,7 @@ namespace pmacc::spearhed
             Vec<CS, OtherStorage> const& other,
             Scalar eps = std::numeric_limits<Scalar>::epsilon()) const noexcept
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
-                                                   { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
+            return all_of_tag<CS>([&](auto tag) { return detail::abs_diff((*this)[tag], other[tag]) <= eps; });
         }
 
         friend std::ostream& operator<<(std::ostream& os, Vec const& v)

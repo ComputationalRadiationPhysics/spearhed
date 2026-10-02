@@ -77,10 +77,7 @@ namespace spearhed
     {
         if constexpr(output::openPMDEnabled)
         {
-            auto& dc = pmacc::Environment<>::get().DataConnector();
-            auto& mallocMCBuf
-                = *dc.get<pmacc::MallocMCBuffer<DeviceHeap>>(pmacc::MallocMCBuffer<DeviceHeap>::getName());
-            mallocMCBuf.synchronize();
+            int64_t const heapOffset = syncHeapToHost();
 
             // Serialise every present species carrying the OpenPMDOutput role, rather than a hardcoded
             // species. Species the active setup never created are skipped automatically.
@@ -90,7 +87,7 @@ namespace spearhed
                 [&](auto& prBuf)
                 {
                     llama_lite::DynSoA<Setup::OutputParticleRecord> hostParticles;
-                    pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, syncHeapToHost());
+                    pmacc::spearhed::CopyParticlesToDynSoA{}(prBuf, hostParticles, heapOffset);
                     writer->writeStep(currentStep, hostParticles);
                 });
         }

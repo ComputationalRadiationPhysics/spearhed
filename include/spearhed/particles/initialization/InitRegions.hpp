@@ -98,7 +98,8 @@ namespace spearhed
             auto const deviceHeapHandle = deviceHeap.getAllocatorHandle();
             for(auto const& volume : volumes)
                 prBuf->pushBack(typename PRBuf::ParticleRegionType{deviceHeapHandle, volume});
-            prBuf->buffer->hostToDevice();
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(caravan::alpaka::withDevice(device, prBuf->buffer->hostToDevice()));
         }
     };
 } // namespace spearhed

@@ -34,7 +34,8 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
+
+#include <utility>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -86,11 +87,11 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     spearhed::InitParticles{}(setup);
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SetPosFunctor{});
 
-    // Execute
-    pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+    // Sequence the host-consumption copy after the bounds update and wait once.
+    auto updateBounds = pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+    spearhed::test::runDevice(std::move(updateBounds) | caravan::alpaka::sequence(prBuf->buffer->deviceToHost()));
 
     // Validation
-    prBuf->buffer->deviceToHost();
     auto dataBox = prBuf->buffer->getHostBuffer().getDataBox();
     auto const& region = dataBox(0);
 
@@ -100,4 +101,13 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
             REQUIRE(region.volume.min[tag] == expectedMin[tag]);
             REQUIRE(region.volume.max[tag] == expectedMax[tag]);
         });
+}
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "UpdateRegionBounds skips an empty unallocated buffer",
+    "[integration][particles][bounds]")
+{
+    auto updateBounds = pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+    spearhed::test::runDevice(std::move(updateBounds));
 }

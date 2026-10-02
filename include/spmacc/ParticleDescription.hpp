@@ -47,7 +47,7 @@ namespace pmacc::spearhed
      * @tparam T_ParticleRecord ll::Record with description of particle attribues
      * @tparam T_Species species tag the particle belongs to; supplies the particle name
      * @tparam T_FrameExtensionList sequence or single class with frame extensions
-     *                    - a pmacc::spearhed::meta::ComponentList
+     *                    - a meta::ComponentList
      *                    - extension must be an unary template class that supports boost::mpl::apply1<>
      *                    - type of the final frame is applied to each extension class
      *                      (this allows pointers and references to a frame itself)
@@ -58,11 +58,11 @@ namespace pmacc::spearhed
         SpeciesTag T_Species,
         typename T_NumSlots,
         typename T_ParticleRecord,
-        typename T_FrameExtensionList = pmacc::spearhed::meta::ComponentList<>>
+        typename T_FrameExtensionList = meta::ComponentList<>>
     struct ParticleDescription
     {
         using Species = T_Species;
-        using Name = pmacc::spearhed::meta::String<T_Species::name>;
+        using Name = meta::String<T_Species::name>;
         using ParticleRecord = T_ParticleRecord;
         using FrameExtensionList = T_FrameExtensionList;
         static constexpr uint32_t numSlots = T_NumSlots::value;
@@ -72,7 +72,7 @@ namespace pmacc::spearhed
         SpeciesTag T_Species,
         typename T_NumSlots,
         typename T_ParticleRecord,
-        typename T_FrameExtensionList = pmacc::spearhed::meta::ComponentList<>>
+        typename T_FrameExtensionList = meta::ComponentList<>>
     consteval auto createParticleDescription(
         T_Species,
         T_NumSlots,

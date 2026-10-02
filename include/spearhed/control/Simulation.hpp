@@ -19,8 +19,10 @@
 
 #pragma once
 
+#include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/sph/SphKernel.hpp"
+#include "spmacc/particles/algorithms/FrameIndex.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
@@ -30,10 +32,24 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
+
+#include <caravan/mpi.hpp>
 
 namespace spearhed
 {
+    namespace detail
+    {
+        template<typename T_SpeciesList>
+        struct FrameIndicesFor;
+
+        template<typename... T_Species>
+        struct FrameIndicesFor<std::tuple<T_Species...>>
+        {
+            using type = std::tuple<pmacc::spearhed::FrameIndexBuffer<PRTypeFor<T_Species>>...>;
+        };
+    } // namespace detail
 
     class Simulation
         : public pmacc::SimulationHelper<
@@ -45,7 +61,7 @@ namespace spearhed
             pmacc::simulationControl::Checkpointing<pmacc::simulationControl::CheckpointingAvailability::DISABLED>>;
 
     public:
-        Simulation();
+        explicit Simulation(caravan::MpiContext& mpiContext);
         ~Simulation() override;
 
         void pluginRegisterHelp(pmacc::po::options_description& desc) override;
@@ -72,15 +88,14 @@ namespace spearhed
          */
         size_t freeDeviceMemory() const;
 
-        /** Update density, hydrodynamic forces, and thermodynamic state.
-         *
-         * @tparam K Compile-time smoothing kernel selected by Setup::SmoothingKernel.
-         */
-        template<SphKernel K>
-        void updateHydrodynamics();
+        using FrameIndices = typename detail::FrameIndicesFor<AllSpecies::List>::type;
 
     private:
+        friend struct SimulationTestAccess;
+
+        caravan::MpiContext& mpiContext;
         std::optional<DeviceHeap> deviceHeap{std::nullopt};
+        FrameIndices frameIndices;
 
         // layout parameter
         std::vector<uint32_t> devices;

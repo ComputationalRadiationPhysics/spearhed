@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include "spearhed/param.hpp"
 #include "spmacc/ParticleDescription.hpp"
 #include "spmacc/meta/TypeList.hpp"
+#include "spmacc/particles/attributes/MultiMask.hpp"
 
 #include <pmacc/particles/Identifier.hpp>
 #include <pmacc/traits/IsSpecializationOf.hpp>
@@ -51,7 +51,7 @@ namespace pmacc
          */
         template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription>
         struct Frame
-            : pmacc::spearhed::meta::InheritComponentsFrom<
+            : meta::InheritComponentsFrom<
                   Frame<T_ParticleDescription>,
                   typename T_ParticleDescription::FrameExtensionList>
         {
@@ -89,7 +89,7 @@ namespace pmacc
                 // out of the constructor
                 /* disable all particles since we can not assume that newly allocated memory contains zeros */
                 for(int i = 0; i < static_cast<int>(frameSize); ++i)
-                    particlesSoa[::spearhed::multiMask][i] = 0;
+                    particlesSoa[tags::multiMask][i] = 0;
             }
 
             constexpr Frame(Frame const&) = delete;

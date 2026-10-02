@@ -16,6 +16,8 @@ include(FetchContent)
 FetchContent_Declare(Catch2 GIT_REPOSITORY https://github.com/catchorg/Catch2.git GIT_TAG v3.5.3)
 FetchContent_MakeAvailable(Catch2)
 target_compile_features(Catch2 PUBLIC cxx_std_20)
+FetchContent_GetProperties(Catch2)
+list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
 
 # hide Catch2 cmake variables by default in cmake gui
@@ -71,9 +73,9 @@ function(add_test_target target_prefix layer_label folder)
                     set(_test_target_name "${target_prefix}${test_folder_name}_${source_file_name}")
                     message(DEBUG "  add test target ${_test_target_name}: ${source_file}")
 
-                    alpaka_add_executable(${_test_target_name} ${source_file})
+                    add_executable(${_test_target_name} ${source_file} TestMain.cpp)
                     get_filename_component(src_dir ${source_file} DIRECTORY)
-                    target_include_directories(${_test_target_name} PRIVATE ${src_dir})
+                    target_include_directories(${_test_target_name} PRIVATE ${src_dir} ${CMAKE_CURRENT_SOURCE_DIR})
                     if(EXISTS "${test_folder}/include")
                         message(STATUS "  add include folder: ${test_folder}/include")
                         target_include_directories(${_test_target_name} PRIVATE ${test_folder}/include)
@@ -81,16 +83,31 @@ function(add_test_target target_prefix layer_label folder)
 
                     target_link_libraries(
                         ${_test_target_name}
-                        PRIVATE Catch2::Catch2WithMain alpaka::alpaka spearhed-hostonly pmacc::pmacc
+                        PRIVATE Catch2::Catch2 alpaka::alpaka spearhed-hostonly pmacc::pmacc
                     )
-                    catch_discover_tests(${_test_target_name} TEST_PREFIX "${layer_label}::")
+                    if(_test_target_name STREQUAL "unit_test_spearhed_SimulationTimestep_SimulationTimestep")
+                        # Register the production GPU-containing translation unit before alpaka finalizes
+                        # source languages; adding it afterward leaves it compiled as ordinary C++.
+                        target_sources(
+                            ${_test_target_name}
+                            PRIVATE ${PROJECT_SOURCE_DIR}/include/spearhed/control/Simulation.x.cpp
+                        )
+                        target_include_directories(${_test_target_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+                    endif()
+                    pmacc_finalize(${_test_target_name})
+                    catch_discover_tests(
+                        ${_test_target_name}
+                        TEST_PREFIX "${layer_label}::"
+                        DISCOVERY_MODE PRE_TEST
+                    )
                 endif()
             endforeach()
         endif()
     endforeach()
 endfunction()
 
-add_test_target(unit_test_llama_ "llamaLite" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
+# Integration with spmacc stays in spearhed; pure llamaLite tests live in the component.
+add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/integration/**)
 add_test_target(unit_test_spmacc_ "spmacc" ${CMAKE_CURRENT_SOURCE_DIR}/spmacc/unit/**)
 add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
 

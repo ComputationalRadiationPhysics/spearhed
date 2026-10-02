@@ -97,9 +97,9 @@ struct SumPositions
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto posSum) const
     {
         using namespace pmacc::spearhed::tags;
-        alpaka::atomicAdd(worker.getAcc(), &posSum(0), particle[relativePos][x], ::alpaka::hierarchy::Blocks{});
-        alpaka::atomicAdd(worker.getAcc(), &posSum(1), particle[relativePos][y], ::alpaka::hierarchy::Blocks{});
-        alpaka::atomicAdd(worker.getAcc(), &posSum(2), particle[relativePos][z], ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &posSum(0), particle[relativePos][x]);
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &posSum(1), particle[relativePos][y]);
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &posSum(2), particle[relativePos][z]);
     }
 };
 
@@ -177,7 +177,7 @@ struct CountOutOfBounds
         auto const py = particle[relativePos][y];
         auto const pz = particle[relativePos][z];
         if(px < 0.0f || px >= 1.0f || py < 0.0f || py >= 1.0f || pz < 0.0f || pz >= 1.0f)
-            alpaka::atomicAdd(worker.getAcc(), &outOfBoundsCount(0), 1u, ::alpaka::hierarchy::Blocks{});
+            alpaka::onAcc::atomicAdd(worker.getAcc(), &outOfBoundsCount(0), 1u);
     }
 };
 
@@ -196,13 +196,13 @@ struct CountExpectedSCLatticePositions
         {
             auto const px = particle[relativePos][x];
             if(px == 0.5f)
-                alpaka::atomicAdd(worker.getAcc(), &positionCounts(0), 1u, ::alpaka::hierarchy::Blocks{});
+                alpaka::onAcc::atomicAdd(worker.getAcc(), &positionCounts(0), 1u);
             else if(px == 1.5f)
-                alpaka::atomicAdd(worker.getAcc(), &positionCounts(1), 1u, ::alpaka::hierarchy::Blocks{});
+                alpaka::onAcc::atomicAdd(worker.getAcc(), &positionCounts(1), 1u);
             else if(px == 2.5f)
-                alpaka::atomicAdd(worker.getAcc(), &positionCounts(2), 1u, ::alpaka::hierarchy::Blocks{});
+                alpaka::onAcc::atomicAdd(worker.getAcc(), &positionCounts(2), 1u);
         }
-        alpaka::atomicAdd(worker.getAcc(), &totalCount(0), 1u, ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(worker.getAcc(), &totalCount(0), 1u);
     }
 };
 
@@ -284,12 +284,12 @@ TEST_CASE_METHOD(
         // Accumulate x, y, z position sums across all particles
         pmacc::HostDeviceBuffer<float, 1> posSumBuf(3u);
         posSumBuf.getHostBuffer().setValue(0.0f);
-        posSumBuf.hostToDevice();
+        spearhed::test::runDevice(posSumBuf.hostToDevice());
 
         auto posSum = posSumBuf.getDeviceBuffer().getDataBox();
         pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SumPositions{}, posSum);
 
-        posSumBuf.deviceToHost();
+        spearhed::test::runDevice(posSumBuf.deviceToHost());
         auto hostData = posSumBuf.getHostBuffer().getDataBox();
 
         // 2x2x2 SC grid in [0,1]^3: positions at 0.25 and 0.75 on each axis, 4 particles each.
@@ -308,7 +308,7 @@ TEST_CASE_METHOD(
 
         pmacc::HostDeviceBuffer<uint32_t, 1> outOfBoundsBuf(1u);
         outOfBoundsBuf.getHostBuffer().setValue(0u);
-        outOfBoundsBuf.hostToDevice();
+        spearhed::test::runDevice(outOfBoundsBuf.hostToDevice());
 
         auto outOfBoundsCount = outOfBoundsBuf.getDeviceBuffer().getDataBox();
         pmacc::spearhed::launchForEach(
@@ -317,7 +317,7 @@ TEST_CASE_METHOD(
             CountOutOfBounds{},
             outOfBoundsCount);
 
-        outOfBoundsBuf.deviceToHost();
+        spearhed::test::runDevice(outOfBoundsBuf.deviceToHost());
         REQUIRE(outOfBoundsBuf.getHostBuffer().getDataBox()(0) == 0u);
     }
 
@@ -338,11 +338,11 @@ TEST_CASE_METHOD(
 
         pmacc::HostDeviceBuffer<uint32_t, 1> positionCountsBuf(3u);
         positionCountsBuf.getHostBuffer().setValue(0u);
-        positionCountsBuf.hostToDevice();
+        spearhed::test::runDevice(positionCountsBuf.hostToDevice());
 
         pmacc::HostDeviceBuffer<uint32_t, 1> totalCountBuf(1u);
         totalCountBuf.getHostBuffer().setValue(0u);
-        totalCountBuf.hostToDevice();
+        spearhed::test::runDevice(totalCountBuf.hostToDevice());
 
         pmacc::spearhed::launchForEach(
             pmacc::spearhed::levels::particle,
@@ -351,10 +351,10 @@ TEST_CASE_METHOD(
             positionCountsBuf.getDeviceBuffer().getDataBox(),
             totalCountBuf.getDeviceBuffer().getDataBox());
 
-        totalCountBuf.deviceToHost();
+        spearhed::test::runDevice(totalCountBuf.deviceToHost());
         REQUIRE(totalCountBuf.getHostBuffer().getDataBox()(0) == expectedParticles);
 
-        positionCountsBuf.deviceToHost();
+        spearhed::test::runDevice(positionCountsBuf.deviceToHost());
         auto const positionCounts = positionCountsBuf.getHostBuffer().getDataBox();
         REQUIRE(positionCounts(0) == 1u); // (0.5, 0.5, 0.25)
         REQUIRE(positionCounts(1) == 1u); // (1.5, 0.5, 0.25)

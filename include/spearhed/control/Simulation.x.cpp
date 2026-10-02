@@ -38,14 +38,71 @@
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <pmacc/verify.hpp>
 
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
+#include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace spearhed
 {
-    Simulation::Simulation() = default;
+    namespace detail
+    {
+        template<typename T, typename T_Tuple>
+        struct TupleContains;
+
+        template<typename T, typename... T_Values>
+        struct TupleContains<T, std::tuple<T_Values...>> : std::bool_constant<(std::is_same_v<T, T_Values> || ...)>
+        {
+        };
+
+        template<pmacc::spearhed::RoleTag... T_Roles>
+        auto selectBuffers(auto& buffers)
+        {
+            return std::apply(
+                [](auto&... buffer)
+                {
+                    return std::tuple_cat((
+                        [&]()
+                        {
+                            using Species = typename std::remove_cvref_t<decltype(buffer)>::Species;
+                            if constexpr((pmacc::spearhed::hasRole(Species{}, T_Roles{}) && ...))
+                                return std::tie(buffer);
+                            else
+                                return std::tuple<>{};
+                        }())...);
+                },
+                buffers);
+        }
+
+        auto selectTimestepBuffers(auto& buffers)
+        {
+            return std::apply(
+                [](auto&... buffer)
+                {
+                    return std::tuple_cat((
+                        [&]()
+                        {
+                            using Species = typename std::remove_cvref_t<decltype(buffer)>::Species;
+                            if constexpr(
+                                pmacc::spearhed::hasRole(Species{}, pmacc::spearhed::roles::Movable{})
+                                || std::same_as<Species, pmacc::spearhed::species::Default>)
+                                return std::tie(buffer);
+                            else
+                                return std::tuple<>{};
+                        }())...);
+                },
+                buffers);
+        }
+    } // namespace detail
+
+    Simulation::Simulation(caravan::MpiContext& mpiContext) : mpiContext{mpiContext}
+    {
+    }
 
     Simulation::~Simulation() = default;
 
@@ -93,7 +150,11 @@ namespace spearhed
             isPeriodic[i] = periodic[i];
         }
 
-        pmacc::Environment<simDim>::get().initDevices(gpus, isPeriodic);
+        pmacc::Environment<simDim>::get().initDevices(mpiContext, gpus, isPeriodic);
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
+        // Configure concurrent queues before the shared pool receives its first submission.
+        pmacc::Environment<>::get().DeviceContext().addQueues(6);
+#endif
         pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
 
         if(gc.getGlobalRank() == 0)
@@ -110,6 +171,7 @@ namespace spearhed
     void Simulation::pluginUnload()
     {
         pmacc::DataConnector& dc = pmacc::Environment<>::get().DataConnector();
+        frameIndices = FrameIndices{};
 
         BaseType::pluginUnload();
 
@@ -131,57 +193,120 @@ namespace spearhed
             BaseType::startSimulation();
     }
 
-    template<SphKernel K>
-    void Simulation::updateHydrodynamics()
-    {
-        auto& dc = pmacc::Environment<>::get().DataConnector();
-        // The integration target: the (single) species advanced in time and used as the bundle target.
-        auto& defaultSpecies = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
-            pmacc::spearhed::prBufId(pmacc::spearhed::species::default_));
-
-        auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
-
-        // Every present species that contributes to neighbour sums is a source; the boundary wall is
-        // included automatically when the setup created it, with no hardcoded species list.
-        pmacc::spearhed::withSpeciesBufsWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
-            [&](auto&... sources)
-            {
-                auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
-                // One frame index serves both passes: neither mutates frame-list topology, only
-                // particle attributes (see the FrameIndexBuffer invalidation contract).
-                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
-                auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
-                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
-                // bundle and index own device memory read by the still-queued kernels and die at the
-                // end of this scope, so this is the mandatory sync point for both passes.
-                (densityDone + hydroDone).waitForFinished();
-            });
-
-        // Euler update: v += dvdt*dt, u += dudt*dt. The forces computed above persist on the device
-        // buffers, so this runs as a separate phase. Only species that are both advanced in time
-        // (Movable) and carry thermodynamic accumulators (Thermodynamic) are integrated here, so
-        // Frozen wall species are skipped even though they may still be Thermodynamic sources.
-        pmacc::spearhed::forEachSpeciesBufWithPred(
-            allSpecies,
-            pmacc::spearhed::pred::
-                withAllRoles<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>,
-            [&](auto& buf)
-            {
-                pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, buf, spearhed::EulerIntegrate{}, dt);
-            });
-    }
-
     void Simulation::runOneStep(uint32_t currentStep)
     {
-        // order of operations? which species to start with?
-        // force calculation first? or pusher or something else?
-        ParticlePush{}(currentStep);
-        pmacc::spearhed::UpdateVolumes<PRType>{}();
-
+        static_cast<void>(currentStep);
         using SmoothingKernel = typename Setup::SmoothingKernel;
-        updateHydrodynamics<SmoothingKernel>();
+        using DefaultBuffer = pmacc::spearhed::ParticleRegionBuffer<PRType>;
+        using DefaultIndex = pmacc::spearhed::FrameIndexBuffer<PRType>;
+
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+        PMACC_VERIFY_MSG(
+            dc.hasId(pmacc::spearhed::prBufId(pmacc::spearhed::species::default_)),
+            "The default species buffer is required to run a simulation step");
+
+        // Keep the runtime presence decision outside the sender graph. Inside this callback, the
+        // concrete buffer pack gives every composition stage a compile-time sender type.
+        pmacc::spearhed::withSpeciesBufsWithPred(
+            allSpecies,
+            pmacc::spearhed::pred::always,
+            [&](auto&... presentBuffers)
+            {
+                auto buffers = std::tie(presentBuffers...);
+                if constexpr(detail::TupleContains<DefaultBuffer&, decltype(buffers)>::value)
+                {
+                    auto& defaultBuffer = std::get<DefaultBuffer&>(buffers);
+                    auto& defaultIndex = std::get<DefaultIndex>(frameIndices);
+                    auto const movable = detail::selectBuffers<pmacc::spearhed::roles::Movable>(buffers);
+                    auto const sources = detail::selectBuffers<pmacc::spearhed::roles::Source>(buffers);
+                    auto const relevant = detail::selectTimestepBuffers(buffers);
+                    auto const integrable = detail::
+                        selectBuffers<pmacc::spearhed::roles::Movable, pmacc::spearhed::roles::Thermodynamic>(buffers);
+
+                    auto indexFor = [this](auto& buffer) -> auto&
+                    {
+                        using Buffer = std::remove_cvref_t<decltype(buffer)>;
+                        return std::get<pmacc::spearhed::FrameIndexBuffer<typename Buffer::ParticleRegionType>>(
+                            frameIndices);
+                    };
+
+                    auto refresh = std::apply(
+                        [&](auto&... buffer)
+                        { return caravan::whenAll(indexFor(buffer).refreshIfStaleSender(buffer)...); },
+                        relevant);
+
+                    auto timestep
+                        = std::move(refresh)
+                          | caravan::letValue(
+                              [&, this]
+                              {
+                                  auto push = std::apply(
+                                      [&](auto&... buffer)
+                                      {
+                                          return caravan::whenAll(
+                                              pmacc::spearhed::launchForEach(
+                                                  pmacc::spearhed::levels::particle,
+                                                  buffer,
+                                                  indexFor(buffer),
+                                                  spearhed::PushVelocity<
+                                                      typename std::remove_cvref_t<decltype(buffer)>::Species>{},
+                                                  dt)...);
+                                      },
+                                      movable);
+                                  return std::move(push)
+                                         | caravan::sequence(pmacc::spearhed::UpdateVolumes<PRType>{}())
+                                         | caravan::letValue(
+                                             [&, this]
+                                             {
+                                                 auto const interactionRadius
+                                                     = static_cast<CS::T_Axis>(SmoothingKernel::supportRadius) * h0;
+                                                 return std::apply(
+                                                     [&](auto&... source)
+                                                     {
+                                                         return pmacc::spearhed::calculateNeighboursSender(
+                                                             defaultBuffer,
+                                                             interactionRadius,
+                                                             source...);
+                                                     },
+                                                     sources);
+                                             })
+                                         | caravan::letValue(
+                                             [&, this](auto& bundle)
+                                             {
+                                                 auto sourceViews
+                                                     = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+                                                 auto densityDone = spearhed::UpdateDensity<SmoothingKernel>{}(
+                                                     sourceViews,
+                                                     defaultBuffer,
+                                                     defaultIndex,
+                                                     h0);
+                                                 auto hydroDone = spearhed::UpdateHydroForces<SmoothingKernel>{
+                                                     gamma_eos}(sourceViews, defaultBuffer, defaultIndex, h0);
+                                                 auto integration = std::apply(
+                                                     [&](auto&... buffer)
+                                                     {
+                                                         return caravan::whenAll(
+                                                             pmacc::spearhed::launchForEach(
+                                                                 pmacc::spearhed::levels::particle,
+                                                                 buffer,
+                                                                 indexFor(buffer),
+                                                                 spearhed::EulerIntegrate{},
+                                                                 dt)...);
+                                                     },
+                                                     integrable);
+                                                 return std::move(densityDone)
+                                                        | caravan::sequence(std::move(hydroDone))
+                                                        | caravan::sequence(std::move(integration));
+                                             });
+                              });
+
+                    auto& device = pmacc::Environment<>::get().DeviceContext();
+                    // The simulation loop measures the step and invokes plugins after this function;
+                    // this single wait keeps that synchronous outer contract while allowing all stages
+                    // in the timestep to share their queue dependencies and cached indices.
+                    caravan::syncWait(caravan::alpaka::withDevice(device, std::move(timestep)));
+                }
+            });
     }
 
     void Simulation::init()
@@ -201,28 +326,13 @@ namespace spearhed
             throw std::runtime_error(msg.str());
         }
 
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        size_t heapSize = freeGpuMem - reservedGpuMemorySize;
-        pmacc::GridController<simDim>& gc = pmacc::Environment<simDim>::get().GridController();
-        if(pmacc::Environment<>::get().MemoryInfo().isSharedMemoryPool(
-               numRanksPerDevice,
-               gc.getCommunicator().getMPIComm()))
-        {
-            heapSize /= 2u;
-            pmacc::log<pmacc::PMaccVerbose::MEMORY>(
-                "Shared RAM between GPU and host detected - using only half of the 'device' memory.");
-        }
-        else
-            pmacc::log<pmacc::PMaccVerbose::MEMORY>("Device RAM is NOT shared between GPU and host.");
-
-        // initializing the heap for particles
-        // TODO use heapsize instead of the hard coded small heap
-        auto alpakaQueue = pmacc::eventSystem::getComputeDeviceQueue(pmacc::ITask::TASK_DEVICE)->getAlpakaQueue();
-        auto alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
-
+#if defined(PMACC_BACKEND_GpuCuda) || defined(PMACC_BACKEND_GpuHip)
+        // TODO: derive the mallocMC heap size from available memory; retain the existing fixed-size policy for now.
+        auto& alpakaDevice = pmacc::manager::Device<pmacc::ComputeDevice>::get().current();
+        auto alpakaQueue = alpakaDevice.makeQueue();
         size_t small_heap{2ull * 1024 * 1024 * 1024};
+        // mallocMC's FlatterScatter initializer waits for its kernel before returning.
         deviceHeap.emplace(alpakaDevice, alpakaQueue, small_heap);
-        alpaka::wait(alpakaQueue);
 #else
         deviceHeap.emplace(DeviceHeap{});
 #endif
@@ -239,11 +349,6 @@ namespace spearhed
             pmacc::log<pmacc::PMaccVerbose::MEMORY>("free mem after all mem is allocated %1% MiB")
                 % (freeGpuMem / 1024 / 1024);
         }
-
-#if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
-        /* add CUDA streams to the QueueController for concurrent execution */
-        pmacc::Environment<>::get().QueueController().addQueues(6);
-#endif
     }
 
     /**
@@ -260,6 +365,7 @@ namespace spearhed
         // load density description from param file. How is this independent from the domain size?
         //
         auto setup = Setup{};
+        frameIndices = FrameIndices{};
 
         std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
 
@@ -271,6 +377,8 @@ namespace spearhed
 
     void Simulation::resetAll(uint32_t currentStep)
     {
+        static_cast<void>(currentStep);
+        frameIndices = FrameIndices{};
     }
 
     void Simulation::movingWindowCheck(uint32_t currentStep)
@@ -284,7 +392,7 @@ namespace spearhed
         if(isDeviceSharedBetweenRanks)
         {
             // Synchronize to guarantee that all other MPI process on the same device allocated there memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         // free memory reported by the driver
@@ -305,23 +413,26 @@ namespace spearhed
             freeDeviceMemory /= numRanksPerDevice;
             // Synchronize to guarantee that all other MPI process on the same device see the same amount of free
             // memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         size_t allocatableMemory = freeDeviceMemory;
         bool memAlloced = false;
         // tmpBuffer avoids that the memory is freed before all other MPI ranks created there test buffer
-        std::optional<::alpaka::Buf<pmacc::ComputeDevice, std::byte, pmacc::AlpakaDim<1>, size_t>> tmpBuffer{};
+        using ProbeBuffer = decltype(::alpaka::onHost::alloc<std::byte>(
+            pmacc::manager::Device<pmacc::ComputeDevice>::get().current(),
+            size_t{1}));
+        std::optional<ProbeBuffer> tmpBuffer{};
 
         // Check how much memory can be allocated with a single allocation call.
         do
         {
             try
             {
-                auto testBuffer = alpaka::allocBuf<std::byte, size_t>(
+                auto testBuffer = ::alpaka::onHost::alloc<std::byte>(
                     pmacc::manager::Device<pmacc::ComputeDevice>::get().current(),
                     allocatableMemory);
-                tmpBuffer = testBuffer;
+                tmpBuffer = std::move(testBuffer);
                 memAlloced = true;
             }
             catch(...)
@@ -346,7 +457,7 @@ namespace spearhed
         if(isDeviceSharedBetweenRanks)
         {
             // Wait that all MPI processes had checked the available/allocatable memory.
-            MPI_CHECK(MPI_Barrier(gc.getCommunicator().getMPIComm()));
+            caravan::syncWait(gc.getCommunicator().barrier());
         }
 
         return allocatableMemory;

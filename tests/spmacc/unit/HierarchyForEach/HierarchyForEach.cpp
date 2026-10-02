@@ -30,14 +30,15 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/Definition.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
 
 #include <cstdint>
+#include <utility>
 
+#include <caravan/core/sender/let_value.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
@@ -67,11 +68,11 @@ struct HierarchySumKernel
                     frame,
                     [&](auto particle)
                     {
-                        alpaka::atomicAdd(
+                        ::alpaka::onAcc::atomicAdd(
                             worker.getAcc(),
                             &sumBox(0),
                             static_cast<T_Sum>(particle[spearhed::particleId]),
-                            ::alpaka::hierarchy::Blocks{});
+                            ::alpaka::onAcc::scope::Device{});
                     });
             });
     }
@@ -83,11 +84,11 @@ struct AtomicSumParticleIds
 {
     DINLINE constexpr void operator()(auto const& worker, auto particle, auto sumBox) const
     {
-        alpaka::atomicAdd(
+        ::alpaka::onAcc::atomicAdd(
             worker.getAcc(),
             &sumBox(0),
             static_cast<T_Sum>(particle[spearhed::particleId]),
-            ::alpaka::hierarchy::Blocks{});
+            ::alpaka::onAcc::scope::Device{});
     }
 };
 
@@ -96,11 +97,80 @@ struct CountFrameOnce
     DINLINE constexpr void operator()(auto const& worker, auto /*frameView*/, auto countBox) const
     {
         pmacc::lockstep::makeMaster(worker)(
-            [&]() { alpaka::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::hierarchy::Blocks{}); });
+            [&]()
+            {
+                ::alpaka::onAcc::atomicAdd(worker.getAcc(), &countBox(0), T_Sum{1}, ::alpaka::onAcc::scope::Device{});
+            });
     }
 };
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "Frame index sender handles empty and populated topology",
+    "[integration][particles][index]")
+{
+    sp::FrameIndexBuffer<spearhed::PRType> index;
+
+    // Version zero is a valid topology version, not evidence that an index was built.
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
+    REQUIRE(index.hasBuild);
+    REQUIRE(index.totalFrames == 0u);
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+    index.framesPerRegion.reset(); // Probe whether the fresh path actually enters the rebuild sender.
+    index.regionCapacity = 0u;
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
+    REQUIRE_FALSE(index.framesPerRegion.has_value()); // Fresh path does not recreate scratch storage.
+
+    // Freshness is checked at start, so changes after sender construction are observed.
+    auto delayedRefresh = index.refreshIfStaleSender(*prBuf);
+    ++prBuf->topologyVersion;
+    spearhed::test::runDevice(std::move(delayedRefresh));
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+
+    // Equal versions on different buffers must not alias the cached index.
+    pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType> otherBuffer;
+    otherBuffer.topologyVersion = index.builtVersion;
+    spearhed::test::runDevice(index.refreshIfStaleSender(otherBuffer));
+    REQUIRE(index.builtBuffer == &otherBuffer);
+    REQUIRE(index.builtVersion == otherBuffer.topologyVersion);
+
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::test::runDevice(index.refreshIfStaleSender(*prBuf));
+    REQUIRE(index.totalFrames == 0u);
+    REQUIRE(index.builtVersion == prBuf->topologyVersion);
+
+    spearhed::InitParticles{}(setup);
+    prBuf->synchronize();
+    uint32_t expectedFrames = 0u;
+    auto const hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+    for(int region = 0; region < prBuf->size; ++region)
+        expectedFrames += hostRegions[region].particleFrameList.numFrames();
+    REQUIRE(expectedFrames > 0u);
+
+    pmacc::HostDeviceBuffer<T_Sum, 1> frameCount(1u);
+    frameCount.getHostBuffer().setValue(0u);
+    spearhed::test::runDevice(frameCount.hostToDevice());
+
+    auto preparation = index.rebuildSender(*prBuf);
+    REQUIRE(index.totalFrames == 0u);
+    auto dependent = std::move(preparation)
+                     | caravan::letValue(
+                         [&]
+                         {
+                             return sp::launchForEach(
+                                 sp::levels::frame,
+                                 *prBuf,
+                                 index,
+                                 CountFrameOnce{},
+                                 frameCount.getDeviceBuffer().getDataBox());
+                         });
+    spearhed::test::runDevice(std::move(dependent));
+    spearhed::test::runDevice(frameCount.deviceToHost());
+    REQUIRE(frameCount.getHostBuffer().data()[0] == expectedFrames);
+}
 
 TEST_CASE_METHOD(
     ParticleFixture,
@@ -130,15 +200,14 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         constexpr uint32_t blockThreads = spearhed::FrameType::frameSize;
-        PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
-            .config<blockThreads>(
-                pmacc::DataSpace<DIM1>(1))(sp::deviceSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
+        spearhed::test::runDevice(PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
+                                      .config<blockThreads>(pmacc::DataSpace<DIM1>(
+                                          1))(sp::deviceSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox()));
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 
@@ -188,7 +257,7 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         // The accumulator box is forwarded as a kernel argument (not captured): a captured box would
         // be const inside the const kernel body, so &box(0) could not feed atomicAdd's T*.
@@ -197,9 +266,8 @@ TEST_CASE_METHOD(
             *prBuf,
             AtomicSumParticleIds{},
             sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 
@@ -207,7 +275,7 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> frameCount(1u);
         frameCount.getHostBuffer().setValue(0);
-        frameCount.hostToDevice();
+        spearhed::test::runDevice(frameCount.hostToDevice());
 
         // Contiguous schedule over a bounded grid: same result, different decomposition policy.
         sp::launchForEach(
@@ -216,9 +284,8 @@ TEST_CASE_METHOD(
             *prBuf,
             CountFrameOnce{},
             frameCount.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
 
-        frameCount.deviceToHost();
+        spearhed::test::runDevice(frameCount.deviceToHost());
         REQUIRE(frameCount.getHostBuffer().data()[0] == expectedFrames);
     }
 
@@ -239,15 +306,15 @@ TEST_CASE_METHOD(
         // auto, so passing a MultiSpeciesView exercises the pmacc-tuple fold end-to-end on device.
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         constexpr uint32_t blockThreads = spearhed::FrameType::frameSize;
-        PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
-            .config<blockThreads>(
-                pmacc::DataSpace<DIM1>(1))(sp::deviceMultiSpecies(*prBuf), sumBuffer.getDeviceBuffer().getDataBox());
-        pmacc::eventSystem::waitForAllTasks();
+        spearhed::test::runDevice(PMACC_LOCKSTEP_KERNEL(HierarchySumKernel{})
+                                      .config<blockThreads>(pmacc::DataSpace<DIM1>(1))(
+                                          sp::deviceMultiSpecies(*prBuf),
+                                          sumBuffer.getDeviceBuffer().getDataBox()));
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         REQUIRE(sumBuffer.getHostBuffer().data()[0] == expectedSum);
     }
 }
@@ -257,7 +324,11 @@ struct SumFunc
 {
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto sumBox) const
     {
-        alpaka::atomicAdd(worker.getAcc(), &sumBox(0), particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
+        ::alpaka::onAcc::atomicAdd(
+            worker.getAcc(),
+            &sumBox(0),
+            particle[spearhed::particleId],
+            ::alpaka::onAcc::scope::Device{});
     }
 };
 
@@ -278,11 +349,11 @@ TEST_CASE_METHOD(
     {
         pmacc::HostDeviceBuffer<T_Sum, 1> sumBuffer(1u);
         sumBuffer.getHostBuffer().setValue(0);
-        sumBuffer.hostToDevice();
+        spearhed::test::runDevice(sumBuffer.hostToDevice());
 
         sp::launchForEach(cfg, sp::levels::particle, *prBuf, SumFunc{}, sumBuffer.getDeviceBuffer().getDataBox());
 
-        sumBuffer.deviceToHost();
+        spearhed::test::runDevice(sumBuffer.deviceToHost());
         return sumBuffer.getHostBuffer().data()[0];
     };
 

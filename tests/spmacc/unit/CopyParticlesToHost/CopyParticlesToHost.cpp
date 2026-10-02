@@ -27,6 +27,7 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
+#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -38,6 +39,14 @@
 static constexpr unsigned TEST_DIM = spearhed::simDim;
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+struct OffsetParticleIds
+{
+    HDINLINE constexpr void operator()(auto&, auto& particle) const
+    {
+        particle[spearhed::particleId] += uint64_t{1000};
+    }
+};
 
 TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integration][particles][copy]")
 {
@@ -85,4 +94,18 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     std::iota(expected.begin(), expected.end(), uint64_t{0});
 
     REQUIRE(ids == expected);
+
+    // Update heap-resident frame data and ensure the next snapshot copies those changes to the host.
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, OffsetParticleIds{});
+    heapOffset = spearhed::syncHeapToHost();
+
+    ll::DynSoA<OutputRecord> updatedSoa;
+    pmacc::spearhed::CopyParticlesToDynSoA{}(*prBuf, updatedSoa, heapOffset);
+    auto updatedIdSpan = updatedSoa.getLeaf<ll::TagPath<spearhed::tags::particleId_t>>();
+    std::vector<uint64_t> updatedIds(updatedIdSpan.begin(), updatedIdSpan.end());
+    std::ranges::sort(updatedIds);
+
+    for(auto& id : expected)
+        id += 1000;
+    REQUIRE(updatedIds == expected);
 }

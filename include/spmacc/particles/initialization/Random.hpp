@@ -29,7 +29,7 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/random/Random.hpp>
 #include <pmacc/random/distributions/Uniform.hpp>
-#include <pmacc/random/methods/XorMin.hpp>
+#include <pmacc/random/methods/AlpakaRand.hpp>
 
 #include <cstdint>
 #include <type_traits>
@@ -70,7 +70,7 @@ namespace pmacc::spearhed
      * For a custom PDF, implement the inverse CDF and wrap it in a functor.
      *
      */
-    template<CoordinateSystem CS, template<typename> class T_RNGMethod = random::methods::XorMin>
+    template<CoordinateSystem CS, template<typename> class T_RNGMethod = random::methods::AlpakaRand>
     struct Random
     {
         DINLINE void operator()(

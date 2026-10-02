@@ -51,7 +51,7 @@ namespace pmacc::spearhed
 
         constexpr void extend(Vec const& vec)
         {
-            pmacc::spearhed::for_each_tag<CS>(
+            for_each_tag<CS>(
                 [&](auto tag)
                 {
                     if(vec[tag] < min[tag])
@@ -63,7 +63,7 @@ namespace pmacc::spearhed
 
         constexpr void extend(AABB const& other)
         {
-            pmacc::spearhed::for_each_tag<CS>(
+            for_each_tag<CS>(
                 [&](auto tag)
                 {
                     if(other.min[tag] < min[tag])
@@ -79,7 +79,7 @@ namespace pmacc::spearhed
         constexpr AABB expand(TAxis margin) const
         {
             AABB result = *this;
-            pmacc::spearhed::for_each_tag<CS>(
+            for_each_tag<CS>(
                 [&](auto tag)
                 {
                     result.min[tag] -= margin;
@@ -115,8 +115,7 @@ namespace pmacc::spearhed
         // This may need to be optimized later
         friend constexpr bool intersects(const AABB& a, const AABB& b)
         {
-            return pmacc::spearhed::all_of_tag<CS>([&](auto tag)
-                                                   { return !(a.min[tag] > b.max[tag] || a.max[tag] < b.min[tag]); });
+            return all_of_tag<CS>([&](auto tag) { return !(a.min[tag] > b.max[tag] || a.max[tag] < b.min[tag]); });
         }
 
         // The position of this Volume in the global coordinate system

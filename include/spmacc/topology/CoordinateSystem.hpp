@@ -96,9 +96,7 @@ namespace pmacc::spearhed
     {
         constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        {
-            (f(std::integral_constant<std::size_t, Is>{}, pmacc::spearhed::tag_of<T_CS, Is>{}), ...);
-        }(std::make_index_sequence<N>{});
+        { (f(std::integral_constant<std::size_t, Is>{}, tag_of<T_CS, Is>{}), ...); }(std::make_index_sequence<N>{});
     }
 
     template<CoordinateSystem T_CS, typename F>
@@ -106,7 +104,7 @@ namespace pmacc::spearhed
     {
         constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { (f(pmacc::spearhed::tag_of<T_CS, Is>{}), ...); }(std::make_index_sequence<N>{});
+        { (f(tag_of<T_CS, Is>{}), ...); }(std::make_index_sequence<N>{});
     }
 
     template<CoordinateSystem T_CS, typename F>
@@ -114,7 +112,7 @@ namespace pmacc::spearhed
     {
         constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         return [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { return (f(pmacc::spearhed::tag_of<T_CS, Is>{}) && ...); }(std::make_index_sequence<N>{});
+        { return (f(tag_of<T_CS, Is>{}) && ...); }(std::make_index_sequence<N>{});
     }
 
     template<CoordinateSystem T_CS, typename F>
@@ -122,7 +120,7 @@ namespace pmacc::spearhed
     {
         constexpr std::size_t N = std::tuple_size_v<typename T_CS::tags>;
         return [&]<std::size_t... Is>(std::index_sequence<Is...>)
-        { return (f(pmacc::spearhed::tag_of<T_CS, Is>{}) || ...); }(std::make_index_sequence<N>{});
+        { return (f(tag_of<T_CS, Is>{}) || ...); }(std::make_index_sequence<N>{});
     }
 
 

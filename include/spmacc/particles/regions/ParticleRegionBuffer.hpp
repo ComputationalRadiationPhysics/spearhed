@@ -23,6 +23,7 @@
 
 #include "spmacc/particles/regions/RegionRole.hpp"
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/dataManagement/DataConnector.hpp>
 #include <pmacc/dataManagement/ISimulationData.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
@@ -33,6 +34,8 @@
 #include <optional>
 #include <tuple>
 #include <utility>
+
+#include <caravan/alpaka.hpp>
 
 namespace pmacc::spearhed
 {
@@ -67,10 +70,11 @@ namespace pmacc::spearhed
             return buffer->getDeviceBuffer().getDataBox();
         }
 
-        void synchronize() override
+        void synchronize()
         {
-            buffer->deviceToHost();
-        };
+            auto& device = pmacc::Environment<>::get().DeviceContext();
+            caravan::syncWait(caravan::alpaka::withDevice(device, buffer->deviceToHost()));
+        }
 
         SimulationDataId getUniqueId() override
         {

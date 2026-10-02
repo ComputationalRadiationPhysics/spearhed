@@ -26,11 +26,13 @@
 #include "spmacc/particles/algorithms/FrameSchedule.hpp"
 #include "spmacc/particles/algorithms/HierarchyForEach.hpp"
 
+#include <pmacc/Environment.hpp>
 #include <pmacc/attribute/FunctionSpecifier.hpp>
-#include <pmacc/eventSystem/events/EventTask.hpp>
 
 #include <type_traits>
 #include <utility>
+
+#include <caravan/alpaka.hpp>
 
 /*
  * Launch distribution for the particle hierarchy: the host entry that dispatches a GPU kernel.
@@ -101,11 +103,10 @@ namespace pmacc::spearhed
      * The decomposition ("which block gets which frame") is a swappable value object, while the
      * per-element work composes the hierarchy iterator with the lockstep slot combinator.
      *
-     * Asynchronous: does NOT synchronise -- the kernel is merely enqueued and this function returns
-     * immediately. Every device allocation reachable from the launch -- @p prBuf, @p index, and any
-     * buffer viewed by @p args -- must outlive kernel COMPLETION, not just this call (PMacc buffer
-     * destructors do not wait for in-flight kernels). The caller synchronises via the returned event
-     * at its natural sync point (see launchForEachFrameInBlockIndexed in FrameDispatch.hpp).
+     * Returns a lazy sender and does NOT synchronise. Every device allocation reachable from the launch --
+     * @p prBuf, @p index, and any buffer viewed by @p args -- must outlive sender completion (PMacc buffer
+     * destructors do not wait for in-flight kernels). Compose the sender with dependent work or execute it with
+     * syncWait at the caller's natural boundary.
      *
      * @param cfg    A constexpr ForEachConfig (schedule + grid + thread count); see forEachConfig /
      *               defaultForEach in FrameSchedule.hpp. This is the "better algorithm" knob, e.g.
@@ -120,8 +121,7 @@ namespace pmacc::spearhed
      * @param args   Extra kernel arguments forwarded by value to @p body. Prefer this over lambda
      *               capture for device data boxes: a captured box is const inside the (const)
      *               kernel body, whereas a forwarded argument arrives as a mutable parameter.
-     * @return EventTask for the enqueued kernel. Wait on it with waitForFinished() before destroying
-     *         any buffer the kernel touches.
+     * @return Lazy sender that enqueues the kernel when started.
      */
     template<
         typename T_Cfg,
@@ -131,7 +131,7 @@ namespace pmacc::spearhed
         typename T_Body,
         typename... T_Args>
     requires(!IsHierarchyLevel<T_Cfg> && IsFrameIndexBuffer<T_Index>)
-    [[nodiscard]] pmacc::EventTask launchForEach(
+    [[nodiscard]] auto launchForEach(
         T_Cfg cfg,
         T_Target /*target*/,
         T_PRBuf& prBuf,
@@ -158,12 +158,7 @@ namespace pmacc::spearhed
     //! with a caller-built FrameIndexBuffer. Same asynchrony and lifetime contract as above.
     template<IsHierarchyLevel T_Target, typename T_PRBuf, typename T_Index, typename T_Body, typename... T_Args>
     requires IsFrameIndexBuffer<T_Index>
-    [[nodiscard]] pmacc::EventTask launchForEach(
-        T_Target target,
-        T_PRBuf& prBuf,
-        T_Index& index,
-        T_Body body,
-        T_Args&&... args)
+    [[nodiscard]] auto launchForEach(T_Target target, T_PRBuf& prBuf, T_Index& index, T_Body body, T_Args&&... args)
     {
         return launchForEach(defaultForEach, target, prBuf, index, body, std::forward<T_Args>(args)...);
     }
@@ -191,7 +186,11 @@ namespace pmacc::spearhed
             return;
         FrameIndexBuffer<typename std::remove_reference_t<decltype(prBuf)>::ParticleRegionType> index{prBuf};
         // Mandatory: index dies at the end of this scope, so the kernel must finish before that.
-        launchForEach(cfg, target, prBuf, index, body, std::forward<T_Args>(args)...).waitForFinished();
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        caravan::syncWait(
+            caravan::alpaka::withDevice(
+                device,
+                launchForEach(cfg, target, prBuf, index, body, std::forward<T_Args>(args)...)));
     }
 
     //! Convenience overload using the default decomposition (grid-stride over one block per frame)

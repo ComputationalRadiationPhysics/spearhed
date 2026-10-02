@@ -18,7 +18,7 @@ SOD_OUTPUT=path-to-spearhed-sod-2d-output
 
 cmake -S "$SPEARHED_ROOT" -B "$SOD_BUILD" \
     -DCMAKE_BUILD_TYPE=Release \
-    -Dalpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE=ON \
+    -DPMACC_BACKEND=CpuOmpBlocks \
     -DSPEARHED_ENABLE_OPENPMD=ON \
     -DSPEARHED_SETUP_FILE="$SPEARHED_ROOT/share/spearhed/ValidationSetups/SodShockTube.hpp" \
     -DSPEARHED_PARAM_DIR="$SPEARHED_ROOT/share/spearhed/ValidationSetups/SodShockTube2D"
@@ -50,9 +50,8 @@ fresh build directory:
 | 2D | `SodShockTube2D` |
 | 3D | `SodShockTube3D` |
 
-The serial CPU backend can be selected with
-`-Dalpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE=ON`, but OMP2 is substantially faster for
-larger runs.
+The serial CPU backend can be selected with `-DPMACC_BACKEND=CpuSerial`, but
+OpenMP blocks are substantially faster for larger runs.
 
 ## Parameter table
 

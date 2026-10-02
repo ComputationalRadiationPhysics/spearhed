@@ -60,11 +60,12 @@
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
-#include <pmacc/test/PMaccFixture.hpp>
 
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
@@ -263,7 +264,7 @@ namespace
     {
         using namespace pmacc::spearhed::tags;
         using namespace spearhed::tags;
-        buf.buffer->deviceToHost();
+        spearhed::test::runDevice(buf.buffer->deviceToHost());
         int64_t const heapOffset = spearhed::syncHeapToHost();
         auto box = buf.buffer->getHostBuffer().getDataBox();
 
@@ -406,7 +407,7 @@ TEST_CASE_METHOD(
         // capture boundary initial positions
 
         auto& boundaryBuf = *this->template prBufFor<species::Boundary>();
-        boundaryBuf.buffer->deviceToHost();
+        spearhed::test::runDevice(boundaryBuf.buffer->deviceToHost());
         int64_t const initHeapOffset = spearhed::syncHeapToHost();
         auto initBox = boundaryBuf.buffer->getHostBuffer().getDataBox();
 
@@ -433,21 +434,39 @@ TEST_CASE_METHOD(
         for(uint32_t step = 0; step < 5u; ++step)
         {
             spearhed::ParticlePush{}(step);
-            pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-            auto bundle = pmacc::spearhed::calculateNeighbours(
-                *prBuf,
-                interactionRadius,
-                *prBuf,
-                *this->template prBufFor<species::Boundary>());
-            // One frame index serves both passes: neither mutates frame-list topology, only
-            // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
-            // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
-            pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-            auto densityDone = spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0);
-            auto hydroDone = spearhed::UpdateHydroForces<K>{spearhed::gamma_eos}(bundle, *prBuf, index, spearhed::h0);
-            // bundle and index own device memory read by the still-queued kernels and die at the
-            // end of this scope, so this is the mandatory sync point for both passes.
-            (densityDone + hydroDone).waitForFinished();
+            auto boundsDone = pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+            auto index = std::make_shared<pmacc::spearhed::FrameIndexBuffer<spearhed::PRType>>();
+            auto hydrodynamics
+                = std::move(boundsDone)
+                  | caravan::letValue(
+                      [&]
+                      {
+                          return pmacc::spearhed::calculateNeighboursSender(
+                              *prBuf,
+                              interactionRadius,
+                              *prBuf,
+                              *this->template prBufFor<species::Boundary>());
+                      })
+                  | caravan::letValue(
+                      [this, index](auto& bundle)
+                      {
+                          // ParticlePush can mutate frame-list topology between steps, so rebuild each iteration.
+                          return index->rebuildSender(*prBuf)
+                                 | caravan::letValue(
+                                     [this, index, bundlePtr = &bundle]
+                                     {
+                                         auto sourceViews
+                                             = bundlePtr->template selectByRole<pmacc::spearhed::roles::Source>();
+                                         auto densityDone
+                                             = spearhed::UpdateDensity<K>{}(sourceViews, *prBuf, *index, spearhed::h0);
+                                         auto hydroDone = spearhed::UpdateHydroForces<K>{
+                                             spearhed::gamma_eos}(sourceViews, *prBuf, *index, spearhed::h0);
+                                         return std::move(densityDone)
+                                                | caravan::alpaka::sequence(std::move(hydroDone));
+                                     });
+                      });
+            // Bounds precede neighbour counting; bundle and index storage survive both hydrodynamics passes.
+            spearhed::test::runDevice(std::move(hydrodynamics));
             pmacc::spearhed::launchForEach(
                 pmacc::spearhed::levels::particle,
                 *prBuf,
@@ -458,7 +477,7 @@ TEST_CASE_METHOD(
         // CHECK 1: boundary positions frozen
 
         {
-            boundaryBuf.buffer->deviceToHost();
+            spearhed::test::runDevice(boundaryBuf.buffer->deviceToHost());
             int64_t const heapOffset = spearhed::syncHeapToHost();
             auto finalBox = boundaryBuf.buffer->getHostBuffer().getDataBox();
 
@@ -492,7 +511,7 @@ TEST_CASE_METHOD(
         // CHECK 2: interior confined in [-1, 1]^2
 
         {
-            prBuf->buffer->deviceToHost();
+            spearhed::test::runDevice(prBuf->buffer->deviceToHost());
             int64_t const heapOffset = spearhed::syncHeapToHost();
             auto interiorBox = prBuf->buffer->getHostBuffer().getDataBox();
 
@@ -560,7 +579,7 @@ TEST_CASE_METHOD(
         // ordering - is identical, which makes the index-by-index comparison below valid.
         auto readInteriorDensities = [&]()
         {
-            prBuf->buffer->deviceToHost();
+            spearhed::test::runDevice(prBuf->buffer->deviceToHost());
             int64_t const heapOffset = spearhed::syncHeapToHost();
             auto box = prBuf->buffer->getHostBuffer().getDataBox();
 
@@ -585,7 +604,7 @@ TEST_CASE_METHOD(
         // device memory read by the queued kernel, so it must outlive the wait below.
         {
             pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
-            spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0).waitForFinished();
+            spearhed::test::runDevice(spearhed::UpdateDensity<K>{}(bundle, *prBuf, index, spearhed::h0));
         }
         auto const referenceDensities = readInteriorDensities();
 
@@ -595,8 +614,13 @@ TEST_CASE_METHOD(
             auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
             using PRType = spearhed::PRType;
             pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
-            pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, spearhed::AccumulateDensity<K>{})
-                .waitForFinished();
+            spearhed::test::runDevice(
+                pmacc::spearhed::interact(
+                    sources,
+                    *prBuf,
+                    index,
+                    interactionRadius,
+                    spearhed::AccumulateDensity<K>{}));
         }
         auto const manualDensities = readInteriorDensities();
 

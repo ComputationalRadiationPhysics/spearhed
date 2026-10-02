@@ -189,28 +189,27 @@ namespace spearhed
          *  and timesteps while the frame-list topology is unchanged. The same index also drives the
          *  zeroing launch below, so no separate index build/scan is paid for that pass either.
          *
-         *  Asynchronous: returns the combined EventTask of both enqueued launches; the bundle, target
-         *  and index must outlive kernel completion (see interact()'s lifetime contract). */
-        [[nodiscard]] pmacc::EventTask operator()(
+         *  Returns a lazy composed sender. The bundle, target, index, and any device arguments must
+         *  outlive sender completion (see interact()'s lifetime contract). */
+        [[nodiscard]] auto operator()(
             pmacc::spearhed::IsNeighbourBundle auto&& neighbourBundle,
             auto& target,
             auto& index,
             typename CS::T_Axis h0) const
         {
-            // PMacc transaction ordering runs this zeroing kernel before the interaction kernels
-            // enqueued by interact() below on the device queue, so no host wait is needed between
-            // them -- only the caller's eventual wait on the combined event.
+            // Sequence on the native queue so interaction reads zeroed derivatives.
             auto zeroDone
                 = pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, target, index, ZeroDerivatives{});
 
             auto sources = neighbourBundle.template selectByRole<pmacc::spearhed::roles::Source>();
-            return zeroDone
-                   + pmacc::spearhed::interact(
-                       sources,
-                       target,
-                       index,
-                       static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
-                       HydroInteraction<KernelT>{gamma});
+            return std::move(zeroDone)
+                   | caravan::alpaka::sequence(
+                       pmacc::spearhed::interact(
+                           sources,
+                           target,
+                           index,
+                           static_cast<typename CS::T_Axis>(KernelT::supportRadius) * h0,
+                           HydroInteraction<KernelT>{gamma}));
         }
     };
 

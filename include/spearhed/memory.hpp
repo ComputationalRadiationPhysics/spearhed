@@ -26,6 +26,8 @@
 
 #include <cstdint>
 
+#include <caravan/alpaka.hpp>
+
 namespace spearhed
 {
     /** Sync the device heap to its host-mapped buffer and return the pointer offset.
@@ -37,11 +39,12 @@ namespace spearhed
      * On CPU serial backends MallocMCBuffer::synchronize() is a no-op and the
      * returned offset is 0.
      */
-    inline int64_t syncHeapToHost()
+    [[nodiscard]] inline int64_t syncHeapToHost()
     {
         auto& dc = pmacc::Environment<simDim>::get().DataConnector();
         auto buf = dc.get<pmacc::MallocMCBuffer<DeviceHeap>>(pmacc::MallocMCBuffer<DeviceHeap>::getName());
-        buf->synchronize();
+        auto& device = pmacc::Environment<>::get().DeviceContext();
+        caravan::syncWait(caravan::alpaka::withDevice(device, buf->synchronize()));
         return buf->getOffset();
     }
 
