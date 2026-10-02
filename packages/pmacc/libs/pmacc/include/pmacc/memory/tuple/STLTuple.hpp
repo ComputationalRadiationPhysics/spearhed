@@ -39,6 +39,7 @@
 #include <boost/predef.h>
 
 #include <concepts>
+#include <functional>
 #include <type_traits>
 #include <utility>
 
@@ -101,7 +102,7 @@ namespace pmacc
 
             // Deduction guide for Tuple to contruct with values
             template<typename T, typename... Ts>
-            Tuple(T&&, Ts&&...) -> Tuple<std::remove_cvref_t<T>, std::remove_cvref_t<Ts>...>;
+            Tuple(T&&, Ts&&...) -> Tuple<std::decay_t<T>, std::decay_t<Ts>...>;
 
             /// @brief Extracts the Kth element from the tuple.
             /// @tparam K The index of the element to extract (0-based).
@@ -174,7 +175,7 @@ namespace pmacc
             template<typename... Args>
             HDINLINE constexpr auto make_tuple(Args&&... args)
             {
-                return Tuple<std::remove_cvref_t<Args>...>(std::forward<Args>(args)...);
+                return Tuple<std::unwrap_ref_decay_t<Args>...>(std::forward<Args>(args)...);
             }
 
             /// @brief Creates a tuple of forwarding references to the provided arguments.
