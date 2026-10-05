@@ -27,9 +27,18 @@ namespace llama_lite
             {
                 return true;
             }
+
+            template<typename Path>
+            static consteval bool covers_subtree(Path)
+            {
+                return true;
+            }
         };
 
-        // Policy: Iterate only specific paths (and their children)
+        // Policy: Iterate only specific paths (and their children).
+        // `allow` controls traversal; `covers_subtree` controls whether a composite visitor may
+        // handle the node without descending into its children. Custom selectors must provide both
+        // queries. Coverage is conservative: selecting each child independently still recurses.
         // - Continues traversal if 'Path' is a prefix of a target (to reach it).
         // - Visits 'Path' if it is a descendant of a target (inside the match).
         // TODO require Targets is a set and doesnt have descendents of other targets
@@ -43,9 +52,16 @@ namespace llama_lite
                 // OR if it is already inside a target (descendant)
                 return ((isAncestorOf(Path{}, Targets{}) || isDescendantOf(Path{}, Targets{})) || ...);
             }
+
+            template<typename Path>
+            static consteval bool covers_subtree(Path)
+            {
+                // A selected ancestor (or this path itself) includes the whole subtree.
+                return (isDescendantOf(Path{}, Targets{}) || ...);
+            }
         };
 
-        // Policy: Iterate everything EXCEPT specific paths
+        // Policy: Iterate everything EXCEPT specific paths.
         // - Prunes traversal if 'Path' matches or is inside a target.
         template<IsRecordAccess... Targets>
         struct Exclude
@@ -55,6 +71,13 @@ namespace llama_lite
             {
                 // Stop if Path is a descendant of (or equal to) any target
                 return !((isDescendantOf(Path{}, Targets{})) || ...);
+            }
+
+            template<typename Path>
+            static consteval bool covers_subtree(Path)
+            {
+                // An exclusion anywhere inside the subtree means it is only partially selected.
+                return !((isAncestorOf(Path{}, Targets{}) || isDescendantOf(Path{}, Targets{})) || ...);
             }
         };
     } // namespace selectors
@@ -81,25 +104,24 @@ namespace llama_lite
                 {
                     using Val = typename Field::value_type;
 
-                    if constexpr(traits::IsTraitSpecialized<VisitorTrait, Field>::value)
+                    if constexpr(IsRecord<Val>)
                     {
-                        VisitorTrait<Field>{}(view[FieldTag{}], args...);
-                    }
-                    else
-                    {
-                        // Access the field instance
-                        // auto& field_instance = std::get<I>(fields);
-                        if constexpr(IsRecord<Val>)
+                        if constexpr(
+                            Selector::covers_subtree(NextPath{})
+                            && traits::IsTraitSpecialized<VisitorTrait, Field>::value)
                         {
-                            // Recursively iterate sub-record
-                            // Assumes field_instance is the sub-record or convertible to it
-                            iterate_recursive<Val, NextPath, Selector, VisitorTrait>(view[FieldTag{}], args...);
+                            VisitorTrait<Field>{}(view[FieldTag{}], args...);
                         }
                         else
                         {
-                            // Visit leaf
-                            VisitorTrait<Field>{}(view[FieldTag{}], args...);
+                            // Recurse when selection is partial, even if the record has a visitor.
+                            iterate_recursive<Val, NextPath, Selector, VisitorTrait>(view[FieldTag{}], args...);
                         }
+                    }
+                    else
+                    {
+                        // Visit leaf
+                        VisitorTrait<Field>{}(view[FieldTag{}], args...);
                     }
                 }
             };
@@ -124,9 +146,18 @@ namespace llama_lite
                 {
                     using Val = typename Field::value_type;
 
-                    if constexpr(IsRecord<Val> && !traits::IsTraitSpecialized<VisitorTrait, NextPath>::value)
+                    if constexpr(IsRecord<Val>)
                     {
-                        iterate_path_recursive<Val, NextPath, Selector, VisitorTrait>(args...);
+                        if constexpr(
+                            Selector::covers_subtree(NextPath{})
+                            && traits::IsTraitSpecialized<VisitorTrait, NextPath>::value)
+                        {
+                            VisitorTrait<NextPath>{}(args...);
+                        }
+                        else
+                        {
+                            iterate_path_recursive<Val, NextPath, Selector, VisitorTrait>(args...);
+                        }
                     }
                     else
                     {
