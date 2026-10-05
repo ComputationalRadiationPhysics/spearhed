@@ -171,7 +171,7 @@ namespace llama_lite
          *
          * Example:
          * @code
-         * auto xSpan = dynSoa.getLeaf(TagPath<vel_t, x_t>{});
+         * auto xSpan = dynSoa.getLeaf(vel / x);
          * @endcode
          */
         template<IsRecordAccess RA>

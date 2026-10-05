@@ -65,8 +65,7 @@ namespace
 
     using MassLeaves = ll::Set<ll::TagPath<massO_t>>;
     using PositionLeaves = ll::Set<ll::TagPath<posO_t, xO_t>, ll::TagPath<posO_t, yO_t>, ll::TagPath<posO_t, zO_t>>;
-    using OverlappingView
-        = decltype(std::declval<ll::One<ParticleOne>&>().view(posO_t{}, ll::TagPath<posO_t, xO_t>{}));
+    using OverlappingView = decltype(std::declval<ll::One<ParticleOne>&>().view(posO, posO / xO));
     using EmptyRootView = ll::View<ll::One<EmptyRecord>, ll::Set<>>;
 
     static_assert(std::is_same_v<
@@ -107,14 +106,14 @@ TEST_CASE("getSelectedLeaves reports canonical view selections", "[View]")
 TEST_CASE("SoA getLeaf accepts tags and preserves const access", "[SoA]")
 {
     ll::SoA<ParticleOne, 2> soa{};
-    auto xSpan = soa.getLeaf(ll::TagPath<posO_t, xO_t>{});
-    auto massSpan = soa.getLeaf(massO_t{});
+    auto xSpan = soa.getLeaf(posO / xO);
+    auto massSpan = soa.getLeaf(massO);
     xSpan[0] = 3.0f;
     massSpan[0] = 42.0;
 
     ll::SoA<ParticleOne, 2> const& constSoa = soa;
-    auto constXSpan = constSoa.getLeaf(ll::TagPath<posO_t, xO_t>{});
-    auto constMassSpan = constSoa.getLeaf(massO_t{});
+    auto constXSpan = constSoa.getLeaf(posO / xO);
+    auto constMassSpan = constSoa.getLeaf(massO);
     STATIC_CHECK(std::is_const_v<typename decltype(constXSpan)::element_type>);
     STATIC_CHECK(std::is_const_v<typename decltype(constMassSpan)::element_type>);
     CHECK(constXSpan[0] == Catch::Approx(3.0f));

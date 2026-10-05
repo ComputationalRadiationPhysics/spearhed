@@ -86,7 +86,7 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
     REQUIRE(dynSoa.size() == totalParticles);
 
     // Collect all particle IDs and verify they form the contiguous range [0, totalParticles).
-    auto idSpan = dynSoa.getLeaf(ll::TagPath<spearhed::tags::particleId_t>{});
+    auto idSpan = dynSoa.getLeaf(spearhed::tags::particleId);
     std::vector<uint64_t> ids(idSpan.begin(), idSpan.end());
     std::ranges::sort(ids);
 
@@ -101,7 +101,7 @@ TEST_CASE_METHOD(ParticleFixture, "CopyParticlesToDynSoA correctness", "[integra
 
     ll::DynSoA<OutputRecord> updatedSoa;
     pmacc::spearhed::CopyParticlesToDynSoA{}(*prBuf, updatedSoa, heapOffset);
-    auto updatedIdSpan = updatedSoa.getLeaf(ll::TagPath<spearhed::tags::particleId_t>{});
+    auto updatedIdSpan = updatedSoa.getLeaf(spearhed::tags::particleId);
     std::vector<uint64_t> updatedIds(updatedIdSpan.begin(), updatedIdSpan.end());
     std::ranges::sort(updatedIds);
 

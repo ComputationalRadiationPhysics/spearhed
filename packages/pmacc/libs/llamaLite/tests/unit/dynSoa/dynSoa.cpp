@@ -41,13 +41,13 @@ TEST_CASE("DynSoA leaf spans have correct size after resize", "[DynSoA]")
     constexpr size_t N = 50u;
     ll::DynSoA<ParticleRecord> soa(N);
 
-    CHECK(soa.getLeaf(ll::TagPath<posD_t, xComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(ll::TagPath<posD_t, yComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(ll::TagPath<posD_t, zComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(ll::TagPath<velD_t, xComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(ll::TagPath<velD_t, yComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(ll::TagPath<velD_t, zComp_t>{}).size() == N);
-    CHECK(soa.getLeaf(massD_t{}).size() == N);
+    CHECK(soa.getLeaf(posD / xComp).size() == N);
+    CHECK(soa.getLeaf(posD / yComp).size() == N);
+    CHECK(soa.getLeaf(posD / zComp).size() == N);
+    CHECK(soa.getLeaf(velD / xComp).size() == N);
+    CHECK(soa.getLeaf(velD / yComp).size() == N);
+    CHECK(soa.getLeaf(velD / zComp).size() == N);
+    CHECK(soa.getLeaf(massD).size() == N);
 }
 
 TEST_CASE("DynSoA read/write round-trip via getLeaf", "[DynSoA]")
@@ -56,8 +56,8 @@ TEST_CASE("DynSoA read/write round-trip via getLeaf", "[DynSoA]")
     ll::DynSoA<ParticleRecord> soa(N);
 
     // Write
-    auto xSpan = soa.getLeaf(ll::TagPath<posD_t, xComp_t>{});
-    auto mSpan = soa.getLeaf(massD_t{});
+    auto xSpan = soa.getLeaf(posD / xComp);
+    auto mSpan = soa.getLeaf(massD);
     for(size_t i = 0; i < N; ++i)
     {
         xSpan[i] = static_cast<float>(i) * 0.5f;
@@ -66,8 +66,8 @@ TEST_CASE("DynSoA read/write round-trip via getLeaf", "[DynSoA]")
 
     // Read back (via const)
     ll::DynSoA<ParticleRecord> const& csoa = soa;
-    auto cxSpan = csoa.getLeaf(ll::TagPath<posD_t, xComp_t>{});
-    auto cmSpan = csoa.getLeaf(massD_t{});
+    auto cxSpan = csoa.getLeaf(posD / xComp);
+    auto cmSpan = csoa.getLeaf(massD);
     for(size_t i = 0; i < N; ++i)
     {
         CHECK(cxSpan[i] == Catch::Approx(static_cast<float>(i) * 0.5f));
@@ -80,8 +80,8 @@ TEST_CASE("DynSoA leaf spans are contiguous and independent", "[DynSoA]")
     constexpr size_t N = 10u;
     ll::DynSoA<ParticleRecord> soa(N);
 
-    auto xSpan = soa.getLeaf(ll::TagPath<posD_t, xComp_t>{});
-    auto ySpan = soa.getLeaf(ll::TagPath<posD_t, yComp_t>{});
+    auto xSpan = soa.getLeaf(posD / xComp);
+    auto ySpan = soa.getLeaf(posD / yComp);
 
     // Fill x with 1, y with 2
     std::fill(xSpan.begin(), xSpan.end(), 1.0f);

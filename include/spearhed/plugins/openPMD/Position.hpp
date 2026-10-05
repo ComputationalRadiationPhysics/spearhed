@@ -56,15 +56,15 @@ namespace pmacc::spearhed
             const
         {
             using namespace pmacc::spearhed::tags;
-            using ::spearhed::output::position_t;
+            using ::spearhed::output::position;
             using CS = std::remove_cvref_t<decltype(region.volume.origin)>::CS;
 
             pmacc::spearhed::for_each_tag<CS>(
                 [&](auto axisTag)
                 {
                     auto const o = region.volume.origin[axisTag];
-                    auto const srcSpan = srcSoa.getLeaf(ll::TagPath<relativePos_t, decltype(axisTag)>{});
-                    auto dstSpan = dst.getLeaf(ll::TagPath<position_t, decltype(axisTag)>{});
+                    auto const srcSpan = srcSoa.getLeaf(relativePos / axisTag);
+                    auto dstSpan = dst.getLeaf(position / axisTag);
 
                     for(uint32_t i = 0; i < count; ++i)
                         dstSpan[offset + i] = o + srcSpan[i];

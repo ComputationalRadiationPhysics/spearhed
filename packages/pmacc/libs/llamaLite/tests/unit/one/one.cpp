@@ -33,8 +33,8 @@ TEST_CASE("One container provides correct SoA-style access and mutation", "[One]
 
     SECTION("Direct leaf spans guarantee single-element storage and const-correctness")
     {
-        auto xSpan = one.getLeaf(ll::TagPath<posO_t, xO_t>{});
-        auto mSpan = one.getLeaf(massO_t{});
+        auto xSpan = one.getLeaf(posO / xO);
+        auto mSpan = one.getLeaf(massO);
 
         REQUIRE(xSpan.size() == 1u);
         REQUIRE(mSpan.size() == 1u);
@@ -43,8 +43,8 @@ TEST_CASE("One container provides correct SoA-style access and mutation", "[One]
         mSpan[0] = 2.71828;
 
         auto const& cone = one;
-        CHECK(cone.getLeaf(ll::TagPath<posO_t, xO_t>{})[0] == Catch::Approx(3.14f));
-        CHECK(cone.getLeaf(massO_t{})[0] == Catch::Approx(2.71828));
+        CHECK(cone.getLeaf(posO / xO)[0] == Catch::Approx(3.14f));
+        CHECK(cone.getLeaf(massO)[0] == Catch::Approx(2.71828));
     }
 
     SECTION("Structural and indexed access mutate the owning storage")
