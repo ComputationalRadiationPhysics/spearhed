@@ -167,6 +167,25 @@ namespace llama_lite
         // using accessor_for_field = accessor_t<Field<QueryTag, field_for<QueryTag>>>;
     };
 
+    /**
+     * Return empty metadata for a record type or an object exposing record_type.
+     * This reports the root/backing record, not a view's selected access set, and never
+     * reads the object's stored data.
+     */
+    template<IsRecord R>
+    [[nodiscard]] constexpr R getRootRecord(R const&) noexcept
+    {
+        return {};
+    }
+
+    template<typename T>
+    requires requires { typename std::remove_cvref_t<T>::record_type; }
+             && IsRecord<typename std::remove_cvref_t<T>::record_type>
+    [[nodiscard]] constexpr auto getRootRecord(T const&) noexcept -> typename std::remove_cvref_t<T>::record_type
+    {
+        return {};
+    }
+
     // Forward declaration for recursion
     template<IsRecord R, IsTagPath CurrentPath = TagPath<>>
     struct GetLeafPaths;

@@ -28,11 +28,6 @@ namespace llama_lite
     // The empty set S = Set<> is the "root" cursor: it denotes the whole record and can be
     // drilled into from the top. A size-1 set is a cursor at a single node/leaf. A size>1 set
     // is a selection of sibling accesses.
-    //
-    // TODO decouple view from storage.
-    // TODO merge deepCopyTo and deepCopyFrom and clarify copy semantics. Do we copy intersections? should the user
-    // check if they are subsets if they want a full copy? What if they want the sets to be equal? Should they check
-    // this or should we?
 
     namespace detail
     {
@@ -53,6 +48,9 @@ namespace llama_lite
         template<typename TStorage, typename S>
         concept ViewStorageFor = IsAccessSet<S> && requires { typename TStorage::record_type; }
                                  && ValidAccessSetFor<typename TStorage::record_type, S>;
+
+        template<IsRecord Record, IsAccessSet S>
+        using ViewLeafSet = std::conditional_t<S::size == 0, record_leaf_set_t<Record>, leaf_set_t<Record, S>>;
     } // namespace detail
 
     /**
@@ -133,6 +131,11 @@ namespace llama_lite
 
         TStorage* storage;
 
+        constexpr View(View const&) = default;
+        constexpr View(View&&) = default;
+        constexpr View& operator=(View const&) & = default;
+        constexpr View& operator=(View&&) & = default;
+
         // Construct over storage with a given (or empty/root) access set.
         constexpr View(TStorage& storage_, S /*accessSet*/ = {}) noexcept : storage{&storage_}
         {
@@ -187,6 +190,11 @@ namespace llama_lite
 
         TStorage* storage;
         uint32_t idx;
+
+        constexpr ViewIndexed(ViewIndexed const&) = default;
+        constexpr ViewIndexed(ViewIndexed&&) = default;
+        constexpr ViewIndexed& operator=(ViewIndexed const&) & = default;
+        constexpr ViewIndexed& operator=(ViewIndexed&&) & = default;
 
         // consteval default constructor, to help get the type of a view more easily
         consteval ViewIndexed() = default;
@@ -280,69 +288,119 @@ namespace llama_lite
             else
                 return S{};
         }
-
-        template<typename OtherTStorage, typename OtherS>
-        constexpr void deepCopyFrom(ViewIndexed<OtherTStorage, OtherS> other) noexcept
-        {
-            using SrcR = typename OtherTStorage::record_type;
-            using DestR = record_type;
-
-            using DestLeafPaths = GetLeafPaths<DestR>::type;
-            [&]<typename... Paths>(Tuple<Paths...>)
-            {
-                static_assert(
-                    (SrcR::hasPath(Paths{}) && ...),
-                    "Source storage does not contain all required paths to fulfill this SubRecord.");
-
-                static_assert(
-                    (std::is_same_v<
-                         typename DestR::template value_type_for<Paths>,
-                         typename SrcR::template value_type_for<Paths>>
-                     && ...),
-                    "Type mismatch between source and destination fields.");
-
-                (((*this)[Paths{}] = other[Paths{}]), ...);
-            }(DestLeafPaths{});
-        }
-
-        // Flush this sub-record's fields into a (potentially larger) destination record.
-        // Walks this record's leaf paths and asserts the destination contains all of them.
-        template<typename OtherTStorage, typename OtherS>
-        constexpr void deepCopyTo(ViewIndexed<OtherTStorage, OtherS> other) const noexcept
-        {
-            using SrcR = record_type;
-            using DestR = typename OtherTStorage::record_type;
-
-            using SrcLeafPaths = typename GetLeafPaths<SrcR>::type;
-            [&]<typename... Paths>(Tuple<Paths...>)
-            {
-                static_assert(
-                    (DestR::hasPath(Paths{}) && ...),
-                    "Destination storage does not contain all paths from this record.");
-
-                static_assert(
-                    (std::is_same_v<
-                         typename SrcR::template value_type_for<Paths>,
-                         typename DestR::template value_type_for<Paths>>
-                     && ...),
-                    "Type mismatch between source and destination fields.");
-
-                ((other[Paths{}] = (*this)[Paths{}]), ...);
-            }(SrcLeafPaths{});
-        }
-
-        // deep copy
-        template<typename OtherTStorage, typename OtherS>
-        requires(!std::same_as<TStorage, OtherTStorage>)
-        constexpr ViewIndexed& operator=(ViewIndexed<OtherTStorage, OtherS> other) noexcept
-        {
-            deepCopyFrom(other);
-            return *this;
-        }
     };
 
     // Deduce the whole-record (root) indexed view from storage and an index.
     template<typename TStorage>
     ViewIndexed(TStorage&, uint32_t) -> ViewIndexed<TStorage, Set<>>;
+
+    template<typename TStorage, IsAccessSet S>
+    requires detail::ViewStorageFor<TStorage, S>
+    [[nodiscard]] constexpr auto getSelectedLeaves(View<TStorage, S> const&) noexcept
+    {
+        return detail::ViewLeafSet<typename TStorage::record_type, S>{};
+    }
+
+    template<typename TStorage, IsAccessSet S>
+    requires detail::ViewStorageFor<TStorage, S>
+    [[nodiscard]] constexpr auto getSelectedLeaves(ViewIndexed<TStorage, S> const&) noexcept
+    {
+        return detail::ViewLeafSet<typename TStorage::record_type, S>{};
+    }
+
+    namespace detail
+    {
+        template<typename Record, typename Paths>
+        struct PathsExist : std::false_type
+        {
+        };
+
+        template<typename Record, IsTagPath... Paths>
+        struct PathsExist<Record, Set<Paths...>> : std::bool_constant<(Record::hasPath(Paths{}) && ... && true)>
+        {
+        };
+
+        template<typename DestStorage, typename SrcStorage, typename DestLeaves, typename SrcLeaves>
+        struct CopyValuesCompatible : std::false_type
+        {
+        };
+
+        template<typename DestStorage, typename SrcStorage, typename SrcLeaves, IsTagPath... DestPaths>
+        struct CopyValuesCompatible<DestStorage, SrcStorage, Set<DestPaths...>, SrcLeaves>
+        {
+            template<typename Path>
+            static consteval bool canCopyPath()
+            {
+                using DestRecord = typename DestStorage::record_type;
+                using SrcRecord = typename SrcStorage::record_type;
+                if constexpr(!DestRecord::hasPath(Path{}))
+                    return false;
+                else if constexpr(!SrcRecord::hasPath(Path{}))
+                    return false;
+                else if constexpr(!SrcLeaves::template contains<Path>())
+                    return false;
+                else
+                    return requires(DestStorage& dest, SrcStorage const& src, uint32_t index) {
+                        dest.template getLeaf<Path>()[index] = src.template getLeaf<Path>()[index];
+                    };
+            }
+
+            static constexpr bool value = (canCopyPath<DestPaths>() && ... && true);
+        };
+
+        template<typename DestStorage, typename SrcStorage, typename DestLeaves, typename SrcLeaves>
+        inline constexpr bool copy_values_compatible_v
+            = CopyValuesCompatible<DestStorage, SrcStorage, DestLeaves, SrcLeaves>::value;
+    } // namespace detail
+
+    /**
+     * Copy the destination view's selected leaf values from the source view.
+     * A root view selects every leaf in its record. Every destination-selected leaf must
+     * also be selected by the source; extra source leaves are ignored. If a leaf assignment
+     * throws, earlier leaves may already have been copied. Handle construction and assignment
+     * remain shallow.
+     */
+    template<typename DestStorage, IsAccessSet DestS, typename SrcStorage, IsAccessSet SrcS>
+    requires(
+        !std::is_const_v<DestStorage>
+        && detail::copy_values_compatible_v<
+            DestStorage,
+            SrcStorage,
+            detail::ViewLeafSet<typename DestStorage::record_type, DestS>,
+            detail::ViewLeafSet<typename SrcStorage::record_type, SrcS>>)
+    constexpr void copy_values(ViewIndexed<DestStorage, DestS> dest, ViewIndexed<SrcStorage, SrcS> src)
+    {
+        using DestLeaves = detail::ViewLeafSet<typename DestStorage::record_type, DestS>;
+        auto const& sourceStorage = *src.storage;
+        [&]<IsTagPath... Paths>(Set<Paths...>)
+        {
+            ((dest.storage->template getLeaf<Paths>()[dest.idx] = sourceStorage.template getLeaf<Paths>()[src.idx]),
+             ...);
+        }(DestLeaves{});
+    }
+
+    /**
+     * Return a shallow destination handle narrowed to the model view's selected leaves.
+     * This is useful when copying a selected subrecord into a broader record: the selection
+     * is derived from the model's record (including all leaves for a root view), then checked
+     * against the destination selection. Missing paths are rejected; no intersection is taken.
+     * Empty models are rejected because an empty access set denotes a root view, not an empty
+     * selection; callers should skip empty-record transfers at compile time.
+     */
+    template<typename DestStorage, IsAccessSet DestS, typename ModelStorage, IsAccessSet ModelS>
+    requires(
+        (detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>::size > 0)
+        && detail::PathsExist<
+            typename DestStorage::record_type,
+            detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>>::value
+        && (detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>{}
+            <= detail::ViewLeafSet<typename DestStorage::record_type, DestS>{}))
+    [[nodiscard]] constexpr auto select_like(
+        ViewIndexed<DestStorage, DestS> dest,
+        ViewIndexed<ModelStorage, ModelS> /*model*/)
+    {
+        using ModelLeaves = detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>;
+        return ViewIndexed<DestStorage, ModelLeaves>{dest};
+    }
 
 } // namespace llama_lite

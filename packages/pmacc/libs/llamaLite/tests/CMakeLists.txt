@@ -18,7 +18,7 @@ include(Catch)
 foreach(
     name
     IN
-    ITEMS accessSet dynSoa iterate one set tagPath
+    ITEMS accessSet dynSoa iterate one record set tagPath view
 )
     add_executable(llamaLite_test_${name} unit/${name}/${name}.cpp)
     target_link_libraries(llamaLite_test_${name} PRIVATE llamaLite::llamaLite Catch2::Catch2WithMain)

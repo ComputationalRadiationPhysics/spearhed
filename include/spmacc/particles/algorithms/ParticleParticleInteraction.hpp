@@ -145,8 +145,12 @@ namespace pmacc::spearhed
                     if(!validVar[idx])
                         return;
                     uint32_t const slot = idx;
-                    auto ownParticle = ownFramePtr[slot];
-                    ownAccVar[idx][uint32_t{0}].deepCopyTo(ownParticle);
+                    auto accumulators = ownAccVar[idx][uint32_t{0}];
+                    if constexpr(llama_lite::getSelectedLeaves(accumulators).size > 0)
+                    {
+                        auto ownParticle = ownFramePtr[slot];
+                        llama_lite::copy_values(llama_lite::select_like(ownParticle, accumulators), accumulators);
+                    }
                 });
         }
 
@@ -245,7 +249,7 @@ namespace pmacc::spearhed
                         if constexpr(hasStage)
                             fn.stage(nParticle, smem.nbCache[slot]);
                         else
-                            smem.nbCache[slot].deepCopyFrom(nParticle);
+                            llama_lite::copy_values(smem.nbCache[slot], nParticle);
                         // Pre-shifted geometry: shiftedPos = rel_j + (origin_neigh - origin_own).
                         auto const relView = nParticle[tags::relativePos].get();
                         for_each_tag<CS>(
@@ -319,7 +323,7 @@ namespace pmacc::spearhed
          * @brief Record type staged into the neighbour SMEM cache.
          *
          * Without the stage() hook this is the sub-record of the functor's @c neighbourReads global
-         * attributes (staged verbatim via deepCopyFrom). With the hook the functor's own
+         * attributes (staged verbatim via copy_values). With the hook the functor's own
          * @c StagedRecord of derived quantities is used instead, populated by stage(). Written once
          * as a shared trait so FrameInteractionKernel and UnifiedFrameInteractionKernel stay in
          * lockstep.

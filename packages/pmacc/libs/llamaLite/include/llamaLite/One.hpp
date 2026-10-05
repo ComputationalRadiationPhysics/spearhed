@@ -55,15 +55,17 @@ namespace llama_lite
         constexpr One& operator=(One&&) = default;
 
         template<typename TSoA, IsAccessSet S>
+        requires requires(One& self, ViewIndexed<TSoA, S> const& view) { copy_values(self[uint32_t{0}], view); }
         constexpr One(ViewIndexed<TSoA, S> const& view)
         {
-            (*this)[uint32_t{0}].deepCopyFrom(view);
+            copy_values((*this)[uint32_t{0}], view);
         }
 
         template<typename TSoA, IsAccessSet S>
+        requires requires(One& self, ViewIndexed<TSoA, S> const& view) { copy_values(self[uint32_t{0}], view); }
         constexpr One& operator=(ViewIndexed<TSoA, S> const& view)
         {
-            (*this)[uint32_t{0}].deepCopyFrom(view);
+            copy_values((*this)[uint32_t{0}], view);
             return *this;
         }
 
