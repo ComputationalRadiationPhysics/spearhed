@@ -24,22 +24,33 @@
 namespace llama_lite
 {
 
+    template<size_t Bytes>
+    struct ColumnAlignment
+    {
+        static_assert(Bytes == 0 || (Bytes & (Bytes - 1)) == 0, "Column alignment must be zero or a power of two");
+
+        template<typename T>
+        static constexpr size_t value = Bytes < alignof(T) ? alignof(T) : Bytes;
+    };
+
+    using CompactAlignment = ColumnAlignment<0>;
+
     namespace transform
     {
-        template<size_t Size>
+        template<size_t Size, typename Alignment = ColumnAlignment<128>>
         struct PolicySoA
         {
             template<typename T>
             struct Apply
             {
-                struct alignas(128) type : public std::array<T, Size>
+                struct alignas(Alignment::template value<T>) type : public std::array<T, Size>
                 {
                 };
             };
         };
 
-        template<typename Record, size_t Size>
-        using transform_record_soa_t = transform_record_t<Record, PolicySoA<Size>::template Apply>;
+        template<typename Record, size_t Size, typename Alignment = ColumnAlignment<128>>
+        using transform_record_soa_t = transform_record_t<Record, PolicySoA<Size, Alignment>::template Apply>;
 
     } // namespace transform
 
@@ -50,7 +61,7 @@ namespace llama_lite
      * This allows logical grouping of components while maintaining contiguous memory
      * storage for individual fields.
      */
-    template<IsRecord R, uint32_t Size>
+    template<IsRecord R, uint32_t Size, typename Alignment = ColumnAlignment<128>>
     struct SoA
     {
     public:
@@ -115,7 +126,7 @@ namespace llama_lite
         }
 
     private:
-        alignas(128) transform::transform_record_soa_t<R, Size> channels_;
+        transform::transform_record_soa_t<R, Size, Alignment> channels_;
     };
 
     // // Push back requires decomposing the input tuple
