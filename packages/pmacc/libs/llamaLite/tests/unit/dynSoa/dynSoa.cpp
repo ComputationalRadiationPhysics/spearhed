@@ -76,6 +76,30 @@ TEST_CASE("DynSoA resize and size", "[DynSoA]")
     CHECK(soa.size() == 200u);
 }
 
+TEST_CASE("DynSoA reserve and discard-and-resize reuse storage", "[DynSoA]")
+{
+    ll::DynSoA<FlagRecord> soa;
+    soa.reserve(8);
+    soa.resize(4);
+    auto flags = soa.getLeaf(maskD);
+    auto* const data = flags.data();
+    flags[0] = 7;
+
+    soa.discardAndResize(6);
+    CHECK(soa.size() == 6);
+    CHECK(soa.getLeaf(maskD).data() == data);
+}
+
+TEST_CASE("DynSoA value-initializes normal resize and accepts explicit uninitialized growth", "[DynSoA]")
+{
+    ll::DynSoA<FlagRecord> soa(2);
+    CHECK(soa.getLeaf(maskD)[0] == 0);
+    CHECK(soa.getLeaf(maskD)[1] == 0);
+
+    soa.resize(4, ll::Initialization::Uninitialized);
+    CHECK(soa.size() == 4);
+}
+
 TEST_CASE("DynSoA leaf spans have correct size after resize", "[DynSoA]")
 {
     constexpr size_t N = 50u;

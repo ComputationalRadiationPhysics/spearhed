@@ -69,15 +69,13 @@ namespace llama_lite
             template<typename U, typename... Args>
             void construct(U* p, Args&&... args)
             {
-                // If calling the default constructor of a trivial type (like int, float), do nothing.
-                // This bypasses the O(N) zeroing in std::vector::resize.
-                if constexpr(sizeof...(args) == 0 && std::is_trivially_default_constructible_v<U>)
+                if constexpr(sizeof...(args) == 0)
                 {
-                    // Intentionally empty to keep memory uninitialized
+                    // Start the object's lifetime without value-initializing scalar fields.
+                    ::new(static_cast<void*>(p)) U;
                 }
                 else
                 {
-                    // Fallback for non-trivial types or specific values
                     std::construct_at(p, std::forward<Args>(args)...);
                 }
             }
@@ -127,6 +125,55 @@ namespace llama_lite
             else
             {
                 storage.resize(n);
+            }
+        }
+
+        template<typename Storage>
+        void resizeValueInitializedDynStorage(Storage& storage, size_t n)
+        {
+            if constexpr(isSpecializationOf_v<Storage, Tuple>)
+            {
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    (resizeValueInitializedDynStorage(tuple::get<Is>(storage), n), ...);
+                }(std::make_index_sequence<std::tuple_size_v<Storage>>{});
+            }
+            else
+            {
+                using Value = typename Storage::value_type;
+                storage.resize(n, Value{});
+            }
+        }
+
+        template<typename Storage>
+        void reserveDynStorage(Storage& storage, size_t n)
+        {
+            if constexpr(isSpecializationOf_v<Storage, Tuple>)
+            {
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    (reserveDynStorage(tuple::get<Is>(storage), n), ...);
+                }(std::make_index_sequence<std::tuple_size_v<Storage>>{});
+            }
+            else
+            {
+                storage.reserve(n);
+            }
+        }
+
+        template<typename Storage>
+        void clearDynStorage(Storage& storage) noexcept
+        {
+            if constexpr(isSpecializationOf_v<Storage, Tuple>)
+            {
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    (clearDynStorage(tuple::get<Is>(storage)), ...);
+                }(std::make_index_sequence<std::tuple_size_v<Storage>>{});
+            }
+            else
+            {
+                storage.clear();
             }
         }
 
@@ -181,6 +228,12 @@ namespace llama_lite
      *
      * @tparam R  Record type describing the field hierarchy.
      */
+    enum class Initialization
+    {
+        ValueInitialize,
+        Uninitialized
+    };
+
     template<IsRecord R>
     class DynSoA
     {
@@ -228,23 +281,60 @@ namespace llama_lite
             resize(n);
         }
 
-        /**
-         * Resize all leaf arrays to n elements. Failed growth preserves sizes and existing values,
-         * though successful earlier reallocations may invalidate previously returned spans.
-         */
+        DynSoA(size_t n, Initialization initialization)
+        {
+            resize(n, initialization);
+        }
+
+        /** Resize, value-initializing new elements. Existing elements are preserved. */
         void resize(size_t n)
         {
-            if(n > static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
-                throw std::length_error("DynSoA size exceeds the 32-bit row-index limit");
+            resize(n, Initialization::ValueInitialize);
+        }
 
+        /** Resize, choosing whether newly grown elements are initialized. */
+        void resize(size_t n, Initialization initialization)
+        {
+            checkSize(n);
             auto const oldSize = size_;
+            try
+            {
+                if(initialization == Initialization::ValueInitialize)
+                    detail::resizeValueInitializedDynStorage(channels_, n);
+                else
+                    detail::resizeDynStorage(channels_, n);
+            }
+            catch(...)
+            {
+                detail::truncateDynStorage(channels_, oldSize);
+                throw;
+            }
+            size_ = n;
+        }
+
+        /** Reserve row capacity in every leaf column without changing the row count. */
+        void reserve(size_t n)
+        {
+            checkSize(n);
+            detail::reserveDynStorage(channels_, n);
+        }
+
+        /**
+         * Discard all current elements and resize, reusing capacity where possible.
+         * New elements are default-initialized (scalar fields remain uninitialized).
+         */
+        void discardAndResize(size_t n)
+        {
+            checkSize(n);
+            detail::clearDynStorage(channels_);
+            size_ = 0;
             try
             {
                 detail::resizeDynStorage(channels_, n);
             }
             catch(...)
             {
-                detail::truncateDynStorage(channels_, oldSize);
+                detail::truncateDynStorage(channels_, 0);
                 throw;
             }
             size_ = n;
@@ -315,6 +405,12 @@ namespace llama_lite
         }
 
     private:
+        static void checkSize(size_t n)
+        {
+            if(n > static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+                throw std::length_error("DynSoA size exceeds the 32-bit row-index limit");
+        }
+
         transform::transform_record_dynsoa_t<R> channels_;
         size_t size_ = 0;
     };

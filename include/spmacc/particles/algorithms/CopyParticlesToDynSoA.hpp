@@ -97,7 +97,7 @@ namespace pmacc::spearhed
             uint32_t total = 0;
             for(int r = 0; r < prBuf.size; ++r)
                 total += hostBox[r].particleFrameList.getNumParticles();
-            dynSoa.resize(total);
+            dynSoa.discardAndResize(total);
 
             using FrameListType = decltype(hostBox[0].particleFrameList);
             using FrameType = typename std::remove_reference_t<FrameListType>::FrameType;
