@@ -4,6 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://www.mozilla.org/MPL/2.0/.
 
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -108,12 +109,20 @@ TEST_CASE("SoA getLeaf accepts tags and preserves const access", "[SoA]")
     ll::SoA<ParticleOne, 2> soa{};
     auto xSpan = soa.getLeaf(posO / xO);
     auto massSpan = soa.getLeaf(massO);
+    auto massTagSpan = soa[massO];
+    STATIC_CHECK(std::is_same_v<decltype(massTagSpan), std::span<double, 2>>);
     xSpan[0] = 3.0f;
     massSpan[0] = 42.0;
 
     ll::SoA<ParticleOne, 2> const& constSoa = soa;
     auto constXSpan = constSoa.getLeaf(posO / xO);
     auto constMassSpan = constSoa.getLeaf(massO);
+    auto constMassTagSpan = constSoa[massO];
+    STATIC_CHECK(std::is_same_v<decltype(constMassTagSpan), std::span<double const, 2>>);
+    STATIC_CHECK(std::is_same_v<decltype(xSpan), std::span<float, 2>>);
+    STATIC_CHECK(std::is_same_v<decltype(massSpan), std::span<double, 2>>);
+    STATIC_CHECK(std::is_same_v<decltype(constXSpan), std::span<float const, 2>>);
+    STATIC_CHECK(std::is_same_v<decltype(constMassSpan), std::span<double const, 2>>);
     STATIC_CHECK(std::is_const_v<typename decltype(constXSpan)::element_type>);
     STATIC_CHECK(std::is_const_v<typename decltype(constMassSpan)::element_type>);
     CHECK(constXSpan[0] == Catch::Approx(3.0f));

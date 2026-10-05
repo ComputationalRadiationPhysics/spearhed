@@ -80,7 +80,7 @@ namespace llama_lite
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType, Size>(leaf);
         }
 
         template<IsRecordAccess RA>
@@ -88,7 +88,7 @@ namespace llama_lite
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType, Size>(leaf);
         }
 
         template<IsRecordAccess... RAs>
