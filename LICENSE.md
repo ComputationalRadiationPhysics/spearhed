@@ -46,12 +46,13 @@ If not stated otherwise explicitly, that affects files in:
 
 ### PMacc package components
 
-The PMacc, Caravan, and llamaLite source trees are maintained as sibling
-libraries in `packages/pmacc/libs/`; these are not PIConGPU submodules.
+PMacc is the primary library in `packages/pmacc`; Caravan and llamaLite remain
+independently buildable supporting libraries under `packages/pmacc/libs/`.
+These are not PIConGPU submodules.
 
-- **PMacc** (`packages/pmacc/libs/pmacc`) is licensed under LGPL-3.0-or-later
-  OR GPL-3.0-or-later. See [COPYING](packages/pmacc/libs/pmacc/COPYING) and
-  [COPYING.LESSER](packages/pmacc/libs/pmacc/COPYING.LESSER).
+- **PMacc** (`packages/pmacc`) is licensed under LGPL-3.0-or-later OR
+  GPL-3.0-or-later. See [COPYING](packages/pmacc/COPYING) and
+  [COPYING.LESSER](packages/pmacc/COPYING.LESSER).
 - **Caravan** (`packages/pmacc/libs/caravan`) is licensed under MPL-2.0; see
   its [LICENSE](packages/pmacc/libs/caravan/LICENSE).
 - **llamaLite** (`packages/pmacc/libs/llamaLite`) is licensed under MPL-2.0;

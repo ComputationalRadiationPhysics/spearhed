@@ -1,10 +1,13 @@
 # PMacc source package
 
-This directory is intended to become a standalone repository root.
+This directory is the PMacc package root and is intended to become a standalone
+repository root. PMacc is the primary library; independently buildable Caravan
+and llamaLite remain under `libs/`, public headers live in `include/pmacc/`,
+tests live in `tests/`, and bundled dependencies remain under `thirdParty/`.
 
 ## Build from source
 
-Initialize `packages/pmacc/thirdParty/alpaka` and `mallocMC`, then configure:
+Initialize `thirdParty/alpaka` and `thirdParty/mallocMC`, then configure:
 
 ```sh
 cmake -S packages/pmacc -B "$HOME/scratch/pmacc-package" -DPMACC_BACKEND=CpuSerial
@@ -14,14 +17,14 @@ cmake --build "$HOME/scratch/pmacc-package" -j 4
 The package root orchestrates PMacc, Caravan and llamaLite. To configure only
 Caravan/llamaLite without alpaka, set `PMACC_PACKAGE_BUILD_PMACC=OFF` and
 `CARAVAN_BUILD_ALPAKA=OFF`. Set `CARAVAN_BUILD_MPI=OFF` as well only if MPI is
-also unwanted. Each component has its own CMake entry point under `libs/`.
-PMacc requires `alpaka::alpaka`, `caravan::mpi`, `caravan::alpaka`, and
+also unwanted. Each supporting component has its own CMake entry point under
+`libs/`. PMacc requires `alpaka::alpaka`, `caravan::mpi`, `caravan::alpaka`, and
 `llamaLite::llamaLite`. The package root configures llamaLite before PMacc and
-builds Caravan's adapters when needed. A standalone PMacc component requires its
-parent to provide these targets or make them discoverable with `find_package`;
-llamaLite is linked publicly as a declared dependency for planned PMacc integration.
-If `PMACC_PACKAGE_BUILD_LLAMALITE=OFF`, the package root searches for an installed
-llamaLite package.
+builds Caravan's adapters when needed. A PMacc library build requires these
+targets to be provided by the package root or made discoverable with
+`find_package`; llamaLite is linked publicly as a declared dependency for
+planned integration. If `PMACC_PACKAGE_BUILD_LLAMALITE=OFF`, the package root
+searches for an installed llamaLite package.
 
 ### Embedding from a parent project
 
@@ -54,23 +57,22 @@ adapters along with PMacc. Targets that compile alpaka/PMacc headers must link
 their dependencies and call `pmacc_finalize(target)` after linking. This macro
 wraps alpaka's finalizer and retains its caller-scope behavior. Backend and
 CUDA/HIP language selection must happen before adding targets that compile
-those device sources. For custom component-level builds, the parent must make
-`alpaka::alpaka`, `caravan::mpi` and `caravan::alpaka` available before adding
-PMacc; the component checks/discovers these required dependencies rather than
-silently building without them.
+those device sources.
 
-This uses ordinary CMake conventions: a cache-selectable backend, namespaced
-targets (`pmacc::pmacc`, `caravan::core`, `caravan::mpi`,
-`caravan::alpaka`, and `llamaLite::llamaLite`), and explicit linking and
-finalization. Keep standard CMake `add_executable` and `target_link_libraries`;
-CUDA/HIP language setup occurs in the parent directory scope when
-`PMaccBackend.cmake` is included. The tests under each `libs/<component>/tests/`
-exercise the component from its own build.
+The public interface remains `pmacc::pmacc`, `<pmacc/...>`, and
+`pmacc_finalize`. PMacc target construction is isolated in
+`cmake/PMaccLibrary.cmake` (an internal build module); package dependency
+provisioning stays in the root `CMakeLists.txt`.
 
-For tests, set `PMACC_BUILD_TESTING=ON` and/or `CARAVAN_BUILD_TESTING=ON` and/or
-`LLAMALITE_BUILD_TESTING=ON`. The random-distribution executable
-`pmacc-TestRng` is built when PMacc tests are on; the sampling diagnostic is
-run only via the opt-in `pmacc-run-rng` target.
+## Tests and component builds
+
+Set `PMACC_BUILD_TESTING=ON`, `CARAVAN_BUILD_TESTING=ON`, and/or
+`LLAMALITE_BUILD_TESTING=ON` to enable each component's tests. PMacc tests stay
+opt-in by default, matching the package's embedded-build behavior. The random-
+distribution executable `pmacc-TestRng` is built when PMacc tests are enabled;
+the sampling diagnostic is run only via the opt-in `pmacc-run-rng` target.
+Caravan and llamaLite can also be configured independently from their respective
+`libs/<component>` directories.
 
 ## Installation status
 
