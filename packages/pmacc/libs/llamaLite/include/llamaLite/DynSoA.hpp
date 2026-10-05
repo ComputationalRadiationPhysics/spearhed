@@ -17,12 +17,15 @@
 #include "llamaLite/utility.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
 #include <span>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace llama_lite
@@ -88,6 +91,13 @@ namespace llama_lite
         template<typename T>
         struct PolicyDynSoA
         {
+            static_assert(
+                !std::is_same_v<std::remove_cv_t<T>, bool>,
+                "DynSoA does not support bool fields; use uint8_t for flags");
+            static_assert(
+                std::is_nothrow_destructible_v<T>
+                    && (std::is_copy_constructible_v<T> || std::is_nothrow_move_constructible_v<T>),
+                "DynSoA fields must be nothrow destructible and copyable or nothrow movable");
             using type = std::vector<T, util::UninitializedAlignedAllocator<T>>;
         };
 
@@ -99,10 +109,10 @@ namespace llama_lite
     namespace detail
     {
         /**
-         * Recursively resize all leaf std::vector elements within a DynSoA storage tuple.
+         * Recursively resize all leaf columns within a DynSoA storage tuple.
          *
          * The storage is either a Tuple (recurse into each element) or a
-         * std::vector<T> (resize directly).
+         * resizable contiguous leaf column.
          */
         template<typename Storage>
         void resizeDynStorage(Storage& storage, size_t n)
@@ -120,14 +130,51 @@ namespace llama_lite
             }
         }
 
+        template<typename Storage>
+        void truncateDynStorage(Storage& storage, size_t n) noexcept
+        {
+            if constexpr(isSpecializationOf_v<Storage, Tuple>)
+            {
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    (truncateDynStorage(tuple::get<Is>(storage), n), ...);
+                }(std::make_index_sequence<std::tuple_size_v<Storage>>{});
+            }
+            else
+            {
+                while(storage.size() > n)
+                    storage.pop_back();
+            }
+        }
+
+        template<typename Storage>
+        void swapDynStorage(Storage& lhs, Storage& rhs) noexcept
+        {
+            if constexpr(isSpecializationOf_v<Storage, Tuple>)
+            {
+                [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    (swapDynStorage(tuple::get<Is>(lhs), tuple::get<Is>(rhs)), ...);
+                }(std::make_index_sequence<std::tuple_size_v<Storage>>{});
+            }
+            else
+            {
+                using std::swap;
+                swap(lhs, rhs);
+            }
+        }
+
     } // namespace detail
 
     /**
      * Dynamic host-side Structure-of-Arrays container for a Record.
      *
-     * Mirrors SoA<R, N> but uses std::vector<T> per leaf field instead of
-     * fixed-size arrays, allowing runtime resizing. Intended for host-side
-     * serialization buffers (e.g. device-to-host particle copies for I/O).
+     * Mirrors SoA<R, N> but uses dynamically sized contiguous storage per leaf
+     * field, allowing runtime resizing. Boolean leaves are unsupported because
+     * std::vector<bool> cannot expose contiguous bool storage; use uint8_t for
+     * flags. Row counts are limited to UINT32_MAX because indexed views use
+     * 32-bit row indices. Intended for host-side serialization buffers (e.g.
+     * device-to-host particle copies for I/O).
      *
      * The getLeaf(RA{}) interface is identical to SoA - both return
      * std::span<T>, so code that reads from either container is the same.
@@ -147,16 +194,59 @@ namespace llama_lite
         using indexed_view_type = ViewIndexed<DynSoA, access_set_t<Tags...>>;
 
         DynSoA() = default;
+        DynSoA(DynSoA const&) = default;
+
+        DynSoA& operator=(DynSoA const& other)
+        {
+            if(this != &other)
+            {
+                DynSoA copy(other);
+                detail::swapDynStorage(channels_, copy.channels_);
+                std::swap(size_, copy.size_);
+            }
+            return *this;
+        }
+
+        DynSoA(DynSoA&& other) noexcept(std::is_nothrow_move_constructible_v<decltype(channels_)>)
+            : channels_(std::move(other.channels_))
+            , size_(std::exchange(other.size_, 0))
+        {
+        }
+
+        DynSoA& operator=(DynSoA&& other) noexcept(std::is_nothrow_move_assignable_v<decltype(channels_)>)
+        {
+            if(this != &other)
+            {
+                channels_ = std::move(other.channels_);
+                size_ = std::exchange(other.size_, 0);
+            }
+            return *this;
+        }
 
         explicit DynSoA(size_t n)
         {
             resize(n);
         }
 
-        /** Resize all leaf arrays to n elements. */
+        /**
+         * Resize all leaf arrays to n elements. Failed growth preserves sizes and existing values,
+         * though successful earlier reallocations may invalidate previously returned spans.
+         */
         void resize(size_t n)
         {
-            detail::resizeDynStorage(channels_, n);
+            if(n > static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+                throw std::length_error("DynSoA size exceeds the 32-bit row-index limit");
+
+            auto const oldSize = size_;
+            try
+            {
+                detail::resizeDynStorage(channels_, n);
+            }
+            catch(...)
+            {
+                detail::truncateDynStorage(channels_, oldSize);
+                throw;
+            }
             size_ = n;
         }
 
@@ -179,7 +269,7 @@ namespace llama_lite
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType>(leaf.data(), leaf.size());
         }
 
         template<IsRecordAccess RA>
@@ -187,7 +277,7 @@ namespace llama_lite
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType>(leaf.data(), leaf.size());
         }
 
         template<IsRecordAccess... RAs>
