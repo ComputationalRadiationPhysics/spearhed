@@ -82,7 +82,7 @@ namespace llama_lite
         }
 
         template<size_t N>
-        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
+        requires(N <= sizeof...(Tags))
         using take_first = decltype(take_first_helper(std::make_index_sequence<N>{}));
 
         template<size_t N, size_t... I>
@@ -92,7 +92,7 @@ namespace llama_lite
         }
 
         template<size_t N>
-        requires(N <= sizeof...(Tags) && sizeof...(Tags) > 0)
+        requires(N <= sizeof...(Tags))
         using drop_first = decltype(drop_first_helper<N>(std::make_index_sequence<sizeof...(Tags) - N>{}));
 
         // Path Comparisons
@@ -198,6 +198,43 @@ namespace llama_lite
         return append_t<LHS, RHS>{};
     }
 
+    // Value-based path utilities accept either a tag or a TagPath and normalize tags to one-element paths.
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval bool isSame(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template isSame<RHS>();
+    }
+
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval bool isAncestorOf(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template isAncestorOf<RHS>();
+    }
+
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval bool isStrictAncestorOf(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template isStrictAncestorOf<RHS>();
+    }
+
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval bool isDescendantOf(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template isDescendantOf<RHS>();
+    }
+
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval bool isStrictDescendantOf(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template isStrictDescendantOf<RHS>();
+    }
+
+    template<IsRecordAccess LHS, IsRecordAccess RHS>
+    [[nodiscard]] consteval size_t commonPrefixLength(LHS, RHS) noexcept
+    {
+        return to_path_t<LHS>::template commonPrefixLength<RHS>();
+    }
+
     // Redundancy Check (for Access types)
     namespace detail
     {
@@ -218,6 +255,13 @@ namespace llama_lite
             return false;
         else
             return (detail::isStrictAncestorOfAny<to_path_t<RAs>, RAs...>() || ...);
+    }
+
+    template<IsRecordAccess... RAs>
+    requires(sizeof...(RAs) > 0)
+    [[nodiscard]] consteval bool hasRedundantPaths(RAs...)
+    {
+        return hasRedundantPaths<std::remove_cvref_t<RAs>...>();
     }
 
     namespace detail
@@ -244,11 +288,30 @@ namespace llama_lite
         return detail::tagPathToStringImpl<Path>(std::make_index_sequence<Path::depth>{});
     }
 
+    template<IsRecordAccess Path>
+    [[nodiscard]] std::string tagPathToString(Path)
+    {
+        using NormalizedPath = to_path_t<Path>;
+        return detail::tagPathToStringImpl<NormalizedPath>(std::make_index_sequence<NormalizedPath::depth>{});
+    }
+
     /// The sub-path of FullPath after stripping Prefix from the front.
     /// @tparam FullPath the complete path
     /// @tparam Prefix   a tag or TagPath that is an ancestor of FullPath
     template<IsTagPath FullPath, IsRecordAccess Prefix>
     requires(to_path_t<Prefix>::template isAncestorOf<FullPath>())
     using relative_path_t = typename FullPath::template drop_first<to_path_t<Prefix>::depth>;
+
+    /**
+     * Return the suffix of @p full after removing the ancestor prefix @p prefix.
+     * Both arguments may be tags or TagPaths; a tag is treated as a one-element path.
+     */
+    template<IsRecordAccess FullPath, IsRecordAccess Prefix>
+    requires(to_path_t<Prefix>::template isAncestorOf<FullPath>())
+    [[nodiscard]] consteval auto relativePath(FullPath, Prefix)
+    {
+        using RelativePath = relative_path_t<to_path_t<FullPath>, Prefix>;
+        return RelativePath{};
+    }
 
 } // namespace llama_lite

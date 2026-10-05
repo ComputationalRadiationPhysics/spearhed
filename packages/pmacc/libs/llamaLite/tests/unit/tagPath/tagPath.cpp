@@ -4,6 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#include <string_view>
 #include <type_traits>
 
 #include <catch2/catch_test_macros.hpp>
@@ -14,23 +15,31 @@ namespace
     // Define dummy tags for testing
     struct TagA : llama_lite::TagBase
     {
+        static constexpr std::string_view name = "TagA";
     };
 
     struct TagB : llama_lite::TagBase
     {
+        static constexpr std::string_view name = "TagB";
     };
 
     struct TagC : llama_lite::TagBase
     {
+        static constexpr std::string_view name = "TagC";
     };
 
     struct TagD : llama_lite::TagBase
     {
+        static constexpr std::string_view name = "TagD";
     };
 
     // Helper alias to make tests more readable
     template<typename... Ts>
     using Path = llama_lite::TagPath<Ts...>;
+
+    template<typename FullPath, typename Prefix>
+    concept CanGetRelativePath
+        = requires(FullPath fullPath, Prefix prefix) { llama_lite::relativePath(fullPath, prefix); };
 } // namespace
 
 TEST_CASE("TagPath Properties and Concepts", "[TagPath][Meta]")
@@ -166,6 +175,43 @@ TEST_CASE("TagPath Concatenation", "[TagPath][Operator]")
         auto path3 = Path<TagA>{} / Path<TagB, TagC>{};
         STATIC_CHECK(std::is_same_v<decltype(path3), Path<TagA, TagB, TagC>>);
     }
+}
+
+TEST_CASE("Tag and TagPath value utilities", "[TagPath][Meta]")
+{
+    using namespace llama_lite;
+    constexpr auto pathAB = TagA{} / TagB{};
+    constexpr auto pathABC = pathAB / TagC{};
+
+    STATIC_CHECK(isSame(TagA{}, Path<TagA>{}));
+    STATIC_CHECK(isAncestorOf(TagA{}, pathAB));
+    STATIC_CHECK(isStrictAncestorOf(TagA{}, pathAB));
+    STATIC_CHECK(isDescendantOf(pathABC, pathAB));
+    STATIC_CHECK(isStrictDescendantOf(pathABC, pathAB));
+    STATIC_CHECK_FALSE(isAncestorOf(pathAB, TagA{}));
+    STATIC_CHECK(isAncestorOf(pathAB, pathAB));
+    STATIC_CHECK_FALSE(isStrictAncestorOf(pathAB, pathAB));
+    STATIC_CHECK(isDescendantOf(pathAB, pathAB));
+    STATIC_CHECK_FALSE(isStrictDescendantOf(pathAB, pathAB));
+    STATIC_CHECK(commonPrefixLength(pathAB, TagA{} / TagC{}) == 1);
+    STATIC_CHECK(commonPrefixLength(Path<>{}, pathABC) == 0);
+    STATIC_CHECK(isAncestorOf(Path<>{}, Path<>{}));
+
+    STATIC_CHECK(std::is_same_v<decltype(relativePath(pathABC, pathAB)), Path<TagC>>);
+    STATIC_CHECK(std::is_same_v<decltype(relativePath(Path<>{}, Path<>{})), Path<>>);
+    STATIC_CHECK(std::is_same_v<decltype(relativePath(TagA{}, TagA{})), Path<>>);
+    STATIC_CHECK(std::is_same_v<decltype(relativePath(pathAB, Path<>{})), Path<TagA, TagB>>);
+    STATIC_CHECK(CanGetRelativePath<Path<TagA, TagB>, TagA>);
+    STATIC_CHECK_FALSE(CanGetRelativePath<Path<TagA>, TagB>);
+    STATIC_CHECK_FALSE(CanGetRelativePath<Path<TagA>, Path<TagA, TagB>>);
+    STATIC_CHECK_FALSE(hasRedundantPaths());
+    STATIC_CHECK_FALSE(hasRedundantPaths(TagA{}));
+    STATIC_CHECK_FALSE(hasRedundantPaths(TagA{}, TagA{}));
+    STATIC_CHECK(hasRedundantPaths(TagA{}, pathAB));
+    STATIC_CHECK_FALSE(hasRedundantPaths(TagA{} / TagB{}, TagA{} / TagC{}));
+    CHECK(tagPathToString(TagA{} / TagB{}) == "TagA/TagB");
+    CHECK(tagPathToString(TagA{}) == "TagA");
+    CHECK(tagPathToString(Path<>{}) == "");
 }
 
 TEST_CASE("TagPath Redundancy Checks", "[TagPath][Meta]")

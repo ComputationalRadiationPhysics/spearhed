@@ -41,7 +41,7 @@ namespace llama_lite
             {
                 // Path is allowed if it leads to a target (ancestor)
                 // OR if it is already inside a target (descendant)
-                return ((Path::template isAncestorOf<Targets>() || Path::template isDescendantOf<Targets>()) || ...);
+                return ((isAncestorOf(Path{}, Targets{}) || isDescendantOf(Path{}, Targets{})) || ...);
             }
         };
 
@@ -54,7 +54,7 @@ namespace llama_lite
             static consteval bool allow(Path)
             {
                 // Stop if Path is a descendant of (or equal to) any target
-                return !((Path::template isDescendantOf<Targets>()) || ...);
+                return !((isDescendantOf(Path{}, Targets{})) || ...);
             }
         };
     } // namespace selectors

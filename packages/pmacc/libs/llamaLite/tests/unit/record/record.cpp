@@ -28,6 +28,21 @@ namespace
     concept HasRootRecord = requires(T const& object) { ll::getRootRecord(object); };
 } // namespace
 
+TEST_CASE("Record queries accept tag objects", "[Record]")
+{
+    STATIC_CHECK(ParticleRecord::hasPath(positionRecord / xRecord));
+    STATIC_CHECK(ParticleRecord::hasPath(massRecord));
+    STATIC_CHECK(ParticleRecord::isLeaf(massRecord));
+    STATIC_CHECK(ParticleRecord::isLeaf(positionRecord / xRecord));
+    STATIC_CHECK_FALSE(ParticleRecord::isLeaf(positionRecord));
+    STATIC_CHECK(
+        std::is_same_v<
+            decltype(ParticleRecord::resolvePathToField(positionRecord / xRecord)),
+            ll::Field<xRecord_t, float>>);
+    STATIC_CHECK(
+        std::is_same_v<decltype(ParticleRecord::resolvePathToField(massRecord)), ll::Field<massRecord_t, double>>);
+}
+
 TEST_CASE("getRootRecord returns backing record metadata", "[Record]")
 {
     STATIC_CHECK(std::is_same_v<decltype(ll::getRootRecord(std::declval<ParticleRecord const&>())), ParticleRecord>);

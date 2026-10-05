@@ -89,7 +89,7 @@ namespace llama_lite
         else
         {
             static_assert(
-                Record::template isLeaf<Access>(),
+                Record::isLeaf(Access{}),
                 "resolve: access names a composite node without an AsType specialization; nothing to resolve to.");
 
             if constexpr(requires { view.idx; })
@@ -110,7 +110,7 @@ namespace llama_lite
         {
             using Record = typename ChildView::record_type;
             using Access = single_access_t<typename ChildView::access_set>;
-            if constexpr(Record::template isLeaf<Access>())
+            if constexpr(Record::isLeaf(Access{}))
                 return resolve(child);
             else
                 return child;
@@ -249,13 +249,13 @@ namespace llama_lite
         // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
         // for example implicitly when the user requests it
         [[nodiscard]] constexpr decltype(auto) operator*()
-            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
+            requires((S::size == 1) && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})))
         {
             return resolve(*this);
         }
 
         [[nodiscard]] constexpr decltype(auto) operator*() const
-            requires((S::size == 1) && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()))
+            requires((S::size == 1) && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})))
         {
             return resolve(*this);
         }
@@ -263,7 +263,7 @@ namespace llama_lite
         // requires we are a leaf node or AsType is
         [[nodiscard]] constexpr decltype(auto) get() requires(
             (S::size == 1)
-            && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()
+            && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})
                 || traits::IsTraitSpecialized<
                     traits::AsType,
                     typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
@@ -273,7 +273,7 @@ namespace llama_lite
 
         [[nodiscard]] constexpr decltype(auto) get() const requires(
             (S::size == 1)
-            && (TStorage::record_type::template isLeaf<detail::single_access_t<S>>()
+            && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})
                 || traits::IsTraitSpecialized<
                     traits::AsType,
                     typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
@@ -337,7 +337,7 @@ namespace llama_lite
                     return false;
                 else if constexpr(!SrcRecord::hasPath(Path{}))
                     return false;
-                else if constexpr(!SrcLeaves::template contains<Path>())
+                else if constexpr(!SrcLeaves::contains(Path{}))
                     return false;
                 else
                     return requires(DestStorage& dest, SrcStorage const& src, uint32_t index) {

@@ -121,7 +121,7 @@ namespace llama_lite
         }
 
         template<IsRecordAccess Query>
-        [[nodiscard]] static consteval auto resolvePathToField()
+        [[nodiscard]] static consteval auto resolvePathToField(Query)
         {
             using Path = to_path_t<Query>;
 
@@ -145,13 +145,13 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        using field_for = decltype(resolvePathToField<RA>());
+        using field_for = decltype(resolvePathToField(RA{}));
 
         template<IsRecordAccess RA>
         using value_type_for = field_for<RA>::value_type;
 
         template<IsRecordAccess RA>
-        static consteval bool isLeaf()
+        static consteval bool isLeaf(RA)
         {
             return !IsRecord<value_type_for<RA>>;
         }
