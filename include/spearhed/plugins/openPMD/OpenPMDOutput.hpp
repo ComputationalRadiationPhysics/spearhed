@@ -117,7 +117,7 @@ namespace spearhed::output
             comp.resetDataset(openPMD::Dataset(openPMD::determineDatatype<ValueType>(), {n}));
             comp.setUnitSI(Trait::unitSI);
 
-            auto span = particles.template getLeaf<Tag>();
+            auto span = particles.getLeaf(Tag{});
             comp.storeChunkRaw(span.data(), {0}, {n});
         }
 
@@ -153,7 +153,7 @@ namespace spearhed::output
                         auto& comp = record[ll::tagPathToString<ll::relative_path_t<LeafPath, Tag>>()];
                         comp.resetDataset(openPMD::Dataset(openPMD::determineDatatype<ValueType>(), {n}));
                         comp.setUnitSI(Trait::unitSI);
-                        auto span = particles.template getLeaf<LeafPath>();
+                        auto span = particles.getLeaf(LeafPath{});
                         comp.storeChunkRaw(span.data(), {0}, {n});
                     }(std::tuple_element_t<I, LeafPaths>{}),
                     ...);

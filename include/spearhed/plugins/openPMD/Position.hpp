@@ -63,8 +63,8 @@ namespace pmacc::spearhed
                 [&](auto axisTag)
                 {
                     auto const o = region.volume.origin[axisTag];
-                    auto const srcSpan = srcSoa.template getLeaf<ll::TagPath<relativePos_t, decltype(axisTag)>>();
-                    auto dstSpan = dst.template getLeaf<ll::TagPath<position_t, decltype(axisTag)>>();
+                    auto const srcSpan = srcSoa.getLeaf(ll::TagPath<relativePos_t, decltype(axisTag)>{});
+                    auto dstSpan = dst.getLeaf(ll::TagPath<position_t, decltype(axisTag)>{});
 
                     for(uint32_t i = 0; i < count; ++i)
                         dstSpan[offset + i] = o + srcSpan[i];

@@ -129,7 +129,7 @@ namespace llama_lite
      * fixed-size arrays, allowing runtime resizing. Intended for host-side
      * serialization buffers (e.g. device-to-host particle copies for I/O).
      *
-     * The getLeaf<RA>() interface is identical to SoA - both return
+     * The getLeaf(RA{}) interface is identical to SoA - both return
      * std::span<T>, so code that reads from either container is the same.
      *
      * @tparam R  Record type describing the field hierarchy.
@@ -171,11 +171,11 @@ namespace llama_lite
          *
          * Example:
          * @code
-         * auto xSpan = dynSoa.getLeaf<TagPath<vel_t, x_t>>();
+         * auto xSpan = dynSoa.getLeaf(TagPath<vel_t, x_t>{});
          * @endcode
          */
         template<IsRecordAccess RA>
-        [[nodiscard]] auto getLeaf()
+        [[nodiscard]] auto getLeaf(RA /*tag*/)
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
@@ -183,7 +183,7 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] auto getLeaf() const
+        [[nodiscard]] auto getLeaf(RA /*tag*/) const
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;

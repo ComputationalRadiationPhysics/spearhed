@@ -54,10 +54,7 @@ namespace pmacc::spearhed
 
         void operator()(auto const& srcSoa, auto& dst, uint32_t count, uint32_t offset, auto&&...) const
         {
-            std::ranges::copy_n(
-                srcSoa.template getLeaf<Path>().data(),
-                count,
-                dst.template getLeaf<Path>().data() + offset);
+            std::ranges::copy_n(srcSoa.getLeaf(Path{}).data(), count, dst.getLeaf(Path{}).data() + offset);
         }
     };
 

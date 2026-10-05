@@ -104,6 +104,23 @@ TEST_CASE("getSelectedLeaves reports canonical view selections", "[View]")
     STATIC_CHECK(EmptyLeaves::size == 0);
 }
 
+TEST_CASE("SoA getLeaf accepts tags and preserves const access", "[SoA]")
+{
+    ll::SoA<ParticleOne, 2> soa{};
+    auto xSpan = soa.getLeaf(ll::TagPath<posO_t, xO_t>{});
+    auto massSpan = soa.getLeaf(massO_t{});
+    xSpan[0] = 3.0f;
+    massSpan[0] = 42.0;
+
+    ll::SoA<ParticleOne, 2> const& constSoa = soa;
+    auto constXSpan = constSoa.getLeaf(ll::TagPath<posO_t, xO_t>{});
+    auto constMassSpan = constSoa.getLeaf(massO_t{});
+    STATIC_CHECK(std::is_const_v<typename decltype(constXSpan)::element_type>);
+    STATIC_CHECK(std::is_const_v<typename decltype(constMassSpan)::element_type>);
+    CHECK(constXSpan[0] == Catch::Approx(3.0f));
+    CHECK(constMassSpan[0] == Catch::Approx(42.0));
+}
+
 TEST_CASE("View assignment rebinds named handles and rejects temporary destinations", "[View]")
 {
     ll::One<ParticleOne> one{};

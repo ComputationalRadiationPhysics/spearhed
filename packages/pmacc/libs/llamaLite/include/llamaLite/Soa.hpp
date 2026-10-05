@@ -65,7 +65,7 @@ namespace llama_lite
         using indexed_view_type = ViewIndexed<SoA, access_set_t<Tags...>>;
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf()
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/)
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
@@ -73,7 +73,7 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf() const
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/) const
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;

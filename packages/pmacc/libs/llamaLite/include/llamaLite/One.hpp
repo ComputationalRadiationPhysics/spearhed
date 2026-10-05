@@ -76,14 +76,14 @@ namespace llama_lite
         using indexed_view_type = ViewIndexed<One, access_set_t<Tags...>>;
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf()
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/)
         {
             auto& leaf = resolveLeaf<RA, R>(storage);
             return std::span<std::remove_reference_t<decltype(leaf)>, 1>(&leaf, 1);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf() const
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/) const
         {
             auto const& leaf = resolveLeaf<RA, R>(storage);
             return std::span<std::remove_reference_t<decltype(leaf)> const, 1>(&leaf, 1);

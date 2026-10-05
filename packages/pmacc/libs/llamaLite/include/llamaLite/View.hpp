@@ -93,9 +93,9 @@ namespace llama_lite
                 "resolve: access names a composite node without an AsType specialization; nothing to resolve to.");
 
             if constexpr(requires { view.idx; })
-                return view.storage->template getLeaf<Access>()[view.idx];
+                return view.storage->getLeaf(Access{})[view.idx];
             else
-                return view.storage->template getLeaf<Access>();
+                return view.storage->getLeaf(Access{});
         }
     }
 
@@ -341,7 +341,7 @@ namespace llama_lite
                     return false;
                 else
                     return requires(DestStorage& dest, SrcStorage const& src, uint32_t index) {
-                        dest.template getLeaf<Path>()[index] = src.template getLeaf<Path>()[index];
+                        dest.getLeaf(Path{})[index] = src.getLeaf(Path{})[index];
                     };
             }
 
@@ -373,10 +373,7 @@ namespace llama_lite
         using DestLeaves = detail::ViewLeafSet<typename DestStorage::record_type, DestS>;
         auto const& sourceStorage = *src.storage;
         [&]<IsTagPath... Paths>(Set<Paths...>)
-        {
-            ((dest.storage->template getLeaf<Paths>()[dest.idx] = sourceStorage.template getLeaf<Paths>()[src.idx]),
-             ...);
-        }(DestLeaves{});
+        { ((dest.storage->getLeaf(Paths{})[dest.idx] = sourceStorage.getLeaf(Paths{})[src.idx]), ...); }(DestLeaves{});
     }
 
     /**

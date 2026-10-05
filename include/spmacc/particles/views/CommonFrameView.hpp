@@ -103,7 +103,7 @@ namespace pmacc::spearhed
         using LeafPaths = typename ll::GetLeafPaths<CommonRec>::type;
         return {
             .spans = [&]<ll::IsTagPath... Paths>(ll::Tuple<Paths...>)
-            { return std::make_tuple(frame.template getLeaf<Paths>()...); }(LeafPaths{})};
+            { return std::make_tuple(frame.getLeaf(Paths{})...); }(LeafPaths{})};
     }
 
 } // namespace pmacc::spearhed
