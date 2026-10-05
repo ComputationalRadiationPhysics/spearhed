@@ -18,13 +18,10 @@
 # and the GNU Lesser General Public License along with PMacc.
 # If not, see <http://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.28)
-project(PMacc LANGUAGES CXX)
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Backend.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/Backend.cmake")
 
 # The parent must prepare a compatible accelerator, Caravan's MPI/alpaka
-# adapters, and llamaLite before adding this component. It can be a package root
-# or a consumer; installed llamaLite can also be found below.
+# adapters, and llamaLite before including this module.
 if(NOT TARGET alpaka::alpaka)
     find_package(alpaka 3 CONFIG REQUIRED)
 endif()
@@ -47,17 +44,17 @@ endif()
 add_library(
     pmacc
     STATIC
-    include/pmacc/communication/CommunicatorMPI.cpp
-    include/pmacc/dataManagement/DataConnector.cpp
-    include/pmacc/mappings/simulation/Filesystem.cpp
-    include/pmacc/misc/splitString.cpp
-    include/pmacc/pluginSystem/PluginConnector.cpp
-    include/pmacc/simulationControl/signal.cpp
-    include/pmacc/simulationControl/SimulationHelper.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/communication/CommunicatorMPI.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/dataManagement/DataConnector.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/mappings/simulation/Filesystem.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/misc/splitString.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/pluginSystem/PluginConnector.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/simulationControl/signal.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/pmacc/simulationControl/SimulationHelper.cpp"
 )
 add_library(pmacc::pmacc ALIAS pmacc)
 target_compile_features(pmacc PUBLIC cxx_std_20)
-target_include_directories(pmacc PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_include_directories(pmacc PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../include>)
 target_link_libraries(
     pmacc
     PUBLIC alpaka::alpaka caravan::mpi caravan::alpaka llamaLite::llamaLite MPI::MPI_CXX Boost::program_options
@@ -85,11 +82,12 @@ endif()
 
 # A target compiling alpaka headers must be finalized, including downstream consumers.
 alpaka_finalize(pmacc)
-option(PMACC_BUILD_TESTING "Build PMacc tests" ${PROJECT_IS_TOP_LEVEL})
+# The package root and embedded package builds historically keep tests opt-in.
+option(PMACC_BUILD_TESTING "Build PMacc tests" OFF)
 if(PMACC_BUILD_TESTING)
     include(CTest)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../tests" "${CMAKE_CURRENT_BINARY_DIR}/pmacc-tests")
 endif()
 
 # Installed PMacc is deferred: the pinned alpaka installed config cannot yet
