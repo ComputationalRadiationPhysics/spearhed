@@ -4,6 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://www.mozilla.org/MPL/2.0/.
 
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -30,7 +31,11 @@ namespace
 
 TEST_CASE("Record queries accept tag objects", "[Record]")
 {
+    STATIC_CHECK(ParticleRecord::hasPath(ll::TagPath<>{}));
+    STATIC_CHECK(EmptyRecord::hasPath(ll::TagPath<>{}));
     STATIC_CHECK(ParticleRecord::hasPath(positionRecord / xRecord));
+    STATIC_CHECK_FALSE(ParticleRecord::hasPath(xRecord));
+    STATIC_CHECK_FALSE(ParticleRecord::hasPath(ll::TagPath<massRecord_t, xRecord_t>{}));
     STATIC_CHECK(ParticleRecord::hasPath(massRecord));
     STATIC_CHECK(ParticleRecord::isLeaf(massRecord));
     STATIC_CHECK(ParticleRecord::isLeaf(positionRecord / xRecord));
@@ -41,6 +46,41 @@ TEST_CASE("Record queries accept tag objects", "[Record]")
             ll::Field<xRecord_t, float>>);
     STATIC_CHECK(
         std::is_same_v<decltype(ParticleRecord::resolvePathToField(massRecord)), ll::Field<massRecord_t, double>>);
+}
+
+TEST_CASE("Tuple get and apply preserve value categories", "[Tuple]")
+{
+    using ValueTuple = ll::Tuple<int>;
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ValueTuple&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ValueTuple const&>().template get<0>()), int const&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ValueTuple&&>().template get<0>()), int&&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ValueTuple const&&>().template get<0>()), int const&&>);
+
+    using ReferenceTuple = ll::Tuple<int&>;
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ReferenceTuple&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ReferenceTuple const&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ReferenceTuple&&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<ReferenceTuple const&&>().template get<0>()), int&>);
+
+    using RvalueReferenceTuple = ll::Tuple<int&&>;
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<RvalueReferenceTuple&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<RvalueReferenceTuple const&>().template get<0>()), int&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<RvalueReferenceTuple&&>().template get<0>()), int&&>);
+    STATIC_CHECK(std::is_same_v<decltype(std::declval<RvalueReferenceTuple const&&>().template get<0>()), int&&>);
+
+    auto tuple = ll::makeTuple(std::make_unique<int>(17));
+    auto value = ll::tuple::apply([](std::unique_ptr<int> ptr) { return *ptr; }, std::move(tuple));
+    CHECK(value == 17);
+
+    struct RvalueCallable
+    {
+        int operator()(int value) &&
+        {
+            return value + 1;
+        }
+    };
+
+    CHECK(ll::tuple::apply(RvalueCallable{}, ll::Tuple<int>{3}) == 4);
 }
 
 TEST_CASE("getRootRecord returns backing record metadata", "[Record]")

@@ -90,8 +90,7 @@ namespace llama_lite
             // empty path exists in all records
             if constexpr(Path::depth == 0)
                 return true;
-
-            if constexpr(!hasTag(Path::head()))
+            else if constexpr(!hasTag(Path::head()))
             {
                 return false;
             }

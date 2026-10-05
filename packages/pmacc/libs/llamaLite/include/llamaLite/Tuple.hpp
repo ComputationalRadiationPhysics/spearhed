@@ -78,17 +78,34 @@ namespace llama_lite
          * @{
          */
         template<size_t I>
-        constexpr auto const& get() const
+        constexpr decltype(auto) get() &
         {
             static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            return static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>> const&>(*this).value;
+            return (static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>>&>(*this).value);
         }
 
         template<size_t I>
-        constexpr auto& get()
+        constexpr decltype(auto) get() const&
         {
             static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            return static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>>&>(*this).value;
+            return (static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>> const&>(*this).value);
+        }
+
+        template<size_t I>
+        constexpr decltype(auto) get() &&
+        {
+            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+            using Element = std::tuple_element_t<I, StdTuple>;
+            return static_cast<Element&&>(static_cast<detail::TupleLeaf<I, Element>&&>(*this).value);
+        }
+
+        template<size_t I>
+        constexpr decltype(auto) get() const&&
+        {
+            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+            using Element = std::tuple_element_t<I, StdTuple>;
+            using ConstElement = std::conditional_t<std::is_reference_v<Element>, Element, Element const>;
+            return static_cast<ConstElement&&>(static_cast<detail::TupleLeaf<I, Element> const&&>(*this).value);
         }
 
         /** @} */
@@ -137,7 +154,7 @@ namespace llama_lite
             template<typename T_Func, typename T_TupleLike, std::size_t... T_idx>
             constexpr decltype(auto) applyImpl(T_Func&& func, T_TupleLike&& tuple, std::index_sequence<T_idx...>)
             {
-                return func(get<T_idx>(std::forward<T_TupleLike>(tuple))...);
+                return std::forward<T_Func>(func)(get<T_idx>(std::forward<T_TupleLike>(tuple))...);
             }
         } // namespace detail
 
