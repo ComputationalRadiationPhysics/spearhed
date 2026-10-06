@@ -18,6 +18,18 @@ namespace llama_lite
     template<typename... T_Args>
     struct Tuple;
 
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...>& tuple) noexcept;
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...> const& tuple) noexcept;
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...>&& tuple) noexcept;
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...> const&& tuple) noexcept;
+
     namespace detail
     {
         template<std::size_t I, typename T>
@@ -25,22 +37,89 @@ namespace llama_lite
         {
             using type = T;
             [[no_unique_address]] T value;
+
+            constexpr TupleLeaf() requires(std::is_default_constructible_v<T>)
+            = default;
+
+            template<typename U>
+            requires(std::is_constructible_v<T, U&&>)
+            constexpr explicit(!std::is_convertible_v<U&&, T>)
+                TupleLeaf(U&& arg) noexcept(std::is_nothrow_constructible_v<T, U&&>)
+                : value(std::forward<U>(arg))
+            {
+            }
         };
 
         template<typename IndexSequence, typename... T_Args>
-        struct TupleImpl;
+        struct TupleStorage;
 
         template<std::size_t... Is, typename... T_Args>
-        struct TupleImpl<std::index_sequence<Is...>, T_Args...> : TupleLeaf<Is, T_Args>...
+        struct TupleStorage<std::index_sequence<Is...>, T_Args...> : TupleLeaf<Is, T_Args>...
         {
             template<typename... T_CArgs>
-            constexpr TupleImpl(T_CArgs&&... us) noexcept((std::is_nothrow_constructible_v<T_Args, T_CArgs&&> && ...))
+            requires(
+                sizeof...(T_CArgs) == sizeof...(T_Args) && sizeof...(T_Args) > 0
+                && (std::is_constructible_v<T_Args, T_CArgs&&> && ...))
+            constexpr TupleStorage(T_CArgs&&... us) noexcept(
+                (std::is_nothrow_constructible_v<T_Args, T_CArgs&&> && ...))
                 : TupleLeaf<Is, T_Args>{std::forward<T_CArgs>(us)}...
             {
             }
 
+            constexpr TupleStorage() requires(std::is_default_constructible_v<T_Args> && ...)
+            = default;
+        };
+
+        template<typename IndexSequence, bool HasReferences, typename... T_Args>
+        struct TupleImpl;
+
+        template<typename IndexSequence, typename... T_Args>
+        struct TupleImpl<IndexSequence, false, T_Args...> : TupleStorage<IndexSequence, T_Args...>
+        {
+            using Base = TupleStorage<IndexSequence, T_Args...>;
+            using Base::Base;
+
             constexpr TupleImpl() requires(std::is_default_constructible_v<T_Args> && ...)
             = default;
+            constexpr TupleImpl(TupleImpl const&) = default;
+            constexpr TupleImpl(TupleImpl&&) = default;
+            constexpr TupleImpl& operator=(TupleImpl const&) = default;
+            constexpr TupleImpl& operator=(TupleImpl&&) = default;
+        };
+
+        template<std::size_t... Is, typename... T_Args>
+        struct TupleImpl<std::index_sequence<Is...>, true, T_Args...>
+            : TupleStorage<std::index_sequence<Is...>, T_Args...>
+        {
+            using Base = TupleStorage<std::index_sequence<Is...>, T_Args...>;
+            using Base::Base;
+
+            constexpr TupleImpl() requires(std::is_default_constructible_v<T_Args> && ...)
+            = default;
+            constexpr TupleImpl(TupleImpl const&) = default;
+            constexpr TupleImpl(TupleImpl&&) = default;
+
+            constexpr TupleImpl& operator=(TupleImpl const& other) noexcept(
+                (std::is_nothrow_assignable_v<T_Args&, T_Args const&> && ...))
+                requires((std::is_assignable_v<T_Args&, T_Args const&> && ...))
+            {
+                (static_cast<void>(
+                     static_cast<TupleLeaf<Is, T_Args>&>(*this).value
+                     = static_cast<T_Args const&>(static_cast<TupleLeaf<Is, T_Args> const&>(other).value)),
+                 ...);
+                return *this;
+            }
+
+            constexpr TupleImpl& operator=(TupleImpl&& other) noexcept(
+                (std::is_nothrow_assignable_v<T_Args&, T_Args&&> && ...))
+                requires((std::is_assignable_v<T_Args&, T_Args&&> && ...))
+            {
+                (static_cast<void>(
+                     static_cast<TupleLeaf<Is, T_Args>&>(*this).value
+                     = static_cast<T_Args&&>(static_cast<TupleLeaf<Is, T_Args>&&>(other).value)),
+                 ...);
+                return *this;
+            }
         };
     } // namespace detail
 
@@ -50,14 +129,18 @@ namespace llama_lite
      * So Tuple t; would leave all primitive types uninitialized
      * Tuple t{}; would do value initialization
      *
-     * This class is trivially copyable if all members are trivially copable too and can therefore used for a
-     * collection to pass arguments into kernels. You should use @see alpaka::apply to apply operation to the tuple.
+     * Value tuples remain trivially copyable when all elements are trivially copyable. Tuples containing references
+     * assign through those references and are not generally trivially copyable. Use @see alpaka::apply or
+     * @see llama_lite::tuple::apply to apply an operation to the tuple.
      */
     template<typename... T_Args>
-    struct Tuple : detail::TupleImpl<std::make_index_sequence<sizeof...(T_Args)>, T_Args...>
+    struct Tuple
+        : detail::
+              TupleImpl<std::make_index_sequence<sizeof...(T_Args)>, (std::is_reference_v<T_Args> || ...), T_Args...>
     {
         using StdTuple = std::tuple<T_Args...>;
-        using Base = detail::TupleImpl<std::make_index_sequence<sizeof...(T_Args)>, T_Args...>;
+        using Base = detail::
+            TupleImpl<std::make_index_sequence<sizeof...(T_Args)>, (std::is_reference_v<T_Args> || ...), T_Args...>;
 
         template<typename... T_CArgs>
         requires(
@@ -72,51 +155,105 @@ namespace llama_lite
         constexpr Tuple() requires(std::is_default_constructible_v<T_Args> && ...)
         = default;
 
-        /** get element by index
-         *
-         * @tparam I index which should not be larger than the number of elements -1
-         * @{
-         */
-        template<size_t I>
-        constexpr decltype(auto) get() &
+        template<typename... T_OtherArgs>
+        requires(
+            sizeof...(T_Args) == sizeof...(T_OtherArgs) && !std::is_same_v<Tuple, Tuple<T_OtherArgs...>>
+            && (std::is_assignable_v<T_Args&, T_OtherArgs const&> && ...))
+        constexpr Tuple& operator=(Tuple<T_OtherArgs...> const& other) noexcept(
+            (std::is_nothrow_assignable_v<T_Args&, T_OtherArgs const&> && ...))
         {
-            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            return (static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>>&>(*this).value);
+            assignFrom(other, std::index_sequence_for<T_Args...>{});
+            return *this;
         }
 
-        template<size_t I>
-        constexpr decltype(auto) get() const&
+        template<typename... T_OtherArgs>
+        requires(
+            sizeof...(T_Args) == sizeof...(T_OtherArgs)
+            && !std::is_same_v<Tuple, Tuple<T_OtherArgs...>> && (std::is_assignable_v<T_Args&, T_OtherArgs&&> && ...))
+        constexpr Tuple& operator=(Tuple<T_OtherArgs...>&& other) noexcept(
+            (std::is_nothrow_assignable_v<T_Args&, T_OtherArgs&&> && ...))
         {
-            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            return (static_cast<detail::TupleLeaf<I, std::tuple_element_t<I, StdTuple>> const&>(*this).value);
+            assignFrom(std::move(other), std::index_sequence_for<T_Args...>{});
+            return *this;
         }
 
-        template<size_t I>
-        constexpr decltype(auto) get() &&
+    private:
+        template<typename T_Other, std::size_t... T_Is>
+        constexpr void assignFrom(T_Other&& other, std::index_sequence<T_Is...>) noexcept(
+            (std::is_nothrow_assignable_v<T_Args&, decltype(llama_lite::get<T_Is>(std::forward<T_Other>(other)))>
+             && ...))
         {
-            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            using Element = std::tuple_element_t<I, StdTuple>;
-            return static_cast<Element&&>(static_cast<detail::TupleLeaf<I, Element>&&>(*this).value);
+            (static_cast<void>(llama_lite::get<T_Is>(*this) = llama_lite::get<T_Is>(std::forward<T_Other>(other))),
+             ...);
         }
-
-        template<size_t I>
-        constexpr decltype(auto) get() const&&
-        {
-            static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
-            using Element = std::tuple_element_t<I, StdTuple>;
-            using ConstElement = std::conditional_t<std::is_reference_v<Element>, Element, Element const>;
-            return static_cast<ConstElement&&>(static_cast<detail::TupleLeaf<I, Element> const&&>(*this).value);
-        }
-
-        /** @} */
     };
 
+    /** Deduction decays argument types, as with std::tuple CTAD. Use tie or forwardAsTuple for references. */
     template<typename... T_Args>
-    Tuple(T_Args&&...) -> Tuple<T_Args...>;
+    Tuple(T_Args&&...) -> Tuple<std::decay_t<T_Args>...>;
 
+    /** Create a value tuple, decaying arguments and unwrapping std::reference_wrapper.
+     *
+     * Lvalues are copied into the tuple. Use `makeTuple(std::ref(x))` to store an explicit reference.
+     */
     constexpr auto makeTuple(auto&&... args)
     {
-        return Tuple{LL_FORWARD(args)...};
+        return Tuple<std::unwrap_ref_decay_t<decltype(args)>...>{LL_FORWARD(args)...};
+    }
+
+    /** Create a tuple of lvalue references, similar to std::tie. Assignment writes through the references. */
+    template<typename... T_Args>
+    constexpr auto tie(T_Args&... args) noexcept
+    {
+        return Tuple<T_Args&...>{args...};
+    }
+
+    /** Create a tuple of forwarding references, similar to std::forward_as_tuple.
+     *
+     * This does not extend the lifetime of referenced objects. Do not retain the result when any argument is a
+     * temporary.
+     */
+    template<typename... T_Args>
+    constexpr auto forwardAsTuple(T_Args&&... args) noexcept
+    {
+        return Tuple<T_Args&&...>{std::forward<T_Args>(args)...};
+    }
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...>& tuple) noexcept
+    {
+        static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+        using Element = std::tuple_element_t<I, typename Tuple<T_Args...>::StdTuple>;
+        using Leaf = detail::TupleLeaf<I, Element>;
+        return static_cast<Element&>(static_cast<Leaf&>(tuple).value);
+    }
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...> const& tuple) noexcept
+    {
+        static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+        using Element = std::tuple_element_t<I, typename Tuple<T_Args...>::StdTuple>;
+        using Leaf = detail::TupleLeaf<I, Element>;
+        return static_cast<std::add_const_t<Element>&>(static_cast<Leaf const&>(tuple).value);
+    }
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...>&& tuple) noexcept
+    {
+        static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+        using Element = std::tuple_element_t<I, typename Tuple<T_Args...>::StdTuple>;
+        using Leaf = detail::TupleLeaf<I, Element>;
+        return static_cast<Element&&>(static_cast<Leaf&&>(tuple).value);
+    }
+
+    template<std::size_t I, typename... T_Args>
+    constexpr decltype(auto) get(Tuple<T_Args...> const&& tuple) noexcept
+    {
+        static_assert(I < sizeof...(T_Args), "Index is outside of the allowed range.");
+        using Element = std::tuple_element_t<I, typename Tuple<T_Args...>::StdTuple>;
+        using ConstElement = std::conditional_t<std::is_reference_v<Element>, Element, Element const>;
+        using Leaf = detail::TupleLeaf<I, Element>;
+        return static_cast<ConstElement&&>(static_cast<Leaf const&&>(tuple).value);
     }
 
     // Flatten multiple Tuples into one for metaprogramming with Tuple types which hold tags
@@ -143,11 +280,7 @@ namespace llama_lite
 
     namespace tuple
     {
-        template<size_t T_idx>
-        constexpr decltype(auto) get(auto&& t) noexcept requires(ll::isSpecializationOf_v<LL_TYPEOF(t), Tuple>)
-        {
-            return LL_FORWARD(t).template get<T_idx>();
-        }
+        using llama_lite::get;
 
         namespace detail
         {
@@ -178,6 +311,7 @@ namespace llama_lite
         }
 
     } // namespace tuple
+
 
 } // namespace llama_lite
 
