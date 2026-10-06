@@ -312,6 +312,48 @@ namespace llama_lite
 
     } // namespace tuple
 
+    namespace detail
+    {
+        template<std::size_t T_Index, typename T_Inputs, typename T_Func, typename... T_Elements>
+        constexpr decltype(auto) tupleCatApply(T_Inputs&& inputs, T_Func&& func, T_Elements&&... elements)
+        {
+            if constexpr(T_Index == std::tuple_size_v<std::remove_cvref_t<T_Inputs>>)
+            {
+                return std::forward<T_Func>(func)(std::forward<T_Elements>(elements)...);
+            }
+            else
+            {
+                return tuple::apply(
+                    [&]<typename... T_Current>(T_Current&&... current) -> decltype(auto)
+                    {
+                        return tupleCatApply<T_Index + 1>(
+                            std::forward<T_Inputs>(inputs),
+                            std::forward<T_Func>(func),
+                            std::forward<T_Elements>(elements)...,
+                            std::forward<T_Current>(current)...);
+                    },
+                    std::get<T_Index>(std::forward<T_Inputs>(inputs)));
+            }
+        }
+    } // namespace detail
+
+    /** Concatenate llamaLite tuples into one tuple, forwarding each element once into the result.
+     *
+     * The explicit return type allows type-only use in unevaluated contexts without constructing the input elements.
+     * This does not guarantee the same compile-time cost as using @ref ConcatTuples directly. References already
+     * present in tuple element types remain references and retain their original lifetime requirements.
+     */
+    template<typename... T_Tuples>
+    requires((llama_lite::isSpecializationOf_v<std::remove_cvref_t<T_Tuples>, Tuple> && ...))
+    constexpr typename ConcatTuples<std::remove_cvref_t<T_Tuples>...>::type tupleCat(T_Tuples&&... tuples)
+    {
+        using Result = typename ConcatTuples<std::remove_cvref_t<T_Tuples>...>::type;
+        auto inputs = std::forward_as_tuple(std::forward<T_Tuples>(tuples)...);
+        return detail::tupleCatApply<0>(
+            std::move(inputs),
+            []<typename... T_Elements>(T_Elements&&... elements) -> Result
+            { return Result{std::forward<T_Elements>(elements)...}; });
+    }
 
 } // namespace llama_lite
 
