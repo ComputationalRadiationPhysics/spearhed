@@ -23,11 +23,20 @@
 
 #include "spmacc/particles/traits.hpp"
 
+#include <type_traits>
+
 #include <llamaLite/llamaLite.hpp>
 
 namespace pmacc::spearhed
 {
     template<typename TSoA, auto... TagInstances>
-    using ParticleView = ll::ViewIndexed<TSoA, ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>;
+    using ParticleView = ll::ViewIndexed<
+        TSoA,
+        ll::leaf_set_t<
+            typename TSoA::record_type,
+            std::conditional_t<
+                sizeof...(TagInstances) == 0,
+                ll::Set<ll::TagPath<>>,
+                ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>>>;
 
 } // namespace pmacc::spearhed

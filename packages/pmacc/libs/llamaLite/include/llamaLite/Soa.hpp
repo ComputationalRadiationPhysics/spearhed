@@ -20,6 +20,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
+#include <utility>
 
 namespace llama_lite
 {
@@ -69,12 +71,6 @@ namespace llama_lite
         using record_type = R;
         static constexpr size_t size = Size;
 
-        template<IsRecordAccess... Tags>
-        using view_type = View<SoA, access_set_t<Tags...>>;
-
-        template<IsRecordAccess... Tags>
-        using indexed_view_type = ViewIndexed<SoA, access_set_t<Tags...>>;
-
         template<IsRecordAccess RA>
         [[nodiscard]] constexpr auto getLeaf(RA /*tag*/)
         {
@@ -91,16 +87,42 @@ namespace llama_lite
             return std::span<ElementType, Size>(leaf);
         }
 
-        template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... /*tags*/)
+        [[nodiscard]] constexpr auto view()
         {
-            return View<SoA, access_set_t<RAs...>>(*this);
+            return View<SoA>(*this);
+        }
+
+        [[nodiscard]] constexpr auto view() const
+        {
+            return View<SoA const>(*this);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<SoA, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] constexpr auto view(RA tag)
+        {
+            return view().view(tag);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<SoA const, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] constexpr auto view(RA tag) const
+        {
+            return view().view(tag);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... /*tags*/) const
+        requires requires(View<SoA, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] constexpr auto select(RAs... tags)
         {
-            return View<SoA const, access_set_t<RAs...>>(*this);
+            return view().select(tags...);
+        }
+
+        template<IsRecordAccess... RAs>
+        requires requires(View<SoA const, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] constexpr auto select(RAs... tags) const
+        {
+            return view().select(tags...);
         }
 
         template<IsRecordAccess RA>
@@ -117,13 +139,28 @@ namespace llama_lite
 
         [[nodiscard]] constexpr auto operator[](size_type idx)
         {
-            return ViewIndexed<SoA, Set<>>(*this, idx);
+            return view()[idx];
         }
 
         [[nodiscard]] constexpr auto operator[](size_type idx) const
         {
-            return ViewIndexed<SoA const, Set<>>(*this, idx);
+            return view()[idx];
         }
+
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using view_type = decltype(std::declval<View<SoA, record_leaf_set_t<R>>>().view(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using indexed_view_type = decltype(std::declval<view_type<Tags...>>()[uint32_t{0}]);
+
+        template<IsRecordAccess... Tags>
+        using selection_view_type
+            = decltype(std::declval<View<SoA, record_leaf_set_t<R>>>().select(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        using indexed_selection_view_type = decltype(std::declval<selection_view_type<Tags...>>()[uint32_t{0}]);
 
     private:
         transform::transform_record_soa_t<R, Size, Alignment> channels_;

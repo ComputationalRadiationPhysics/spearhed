@@ -18,10 +18,10 @@ DEFINE_TAG(xRecord);
 using PositionRecord = ll::Record<ll::Field<xRecord_t, float>>;
 using ParticleRecord = ll::Record<ll::Field<positionRecord_t, PositionRecord>, ll::Field<massRecord_t, double>>;
 using EmptyRecord = ll::Record<>;
-using IndexedParticleView = ll::ViewIndexed<ll::One<ParticleRecord>, ll::Set<>>;
-using ConstIndexedParticleView = ll::ViewIndexed<ll::One<ParticleRecord> const, ll::Set<>>;
-using ParticleRootView = ll::View<ll::One<ParticleRecord>, ll::Set<>>;
-using ConstParticleRootView = ll::View<ll::One<ParticleRecord> const, ll::Set<>>;
+using IndexedParticleView = ll::ViewIndexed<ll::One<ParticleRecord>>;
+using ConstIndexedParticleView = ll::ViewIndexed<ll::One<ParticleRecord> const>;
+using ParticleRootView = ll::View<ll::One<ParticleRecord>>;
+using ConstParticleRootView = ll::View<ll::One<ParticleRecord> const>;
 
 namespace
 {

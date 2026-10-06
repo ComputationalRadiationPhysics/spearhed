@@ -11,7 +11,6 @@
 #include "llamaLite/Set.hpp"
 #include "llamaLite/tag/TagPath.hpp"
 #include "llamaLite/traits.hpp"
-#include "llamaLite/utility.hpp"
 
 #include <concepts>
 #include <cstdint>
@@ -19,115 +18,96 @@
 
 namespace llama_lite
 {
-    // A View is parameterized on a storage and an access Set S -- the set of record accesses
-    // (tags or TagPaths) it exposes over that storage. S is kept at the granularity the caller
-    // named it (a node stays a node) so that composite-node handling via traits::AsType and
-    // node-level indexing keep working; the closure-aware leaf semantics live in AccessSet and
-    // are only reached for in the constraints (Selects) and in deep copies.
-    //
-    // The empty set S = Set<> is the "root" cursor: it denotes the whole record and can be
-    // drilled into from the top. A size-1 set is a cursor at a single node/leaf. A size>1 set
-    // is a selection of sibling accesses.
-
     namespace detail
     {
-        // The single element of a size-1 access Set.
-        template<IsAccessSet S>
-        struct SingleAccess;
+        // Handles store canonical absolute leaf permissions within one navigation path.
+        // TagPath<> is the record root; Set<> is an empty selection, not whole-record access.
+        template<typename TStorage, typename Leaves, typename Root>
+        concept ViewStorageFor
+            = requires { typename TStorage::record_type; } && IsAccessSet<Leaves> && IsTagPath<Root>
+              && ValidAccessSetFor<typename TStorage::record_type, Leaves> && TStorage::record_type::hasPath(Root{})
+              && std::same_as<Leaves, leaf_set_t<typename TStorage::record_type, Leaves>>
+              && (Leaves{} <= leaf_set_t<typename TStorage::record_type, Set<Root>>{});
 
-        template<typename A>
-        struct SingleAccess<Set<A>>
-        {
-            using type = A;
-        };
+        template<IsRecord Record, IsTagPath Path>
+        using subtree_leaves_t = leaf_set_t<Record, Set<Path>>;
 
-        template<IsAccessSet S>
-        using single_access_t = typename SingleAccess<S>::type;
+        template<IsRecord Record, IsAccessSet Leaves, IsTagPath Path>
+        using child_leaves_t = decltype(Leaves{} & subtree_leaves_t<Record, Path>{});
 
-        // All accesses named by S resolve to a field of the storage record.
-        template<typename TStorage, typename S>
-        concept ViewStorageFor = IsAccessSet<S> && requires { typename TStorage::record_type; }
-                                 && ValidAccessSetFor<typename TStorage::record_type, S>;
+        template<IsRecord Record, IsTagPath Root, IsRecordAccess... RAs>
+        using requested_leaves_t = leaf_set_t<Record, access_set_t<append_t<Root, RAs>...>>;
 
-        template<IsRecord Record, IsAccessSet S>
-        using ViewLeafSet = std::conditional_t<S::size == 0, record_leaf_set_t<Record>, leaf_set_t<Record, S>>;
+        template<typename Record, typename Leaves, typename Root, typename RA>
+        concept CanDrill = IsRecordAccess<RA> && Record::hasPath(append_t<Root, RA>{})
+                           && !child_leaves_t<Record, Leaves, append_t<Root, RA>>::empty;
+
+        template<typename Record, typename Leaves, typename Root, typename... RAs>
+        concept CanSelect
+            = (IsRecordAccess<RAs> && ...) && ValidAccessSetFor<Record, access_set_t<append_t<Root, RAs>...>>
+              && (requested_leaves_t<Record, Root, RAs...>{} <= Leaves{});
+
+        template<typename Record, typename Leaves, typename Root>
+        concept CanResolve
+            = (Root::depth > 0) && (subtree_leaves_t<Record, Root>{} <= Leaves{})
+              && (Record::isLeaf(Root{})
+                  || traits::IsTraitSpecialized<traits::AsType, typename Record::template field_for<Root>>::value);
     } // namespace detail
 
     /**
-     * Resolves a single-access view (View or ViewIndexed) to its value.
-     *
-     * This is the one place the leaf/node distinction and the traits::AsType
-     * mapping live; the views delegate their terminal-access resolution (drilling
-     * to a leaf, get() and operator*) here so they carry no resolution logic of
-     * their own. Given a view over exactly one record access it returns:
-     *   - a composite node carrying a traits::AsType specialization:
-     *       the AsType-constructed object, built from the view;
-     *   - a leaf reached through an indexed view:
-     *       a reference to the scalar element at the view's index;
-     *   - a leaf reached through a non-indexed view:
-     *       the std::span over the whole leaf column.
-     *
-     * A composite node without an AsType specialization has no value to resolve
-     * to and is rejected at compile time.
-     *
-     * @tparam V a View or ViewIndexed whose access set names a single access
-     * @param  view the view to resolve (cheap to copy: a storage pointer, plus
-     *              an index for indexed views)
+     * Resolve a fully selected leaf or adapted subtree cursor.
+     * Indexed leaves return scalar references; column leaves return spans.
+     * Composite nodes use traits::AsType and require all subtree leaves to be selected.
+     * @param view a shallow handle (storage pointer, plus an index for indexed views)
      */
     template<typename V>
-    requires(V::access_set::size == 1)
-    [[nodiscard]] static constexpr decltype(auto) resolve(V view)
+    requires detail::CanResolve<typename V::record_type, typename V::access_set, typename V::root_access>
+    [[nodiscard]] constexpr decltype(auto) resolve(V view)
     {
-        using Record = typename V::record_type;
-        using Access = decltype(view.getRecordAccess());
-        using Field = typename Record::template field_for<Access>;
-
+        using Access = typename V::root_access;
+        using Field = typename V::record_type::template field_for<Access>;
         if constexpr(traits::IsTraitSpecialized<traits::AsType, Field>::value)
-        {
             return traits::AsType<Field>{}(view);
-        }
+        else if constexpr(requires { view.idx; })
+            return view.storage->getLeaf(Access{})[view.idx];
         else
-        {
-            static_assert(
-                Record::isLeaf(Access{}),
-                "resolve: access names a composite node without an AsType specialization; nothing to resolve to.");
-
-            if constexpr(requires { view.idx; })
-                return view.storage->getLeaf(Access{})[view.idx];
-            else
-                return view.storage->getLeaf(Access{});
-        }
+            return view.storage->getLeaf(Access{});
     }
 
     namespace detail
     {
-        // Result of drilling a cursor into a single child access: if the child names a leaf
-        // (a terminal access) it is resolved to its value -- an element reference for an indexed
-        // view, the std::span over the column otherwise. A composite node (including one carrying
-        // an AsType specialization) stays a cursor, so it can be drilled further or .get()'d.
+        // Bracket navigation resolves terminal leaves, but keeps composite nodes as cursors.
         template<typename ChildView>
-        [[nodiscard]] static constexpr decltype(auto) resolveIfLeaf(ChildView child)
+        [[nodiscard]] constexpr decltype(auto) resolveIfLeaf(ChildView child)
         {
-            using Record = typename ChildView::record_type;
-            using Access = single_access_t<typename ChildView::access_set>;
-            if constexpr(Record::isLeaf(Access{}))
+            using Access = typename ChildView::root_access;
+            if constexpr(Access::depth == 0)
+                return child;
+            else if constexpr(ChildView::record_type::isLeaf(Access{}))
                 return resolve(child);
             else
                 return child;
         }
     } // namespace detail
 
-
-    template<typename TStorage, IsAccessSet S>
-    requires detail::ViewStorageFor<TStorage, S>
+    template<
+        typename TStorage,
+        IsAccessSet Leaves = record_leaf_set_t<typename TStorage::record_type>,
+        IsTagPath Root = TagPath<>>
+    requires detail::ViewStorageFor<TStorage, Leaves, Root>
     struct ViewIndexed;
 
-    template<typename TStorage, IsAccessSet S>
-    requires detail::ViewStorageFor<TStorage, S>
+    /// Column cursor with canonical absolute leaf permissions and a relative navigation root.
+    template<
+        typename TStorage,
+        IsAccessSet Leaves = record_leaf_set_t<typename TStorage::record_type>,
+        IsTagPath Root = TagPath<>>
+    requires detail::ViewStorageFor<TStorage, Leaves, Root>
     struct View
     {
         using record_type = TStorage::record_type;
-        using access_set = S;
+        using access_set = Leaves;
+        using root_access = Root;
 
         TStorage* storage;
 
@@ -136,57 +116,66 @@ namespace llama_lite
         constexpr View& operator=(View const&) & = default;
         constexpr View& operator=(View&&) & = default;
 
-        // Construct over storage with a given (or empty/root) access set.
-        constexpr View(TStorage& storage_, S /*accessSet*/ = {}) noexcept : storage{&storage_}
+        constexpr View(TStorage& storage_) noexcept : storage{&storage_}
         {
         }
 
-        // Narrow from a parent view whose selection contains ours.
-        template<IsAccessSet ParentS>
-        constexpr View(View<TStorage, ParentS> view, S /*accessSet*/ = {}) noexcept
-            requires Selects<record_type, ParentS, S>
+        // Shallow narrowing is allowed only within the same navigation root.
+        template<IsAccessSet ParentLeaves>
+        constexpr View(View<TStorage, ParentLeaves, Root> view) noexcept requires(Leaves{} <= ParentLeaves{})
             : storage{view.storage}
         {
         }
 
-        [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx)
+        [[nodiscard]] constexpr auto operator[](uint32_t idx) const
         {
-            return ViewIndexed<TStorage, S>(*this, idx);
+            return ViewIndexed<TStorage, Leaves, Root>(*this, idx);
         }
 
-        [[nodiscard]] constexpr decltype(auto) operator[](uint32_t idx) const
+        [[nodiscard]] constexpr auto view() const
         {
-            return ViewIndexed<TStorage, S>(*this, idx);
+            return *this;
         }
 
-        // Drill into the single current node. A terminal (leaf) child resolves to its
-        // std::span over the column; a composite node stays a cursor.
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA) requires(S::size == 1)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA tag) const
+            requires detail::CanDrill<record_type, Leaves, Root, RA>
         {
-            using Path = append_t<detail::single_access_t<S>, RA>;
-            return detail::resolveIfLeaf(View<TStorage, access_set_t<Path>>{*(this->storage)});
+            return detail::resolveIfLeaf(this->view(tag));
+        }
+
+        template<IsRecordAccess RA>
+        [[nodiscard]] constexpr auto view(RA) const requires detail::CanDrill<record_type, Leaves, Root, RA>
+        {
+            using Path = append_t<Root, RA>;
+            return View<TStorage, detail::child_leaves_t<record_type, Leaves, Path>, Path>{*storage};
+        }
+
+        // Every requested leaf must already be selected; an empty pack selects no leaves.
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto select(RAs... /*accesses*/) const
+            requires detail::CanSelect<record_type, Leaves, Root, RAs...>
+        {
+            return View<TStorage, detail::requested_leaves_t<record_type, Root, RAs...>, Root>{*storage};
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
         {
-            if constexpr(S::size == 1)
-                return detail::single_access_t<S>{};
-            else
-                return S{};
+            return Root{};
         }
     };
 
-    // Deduce the whole-record (root) view from storage alone.
     template<typename TStorage>
-    View(TStorage&) -> View<TStorage, Set<>>;
+    View(TStorage&) -> View<TStorage>;
 
-    template<typename TStorage, IsAccessSet S>
-    requires detail::ViewStorageFor<TStorage, S>
+    /// Row cursor; construction and assignment rebind the handle, not the selected values.
+    template<typename TStorage, IsAccessSet Leaves, IsTagPath Root>
+    requires detail::ViewStorageFor<TStorage, Leaves, Root>
     struct ViewIndexed
     {
         using record_type = TStorage::record_type;
-        using access_set = S;
+        using access_set = Leaves;
+        using root_access = Root;
 
         TStorage* storage;
         uint32_t idx;
@@ -196,134 +185,86 @@ namespace llama_lite
         constexpr ViewIndexed& operator=(ViewIndexed const&) & = default;
         constexpr ViewIndexed& operator=(ViewIndexed&&) & = default;
 
-        // consteval default constructor, to help get the type of a view more easily
-        consteval ViewIndexed() = default;
+        constexpr ViewIndexed(TStorage& storage_, uint32_t index) noexcept : storage{&storage_}, idx{index}
+        {
+        }
 
-        // Construct over storage at an index with a given (or empty/root) access set.
-        constexpr ViewIndexed(TStorage& storage_, uint32_t index, S /*accessSet*/ = {}) noexcept
-            : storage{&storage_}
+        constexpr ViewIndexed(View<TStorage, Leaves, Root> view, uint32_t index) noexcept
+            : storage{view.storage}
             , idx{index}
         {
         }
 
-        constexpr ViewIndexed(View<TStorage, S> view, uint32_t index) noexcept : storage{view.storage}, idx{index} {};
-
-        // Convert to this view's access set from another indexed view over the same storage.
-        // A root source (whole record) may narrow to anything; otherwise its selection must
-        // contain ours. This subsumes narrowing from a parent (indexed) view.
-        template<IsAccessSet OtherS>
-        constexpr ViewIndexed(ViewIndexed<TStorage, OtherS> const& other) noexcept
-            requires(OtherS::size == 0 || Selects<record_type, OtherS, S>)
+        template<IsAccessSet OtherLeaves>
+        constexpr ViewIndexed(ViewIndexed<TStorage, OtherLeaves, Root> const& other) noexcept
+            requires(Leaves{} <= OtherLeaves{})
             : storage{other.storage}
             , idx{other.idx}
         {
         }
 
-        // Drill into the single current node (or from the root for an empty set). A terminal
-        // (leaf) child resolves to the element reference at this index; a composite node stays
-        // a cursor.
-        template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA) const requires(S::size <= 1)
+        [[nodiscard]] constexpr auto view() const
         {
-            if constexpr(S::size == 1)
-            {
-                using Path = append_t<detail::single_access_t<S>, RA>;
-                return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<Path>>{*(this->storage), idx});
-            }
-            else
-            {
-                using Path = to_path_t<RA>;
-                return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<Path>>{*(this->storage), idx});
-            }
+            return *this;
         }
 
-        // Select one access out of a multi-access selection. A selected leaf resolves to its
-        // element reference; a selected composite node stays a cursor.
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr decltype(auto) operator[](RA) const
-            requires((S::size > 1) && Selects<record_type, S, access_set_t<RA>>)
+        [[nodiscard]] constexpr decltype(auto) operator[](RA tag) const
+            requires detail::CanDrill<record_type, Leaves, Root, RA>
         {
-            return detail::resolveIfLeaf(ViewIndexed<TStorage, access_set_t<RA>>(*this));
+            return detail::resolveIfLeaf(this->view(tag));
         }
 
-        // needs a leaf access RA in an indexed view. Should only happen when casting to such a type
-        // for example implicitly when the user requests it
-        [[nodiscard]] constexpr decltype(auto) operator*()
-            requires((S::size == 1) && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})))
+        template<IsRecordAccess RA>
+        [[nodiscard]] constexpr auto view(RA) const requires detail::CanDrill<record_type, Leaves, Root, RA>
         {
-            return resolve(*this);
+            using Path = append_t<Root, RA>;
+            return ViewIndexed<TStorage, detail::child_leaves_t<record_type, Leaves, Path>, Path>{*storage, idx};
+        }
+
+        template<IsRecordAccess... RAs>
+        [[nodiscard]] constexpr auto select(RAs... /*accesses*/) const
+            requires detail::CanSelect<record_type, Leaves, Root, RAs...>
+        {
+            return ViewIndexed<TStorage, detail::requested_leaves_t<record_type, Root, RAs...>, Root>{*storage, idx};
         }
 
         [[nodiscard]] constexpr decltype(auto) operator*() const
-            requires((S::size == 1) && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})))
+            requires detail::CanResolve<record_type, Leaves, Root> && (record_type::isLeaf(Root{}))
         {
             return resolve(*this);
         }
 
-        // requires we are a leaf node or AsType is
-        [[nodiscard]] constexpr decltype(auto) get() requires(
-            (S::size == 1)
-            && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})
-                || traits::IsTraitSpecialized<
-                    traits::AsType,
-                    typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
-        {
-            return resolve(*this);
-        }
-
-        [[nodiscard]] constexpr decltype(auto) get() const requires(
-            (S::size == 1)
-            && (TStorage::record_type::isLeaf(detail::single_access_t<S>{})
-                || traits::IsTraitSpecialized<
-                    traits::AsType,
-                    typename TStorage::record_type::template field_for<detail::single_access_t<S>>>::value))
+        [[nodiscard]] constexpr decltype(auto) get() const requires detail::CanResolve<record_type, Leaves, Root>
         {
             return resolve(*this);
         }
 
         [[nodiscard]] constexpr auto getRecordAccess() const
         {
-            if constexpr(S::size == 1)
-                return detail::single_access_t<S>{};
-            else
-                return S{};
+            return Root{};
         }
     };
 
-    // Deduce the whole-record (root) indexed view from storage and an index.
     template<typename TStorage>
-    ViewIndexed(TStorage&, uint32_t) -> ViewIndexed<TStorage, Set<>>;
+    ViewIndexed(TStorage&, uint32_t) -> ViewIndexed<TStorage>;
 
-    template<typename TStorage, IsAccessSet S>
-    requires detail::ViewStorageFor<TStorage, S>
-    [[nodiscard]] constexpr auto getSelectedLeaves(View<TStorage, S> const&) noexcept
+    template<typename TStorage, IsAccessSet Leaves, IsTagPath Root>
+    [[nodiscard]] constexpr auto getSelectedLeaves(View<TStorage, Leaves, Root> const&) noexcept
     {
-        return detail::ViewLeafSet<typename TStorage::record_type, S>{};
+        return Leaves{};
     }
 
-    template<typename TStorage, IsAccessSet S>
-    requires detail::ViewStorageFor<TStorage, S>
-    [[nodiscard]] constexpr auto getSelectedLeaves(ViewIndexed<TStorage, S> const&) noexcept
+    template<typename TStorage, IsAccessSet Leaves, IsTagPath Root>
+    [[nodiscard]] constexpr auto getSelectedLeaves(ViewIndexed<TStorage, Leaves, Root> const&) noexcept
     {
-        return detail::ViewLeafSet<typename TStorage::record_type, S>{};
+        return Leaves{};
     }
 
     namespace detail
     {
-        template<typename Record, typename Paths>
-        struct PathsExist : std::false_type
-        {
-        };
-
-        template<typename Record, IsTagPath... Paths>
-        struct PathsExist<Record, Set<Paths...>> : std::bool_constant<(Record::hasPath(Paths{}) && ... && true)>
-        {
-        };
-
         template<typename DestStorage, typename SrcStorage, typename DestLeaves, typename SrcLeaves>
-        struct CopyValuesCompatible : std::false_type
-        {
-        };
+        struct CopyValuesCompatible;
 
         template<typename DestStorage, typename SrcStorage, typename SrcLeaves, IsTagPath... DestPaths>
         struct CopyValuesCompatible<DestStorage, SrcStorage, Set<DestPaths...>, SrcLeaves>
@@ -331,11 +272,8 @@ namespace llama_lite
             template<typename Path>
             static consteval bool canCopyPath()
             {
-                using DestRecord = typename DestStorage::record_type;
                 using SrcRecord = typename SrcStorage::record_type;
-                if constexpr(!DestRecord::hasPath(Path{}))
-                    return false;
-                else if constexpr(!SrcRecord::hasPath(Path{}))
+                if constexpr(!SrcRecord::hasPath(Path{}))
                     return false;
                 else if constexpr(!SrcLeaves::contains(Path{}))
                     return false;
@@ -347,57 +285,53 @@ namespace llama_lite
 
             static constexpr bool value = (canCopyPath<DestPaths>() && ... && true);
         };
-
-        template<typename DestStorage, typename SrcStorage, typename DestLeaves, typename SrcLeaves>
-        inline constexpr bool copy_values_compatible_v
-            = CopyValuesCompatible<DestStorage, SrcStorage, DestLeaves, SrcLeaves>::value;
     } // namespace detail
 
     /**
-     * Copy the destination view's selected leaf values from the source view.
-     * A root view selects every leaf in its record. Every destination-selected leaf must
-     * also be selected by the source; extra source leaves are ignored. If a leaf assignment
-     * throws, earlier leaves may already have been copied. Handle construction and assignment
-     * remain shallow.
+     * Copy exactly the destination-selected leaves; extra source leaves are ignored.
+     * If assignment throws, earlier leaves may already have been copied.
+     * Handle construction and assignment remain shallow.
      */
-    template<typename DestStorage, IsAccessSet DestS, typename SrcStorage, IsAccessSet SrcS>
+    template<
+        typename DestStorage,
+        IsAccessSet DestLeaves,
+        IsTagPath DestRoot,
+        typename SrcStorage,
+        IsAccessSet SrcLeaves,
+        IsTagPath SrcRoot>
     requires(
         !std::is_const_v<DestStorage>
-        && detail::copy_values_compatible_v<
-            DestStorage,
-            SrcStorage,
-            detail::ViewLeafSet<typename DestStorage::record_type, DestS>,
-            detail::ViewLeafSet<typename SrcStorage::record_type, SrcS>>)
-    constexpr void copy_values(ViewIndexed<DestStorage, DestS> dest, ViewIndexed<SrcStorage, SrcS> src)
+        && detail::CopyValuesCompatible<DestStorage, SrcStorage, DestLeaves, SrcLeaves>::value)
+    constexpr void copy_values(
+        ViewIndexed<DestStorage, DestLeaves, DestRoot> dest,
+        ViewIndexed<SrcStorage, SrcLeaves, SrcRoot> src)
     {
-        using DestLeaves = detail::ViewLeafSet<typename DestStorage::record_type, DestS>;
         auto const& sourceStorage = *src.storage;
         [&]<IsTagPath... Paths>(Set<Paths...>)
         { ((dest.storage->getLeaf(Paths{})[dest.idx] = sourceStorage.getLeaf(Paths{})[src.idx]), ...); }(DestLeaves{});
     }
 
     /**
-     * Return a shallow destination handle narrowed to the model view's selected leaves.
-     * This is useful when copying a selected subrecord into a broader record: the selection
-     * is derived from the model's record (including all leaves for a root view), then checked
-     * against the destination selection. Missing paths are rejected; no intersection is taken.
-     * Empty models are rejected because an empty access set denotes a root view, not an empty
-     * selection; callers should skip empty-record transfers at compile time.
+     * Narrow a destination handle to the model's absolute selected leaf paths.
+     * Missing or unselected paths are rejected; no intersection is taken.
+     * Empty models are rejected; skip empty-record transfers at compile time.
      */
-    template<typename DestStorage, IsAccessSet DestS, typename ModelStorage, IsAccessSet ModelS>
+    template<
+        typename DestStorage,
+        IsAccessSet DestLeaves,
+        IsTagPath DestRoot,
+        typename ModelStorage,
+        IsAccessSet ModelLeaves,
+        IsTagPath ModelRoot>
     requires(
-        (detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>::size > 0)
-        && detail::PathsExist<
-            typename DestStorage::record_type,
-            detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>>::value
-        && (detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>{}
-            <= detail::ViewLeafSet<typename DestStorage::record_type, DestS>{}))
+        ModelLeaves::size > 0 && detail::ValidAccessSetFor<typename DestStorage::record_type, ModelLeaves>
+        && (ModelLeaves{} <= DestLeaves{}))
     [[nodiscard]] constexpr auto select_like(
-        ViewIndexed<DestStorage, DestS> dest,
-        ViewIndexed<ModelStorage, ModelS> /*model*/)
+        ViewIndexed<DestStorage, DestLeaves, DestRoot> dest,
+        ViewIndexed<ModelStorage, ModelLeaves, ModelRoot> /*model*/)
     {
-        using ModelLeaves = detail::ViewLeafSet<typename ModelStorage::record_type, ModelS>;
-        return ViewIndexed<DestStorage, ModelLeaves>{dest};
+        // Different records may declare the same leaves in a different order.
+        using Leaves = leaf_set_t<typename DestStorage::record_type, ModelLeaves>;
+        return ViewIndexed<DestStorage, Leaves, DestRoot>{dest};
     }
-
 } // namespace llama_lite

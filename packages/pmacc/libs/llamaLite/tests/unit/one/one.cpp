@@ -65,9 +65,9 @@ TEST_CASE("One container provides correct SoA-style access and mutation", "[One]
         REQUIRE(mass_span.size() == 1u);
     }
 
-    SECTION("Multi-tag views project access into the owning One")
+    SECTION("Multi-field selections keep particle-root navigation")
     {
-        auto pv = one.view(posO, velO);
+        auto pv = one.select(posO, velO);
         pv[0u][posO][xO] = 5.5f;
         CHECK(one[posO][xO][0] == Catch::Approx(5.5f));
     }
@@ -106,7 +106,7 @@ TEST_CASE("One container provides correct SoA-style access and mutation", "[One]
 
     SECTION("One rejects incomplete source selections")
     {
-        using MassView = decltype(one.view(massO)[0u]);
+        using MassView = decltype(one.select(massO)[0u]);
         STATIC_CHECK_FALSE(CanConstructParticle<MassView>);
         STATIC_CHECK_FALSE(CanAssignParticle<MassView>);
     }

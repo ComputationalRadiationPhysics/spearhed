@@ -240,12 +240,6 @@ namespace llama_lite
     public:
         using record_type = R;
 
-        template<IsRecordAccess... Tags>
-        using view_type = View<DynSoA, access_set_t<Tags...>>;
-
-        template<IsRecordAccess... Tags>
-        using indexed_view_type = ViewIndexed<DynSoA, access_set_t<Tags...>>;
-
         DynSoA() = default;
         DynSoA(DynSoA const&) = default;
 
@@ -370,16 +364,42 @@ namespace llama_lite
             return std::span<ElementType>(leaf.data(), leaf.size());
         }
 
-        template<IsRecordAccess... RAs>
-        [[nodiscard]] auto view(RAs... /*tags*/)
+        [[nodiscard]] auto view()
         {
-            return View<DynSoA, access_set_t<RAs...>>(*this);
+            return View<DynSoA>(*this);
+        }
+
+        [[nodiscard]] auto view() const
+        {
+            return View<DynSoA const>(*this);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<DynSoA, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] auto view(RA tag)
+        {
+            return view().view(tag);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<DynSoA const, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] auto view(RA tag) const
+        {
+            return view().view(tag);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] auto view(RAs... /*tags*/) const
+        requires requires(View<DynSoA, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] auto select(RAs... tags)
         {
-            return View<DynSoA const, access_set_t<RAs...>>(*this);
+            return view().select(tags...);
+        }
+
+        template<IsRecordAccess... RAs>
+        requires requires(View<DynSoA const, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] auto select(RAs... tags) const
+        {
+            return view().select(tags...);
         }
 
         template<IsRecordAccess RA>
@@ -396,13 +416,28 @@ namespace llama_lite
 
         [[nodiscard]] auto operator[](uint32_t idx)
         {
-            return ViewIndexed<DynSoA, Set<>>(*this, idx);
+            return view()[idx];
         }
 
         [[nodiscard]] auto operator[](uint32_t idx) const
         {
-            return ViewIndexed<DynSoA const, Set<>>(*this, idx);
+            return view()[idx];
         }
+
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using view_type = decltype(std::declval<View<DynSoA, record_leaf_set_t<R>>>().view(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using indexed_view_type = decltype(std::declval<view_type<Tags...>>()[uint32_t{0}]);
+
+        template<IsRecordAccess... Tags>
+        using selection_view_type
+            = decltype(std::declval<View<DynSoA, record_leaf_set_t<R>>>().select(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        using indexed_selection_view_type = decltype(std::declval<selection_view_type<Tags...>>()[uint32_t{0}]);
 
     private:
         static void checkSize(size_t n)
