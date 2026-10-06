@@ -37,15 +37,15 @@ namespace pmacc
         using PtrType = type*;
         using ConstPtrType = type const*;
 
-        HDINLINE Pointer() = default;
+        constexpr Pointer() = default;
 
-        HDINLINE Pointer(PtrType const ptrIn) : ptr(ptrIn)
+        HDINLINE constexpr Pointer(PtrType const ptrIn) : ptr(ptrIn)
         {
         }
 
-        HDINLINE Pointer(Pointer const& other) = default;
+        constexpr Pointer(Pointer const& other) = default;
 
-        HDINLINE Pointer& operator=(Pointer const& other) = default;
+        constexpr Pointer& operator=(Pointer const& other) = default;
 
         /** dereference the pointer*/
         HDINLINE type& operator*()

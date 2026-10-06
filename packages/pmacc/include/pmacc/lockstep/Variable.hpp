@@ -63,7 +63,7 @@ namespace pmacc
              * Data member are uninitialized.
              * This method must be called collectively by all workers.
              */
-            Variable() = default;
+            constexpr Variable() = default;
 
             /** constructor
              *
@@ -73,17 +73,17 @@ namespace pmacc
              * @param args element assigned to each member
              */
             template<typename... T_Args>
-            HDINLINE explicit Variable(T_Args&&... args) : BaseArray(std::forward<T_Args>(args)...)
+            HDINLINE constexpr explicit Variable(T_Args&&... args) : BaseArray(std::forward<T_Args>(args)...)
             {
             }
 
             /** disable copy constructor
              */
-            HDINLINE Variable(Variable const&) = delete;
+            constexpr Variable(Variable const&) = delete;
 
-            HDINLINE Variable(Variable&&) = default;
+            constexpr Variable(Variable&&) = default;
 
-            HDINLINE Variable& operator=(Variable&&) = default;
+            constexpr Variable& operator=(Variable&&) = default;
 
             /** get element for the worker
              *

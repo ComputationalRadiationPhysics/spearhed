@@ -67,7 +67,7 @@ namespace pmacc
 
         constexpr DataSpace(DataSpace const&) = default;
 
-        HDINLINE constexpr DataSpace& operator=(DataSpace const&) = default;
+        constexpr DataSpace& operator=(DataSpace const&) = default;
 
         /** constructor.
          *
