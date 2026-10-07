@@ -7,6 +7,8 @@
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/Point.hpp"
 
+#include <utility>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <llamaLite/llamaLite.hpp>
@@ -29,20 +31,27 @@ using Particle = ll::Record<
 
 using TSoA = ll::SoA<Particle, 512>;
 
-template<auto... TagInstances>
-using ParticleView = ll::ViewIndexed<TSoA, ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>;
+template<typename T>
+concept CanGet = requires(T view) { view.get(); };
+
+using PartialPositionCursor
+    = decltype(std::declval<TSoA&>().select(posi / pmacc::spearhed::tags::x).view(posi)[uint32_t{0}]);
+
+using PositionCursor = TSoA::indexed_view_type<posi_t>;
 
 template<>
 struct ll::traits::AsType<ll::Field<posi_t, Posi>>
 {
     using CS = pmacc::spearhed::Cartesian<float, 2>;
-    using type = pmacc::spearhed::Point<CS, pmacc::spearhed::ViewStorage<CS, ParticleView<posi>>>;
+    using type = pmacc::spearhed::Point<CS, pmacc::spearhed::ViewStorage<CS, PositionCursor>>;
 
     constexpr type operator()(auto fieldView) const
     {
         return type{fieldView};
     }
 };
+
+static_assert(!CanGet<PartialPositionCursor>);
 
 TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite]")
 {
@@ -90,6 +99,11 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
 
             // Verify reflected changes in Point interface
             CHECK(point[tags::x] == Catch::Approx(10.11f));
+
+            auto projectedPoint = particles_soa.select(posi, mass)[2u].view(posi).get();
+            projectedPoint[tags::x] = 10.12f;
+            CHECK(particles_soa[posi][tags::x][2] == Catch::Approx(10.12f));
+
             // Verify reflected changes in underlying SoA
             CHECK(pos_view[tags::x][0] == Catch::Approx(10.11f));
         }
@@ -97,6 +111,10 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
 
     SECTION("Nested Record Access")
     {
+        auto nestedCursor = particles_soa.view(nestedPos1).view(nestedPos2);
+        nestedCursor[2][tags::x] = 41.0f;
+        CHECK(nestedCursor[2][tags::x] == Catch::Approx(41.0f));
+
         auto nestedPos1_view = particles_soa[nestedPos1];
         auto nestedPos1_idxView = nestedPos1_view[2];
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];
@@ -109,7 +127,7 @@ TEST_CASE("LlamaLite SoA Integration with Spearhed Types", "[spearhed][llamalite
 
     SECTION("Multi Tag View")
     {
-        auto nestedPos1_pos_view = particles_soa.view(nestedPos1, posi);
+        auto nestedPos1_pos_view = particles_soa.select(nestedPos1, posi);
         auto nestedPos1_pos_idxView = nestedPos1_pos_view[2];
         auto nestedPos1_idxView = nestedPos1_pos_idxView[nestedPos1];
         auto nestedPos2_view = nestedPos1_idxView[nestedPos2];

@@ -19,6 +19,19 @@
 #include <caravan/core.hpp>
 #include <caravan/mpi.hpp>
 
+namespace alpaka_mpi_test
+{
+    struct VoidReceiver
+    {
+        void set_value() noexcept
+        {
+            output.setReady();
+        }
+
+        caravan::EventSource output;
+    };
+} // namespace alpaka_mpi_test
+
 namespace
 {
     thread_local bool countAllocations = false;
@@ -31,16 +44,6 @@ namespace
         {
             ++*value;
         }
-    };
-
-    struct VoidReceiver
-    {
-        void set_value() noexcept
-        {
-            output.setReady();
-        }
-
-        caravan::EventSource output;
     };
 } // namespace
 
@@ -110,7 +113,8 @@ int main(int argc, char** argv)
             allocationCount = 0u;
             countAllocations = true;
             auto allocationSender = caravan::mpi::barrier(mpi);
-            auto allocationOperation = std::move(allocationSender).connect(VoidReceiver{allocationOutput});
+            auto allocationOperation
+                = std::move(allocationSender).connect(alpaka_mpi_test::VoidReceiver{allocationOutput});
             countAllocations = false;
             assert(allocationCount == 0u);
             allocationOperation.start();

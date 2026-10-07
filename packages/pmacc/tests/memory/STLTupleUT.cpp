@@ -15,6 +15,7 @@
 #include <caravan/alpaka.hpp>
 #include <caravan/core.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <llamaLite/Tuple.hpp>
 
 namespace tuple = pmacc::memory::tuple;
 
@@ -82,9 +83,38 @@ struct TupleDeviceKernel
         auto targetReference = tuple::tie(target);
         auto sourceReference = tuple::tie(source);
         targetReference = sourceReference;
-        result[0] = tuple::get<0>(valueCopy) + tuple::get<1>(valueCopy) + target;
+        int llamaTarget = 0;
+        int llamaSource = 9;
+        llama_lite::tie(llamaTarget) = llama_lite::tie(llamaSource);
+        auto llamaValues = llama_lite::tupleCat(llama_lite::makeTuple(2), llama_lite::makeTuple(3));
+        result[0] = tuple::get<0>(valueCopy) + tuple::get<1>(valueCopy) + target + llamaTarget
+                    + llama_lite::get<0>(llamaValues) + llama_lite::get<1>(llamaValues);
     }
 };
+
+TEST_CASE("llamaLite tuple works with alpaka::apply")
+{
+    using llama_lite::Tuple;
+    using ValueTuple = Tuple<int, double>;
+    static_assert(std::is_trivially_copyable_v<ValueTuple>);
+    static_assert(std::is_trivially_copy_assignable_v<ValueTuple>);
+    static_assert(std::is_trivially_move_assignable_v<ValueTuple>);
+
+    Tuple<int, int> values{1, 2};
+    auto sum = alpaka::apply(
+        [](int& first, int& second)
+        {
+            first += 10;
+            return first + second;
+        },
+        values);
+    CHECK(sum == 13);
+    CHECK(llama_lite::get<0>(values) == 11);
+
+    auto moveOnly = Tuple<std::unique_ptr<int>>{std::make_unique<int>(42)};
+    auto result = alpaka::apply([](std::unique_ptr<int> value) { return *value; }, std::move(moveOnly));
+    CHECK(result == 42);
+}
 
 TEST_CASE("Tuple get preserves cv and value categories")
 {
@@ -273,7 +303,7 @@ TEST_CASE("Tuple construction, access, assignment, and append compile and run on
     auto copy = buffer.deviceToHost();
     context.wait(
         context.spawn(caravan::alpaka::withDevice(device, std::move(kernel) | caravan::sequence(std::move(copy)))));
-    CHECK(buffer.getHostBuffer().data()[0] == 12);
+    CHECK(buffer.getHostBuffer().data()[0] == 26);
 }
 
 TEST_CASE("Tuple get and apply support move-only elements")

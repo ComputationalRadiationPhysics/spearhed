@@ -220,7 +220,7 @@ namespace spearhed
             template<pmacc::spearhed::SpeciesTag S>
             HDINLINE void setMultiMask(ParticleView<S, multiMask> multiMaskView, uint8_t state) const
             {
-                *multiMaskView = state;
+                multiMaskView[multiMask] = state;
             }
         };
 

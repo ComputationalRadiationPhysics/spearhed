@@ -20,26 +20,39 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
+#include <utility>
 
 namespace llama_lite
 {
 
+    template<size_t Bytes>
+    struct ColumnAlignment
+    {
+        static_assert(Bytes == 0 || (Bytes & (Bytes - 1)) == 0, "Column alignment must be zero or a power of two");
+
+        template<typename T>
+        static constexpr size_t value = Bytes < alignof(T) ? alignof(T) : Bytes;
+    };
+
+    using CompactAlignment = ColumnAlignment<0>;
+
     namespace transform
     {
-        template<size_t Size>
+        template<size_t Size, typename Alignment = ColumnAlignment<128>>
         struct PolicySoA
         {
             template<typename T>
             struct Apply
             {
-                struct alignas(128) type : public std::array<T, Size>
+                struct alignas(Alignment::template value<T>) type : public std::array<T, Size>
                 {
                 };
             };
         };
 
-        template<typename Record, size_t Size>
-        using transform_record_soa_t = transform_record_t<Record, PolicySoA<Size>::template Apply>;
+        template<typename Record, size_t Size, typename Alignment = ColumnAlignment<128>>
+        using transform_record_soa_t = transform_record_t<Record, PolicySoA<Size, Alignment>::template Apply>;
 
     } // namespace transform
 
@@ -50,7 +63,7 @@ namespace llama_lite
      * This allows logical grouping of components while maintaining contiguous memory
      * storage for individual fields.
      */
-    template<IsRecord R, uint32_t Size>
+    template<IsRecord R, uint32_t Size, typename Alignment = ColumnAlignment<128>>
     struct SoA
     {
     public:
@@ -58,38 +71,58 @@ namespace llama_lite
         using record_type = R;
         static constexpr size_t size = Size;
 
-        template<IsRecordAccess... Tags>
-        using view_type = View<SoA, access_set_t<Tags...>>;
-
-        template<IsRecordAccess... Tags>
-        using indexed_view_type = ViewIndexed<SoA, access_set_t<Tags...>>;
-
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf()
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/)
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType, Size>(leaf);
         }
 
         template<IsRecordAccess RA>
-        [[nodiscard]] constexpr auto getLeaf() const
+        [[nodiscard]] constexpr auto getLeaf(RA /*tag*/) const
         {
             auto& leaf = resolveLeaf<RA, R>(channels_);
             using ElementType = std::remove_pointer_t<decltype(leaf.data())>;
-            return std::span<ElementType>(leaf);
+            return std::span<ElementType, Size>(leaf);
+        }
+
+        [[nodiscard]] constexpr auto view()
+        {
+            return View<SoA>(*this);
+        }
+
+        [[nodiscard]] constexpr auto view() const
+        {
+            return View<SoA const>(*this);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<SoA, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] constexpr auto view(RA tag)
+        {
+            return view().view(tag);
+        }
+
+        template<IsRecordAccess RA>
+        requires requires(View<SoA const, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        [[nodiscard]] constexpr auto view(RA tag) const
+        {
+            return view().view(tag);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... /*tags*/)
+        requires requires(View<SoA, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] constexpr auto select(RAs... tags)
         {
-            return View<SoA, access_set_t<RAs...>>(*this);
+            return view().select(tags...);
         }
 
         template<IsRecordAccess... RAs>
-        [[nodiscard]] constexpr auto view(RAs... /*tags*/) const
+        requires requires(View<SoA const, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        [[nodiscard]] constexpr auto select(RAs... tags) const
         {
-            return View<SoA const, access_set_t<RAs...>>(*this);
+            return view().select(tags...);
         }
 
         template<IsRecordAccess RA>
@@ -106,16 +139,31 @@ namespace llama_lite
 
         [[nodiscard]] constexpr auto operator[](size_type idx)
         {
-            return ViewIndexed<SoA, Set<>>(*this, idx);
+            return view()[idx];
         }
 
         [[nodiscard]] constexpr auto operator[](size_type idx) const
         {
-            return ViewIndexed<SoA const, Set<>>(*this, idx);
+            return view()[idx];
         }
 
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using view_type = decltype(std::declval<View<SoA, record_leaf_set_t<R>>>().view(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        requires(sizeof...(Tags) <= 1)
+        using indexed_view_type = decltype(std::declval<view_type<Tags...>>()[uint32_t{0}]);
+
+        template<IsRecordAccess... Tags>
+        using selection_view_type
+            = decltype(std::declval<View<SoA, record_leaf_set_t<R>>>().select(std::declval<Tags>()...));
+
+        template<IsRecordAccess... Tags>
+        using indexed_selection_view_type = decltype(std::declval<selection_view_type<Tags...>>()[uint32_t{0}]);
+
     private:
-        alignas(128) transform::transform_record_soa_t<R, Size> channels_;
+        transform::transform_record_soa_t<R, Size, Alignment> channels_;
     };
 
     // // Push back requires decomposing the input tuple

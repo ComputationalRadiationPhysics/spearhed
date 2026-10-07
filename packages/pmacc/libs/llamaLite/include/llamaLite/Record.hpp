@@ -90,8 +90,7 @@ namespace llama_lite
             // empty path exists in all records
             if constexpr(Path::depth == 0)
                 return true;
-
-            if constexpr(!hasTag(Path::head()))
+            else if constexpr(!hasTag(Path::head()))
             {
                 return false;
             }
@@ -121,7 +120,7 @@ namespace llama_lite
         }
 
         template<IsRecordAccess Query>
-        [[nodiscard]] static consteval auto resolvePathToField()
+        [[nodiscard]] static consteval auto resolvePathToField(Query)
         {
             using Path = to_path_t<Query>;
 
@@ -145,13 +144,13 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        using field_for = decltype(resolvePathToField<RA>());
+        using field_for = decltype(resolvePathToField(RA{}));
 
         template<IsRecordAccess RA>
         using value_type_for = field_for<RA>::value_type;
 
         template<IsRecordAccess RA>
-        static consteval bool isLeaf()
+        static consteval bool isLeaf(RA)
         {
             return !IsRecord<value_type_for<RA>>;
         }
@@ -166,6 +165,25 @@ namespace llama_lite
         // template<typename QueryTag>
         // using accessor_for_field = accessor_t<Field<QueryTag, field_for<QueryTag>>>;
     };
+
+    /**
+     * Return empty metadata for a record type or an object exposing record_type.
+     * This reports the root/backing record, not a view's selected access set, and never
+     * reads the object's stored data.
+     */
+    template<IsRecord R>
+    [[nodiscard]] constexpr R getRootRecord(R const&) noexcept
+    {
+        return {};
+    }
+
+    template<typename T>
+    requires requires { typename std::remove_cvref_t<T>::record_type; }
+             && IsRecord<typename std::remove_cvref_t<T>::record_type>
+    [[nodiscard]] constexpr auto getRootRecord(T const&) noexcept -> typename std::remove_cvref_t<T>::record_type
+    {
+        return {};
+    }
 
     // Forward declaration for recursion
     template<IsRecord R, IsTagPath CurrentPath = TagPath<>>

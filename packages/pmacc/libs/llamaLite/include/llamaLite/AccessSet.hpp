@@ -68,7 +68,7 @@ namespace llama_lite
         template<IsTagPath L, IsRecordAccess... Ss>
         struct SelectsLeaf<L, Set<Ss...>>
         {
-            static constexpr bool value = (to_path_t<Ss>::template isAncestorOf<L>() || ... || false);
+            static constexpr bool value = (isAncestorOf(Ss{}, L{}) || ... || false);
         };
 
         // Fold the leaf paths Ls... into Acc, keeping those whose selected-by-S status matches

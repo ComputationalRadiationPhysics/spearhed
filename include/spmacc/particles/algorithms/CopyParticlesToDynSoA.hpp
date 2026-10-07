@@ -54,10 +54,7 @@ namespace pmacc::spearhed
 
         void operator()(auto const& srcSoa, auto& dst, uint32_t count, uint32_t offset, auto&&...) const
         {
-            std::ranges::copy_n(
-                srcSoa.template getLeaf<Path>().data(),
-                count,
-                dst.template getLeaf<Path>().data() + offset);
+            std::ranges::copy_n(srcSoa.getLeaf(Path{}).data(), count, dst.getLeaf(Path{}).data() + offset);
         }
     };
 
@@ -100,7 +97,7 @@ namespace pmacc::spearhed
             uint32_t total = 0;
             for(int r = 0; r < prBuf.size; ++r)
                 total += hostBox[r].particleFrameList.getNumParticles();
-            dynSoa.resize(total);
+            dynSoa.discardAndResize(total);
 
             using FrameListType = decltype(hostBox[0].particleFrameList);
             using FrameType = typename std::remove_reference_t<FrameListType>::FrameType;
