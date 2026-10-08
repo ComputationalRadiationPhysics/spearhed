@@ -37,6 +37,9 @@ struct ThrowingValue
 
 using Pos3O = ll::Record<ll::Field<xO_t, float>, ll::Field<yO_t, float>, ll::Field<zO_t, float>>;
 using ParticleOne = ll::Record<ll::Field<posO_t, Pos3O>, ll::Field<velO_t, Pos3O>, ll::Field<massO_t, double>>;
+// Same leaf paths as ParticleOne but a different record (reordered declaration), used to show a
+// record-bound access set cannot be spliced into a view of a different record.
+using ParticleTwin = ll::Record<ll::Field<velO_t, Pos3O>, ll::Field<posO_t, Pos3O>, ll::Field<massO_t, double>>;
 using EmptyRecord = ll::Record<>;
 using ParticleOneView = ll::ViewIndexed<ll::One<ParticleOne>>;
 using ConstParticleOneView = ll::ViewIndexed<ll::One<ParticleOne> const>;
@@ -66,10 +69,14 @@ namespace
 
     using MassLeaves = ll::Set<ll::TagPath<massO_t>>;
     using PositionLeaves = ll::Set<ll::TagPath<posO_t, xO_t>, ll::TagPath<posO_t, yO_t>, ll::TagPath<posO_t, zO_t>>;
+    // Record-bound access sets (the wrapper View/ViewIndexed now store).
+    using MassAccess = ll::AccessSet<ParticleOne, MassLeaves>;
+    using PositionAccess = ll::AccessSet<ParticleOne, PositionLeaves>;
+    using EmptyAccess = ll::AccessSet<ParticleOne, ll::Set<>>;
     using OverlappingView = decltype(std::declval<ll::One<ParticleOne>&>().select(posO, posO / xO));
     using EmptyRootView = ll::View<ll::One<EmptyRecord>>;
-    using EmptySelectionView = ll::View<ll::One<ParticleOne>, ll::Set<>>;
-    using EmptySelectionIndexedView = ll::ViewIndexed<ll::One<ParticleOne>, ll::Set<>>;
+    using EmptySelectionView = ll::View<ll::One<ParticleOne>, EmptyAccess>;
+    using EmptySelectionIndexedView = ll::ViewIndexed<ll::One<ParticleOne>, EmptyAccess>;
     using RootNonIndexedView = decltype(std::declval<ll::One<ParticleOne>&>().view());
     using MassNonIndexedView = decltype(std::declval<ll::One<ParticleOne>&>().select(massO));
     using RootIndexedView = decltype(std::declval<ll::One<ParticleOne>&>()[uint32_t{0}]);
@@ -143,27 +150,36 @@ namespace
 
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ParticleOneView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ConstParticleOneView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ParticleOneRootView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ConstParticleOneRootView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
-    static_assert(std::is_same_v<
-                  decltype(ll::getSelectedLeaves(
-                      std::declval<ll::ViewIndexed<ll::One<ParticleOne>, ll::access_set_t<massO_t>> const&>())),
-                  MassLeaves>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(
         std::is_same_v<
-            decltype(ll::getSelectedLeaves(std::declval<ll::View<ll::One<ParticleOne>, PositionLeaves> const&>())),
+            decltype(ll::getSelectedLeaves(std::declval<ll::ViewIndexed<ll::One<ParticleOne>, MassAccess> const&>())),
+            MassLeaves>);
+    static_assert(
+        std::is_same_v<
+            decltype(ll::getSelectedLeaves(std::declval<ll::View<ll::One<ParticleOne>, PositionAccess> const&>())),
             PositionLeaves>);
     static_assert(
         std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<OverlappingView const&>())), PositionLeaves>);
     static_assert(std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<EmptyRootView const&>())), ll::Set<>>);
+    // A view's access_set is the bound wrapper; getSelectedLeaves remains the raw Set bridge.
+    static_assert(ll::IsAccessSet<typename RootNonIndexedView::access_set>);
+    static_assert(ll::IsAccessSet<typename MassNonIndexedView::access_set>);
+    static_assert(ll::IsAccessSet<typename PositionCursorIndexedView::access_set>);
+    static_assert(!ll::IsRawAccessSet<typename RootNonIndexedView::access_set>);
+    static_assert(std::is_same_v<
+                  std::remove_cvref_t<decltype(ll::getSelectedLeaves(std::declval<MassNonIndexedView const&>()))>,
+                  MassLeaves>);
+    static_assert(!ll::IsAccessSet<decltype(ll::getSelectedLeaves(std::declval<MassNonIndexedView const&>()))>);
     static_assert(
         std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<EmptySelectionView const&>())), ll::Set<>>);
     static_assert(
@@ -311,7 +327,7 @@ namespace
         static_assert(std::is_same_v<
                       decltype(std::declval<Position>().view(xO)),
                       decltype(std::declval<Root>().view(posO / xO))>);
-        static_assert(std::is_same_v<typename Position::access_set, PositionLeaves>);
+        static_assert(std::is_same_v<typename Position::access_set, PositionAccess>);
         static_assert(std::is_same_v<typename Position::root_access, ll::TagPath<posO_t>>);
         return true;
     }
@@ -349,13 +365,18 @@ namespace
         std::is_same_v<decltype(std::declval<PositionCursorIndexedView>().view()), PositionCursorIndexedView>);
 
     // Reject noncanonical permissions and selections outside the cursor's subtree.
-    template<typename Leaves, typename Root = ll::TagPath<>>
-    concept ValidView = requires { typename ll::View<ll::One<ParticleOne>, Leaves, Root>; };
-    static_assert(ValidView<PositionLeaves, ll::TagPath<posO_t>>);
-    static_assert(!ValidView<ll::access_set_t<posO_t>>);
-    static_assert(!ValidView<MassLeaves, ll::TagPath<posO_t>>);
-    static_assert(!ValidView<MassLeaves, ll::TagPath<throwingO_t>>);
-    static_assert(ValidView<ll::Set<>, ll::TagPath<posO_t>>);
+    template<typename Access, typename Root = ll::TagPath<>>
+    concept ValidView = requires { typename ll::View<ll::One<ParticleOne>, Access, Root>; };
+    static_assert(ValidView<PositionAccess, ll::TagPath<posO_t>>);
+    // A raw Set is not a bound access set, and a wrong-record binding is rejected.
+    static_assert(!ValidView<ll::raw_access_set_t<posO_t>>);
+    static_assert(!ValidView<ll::AccessSet<EmptyRecord, ll::Set<>>>);
+    // Same leaf paths, different record: still rejected because the record is part of the type.
+    static_assert(std::is_same_v<ll::AccessSet<ParticleTwin, PositionLeaves>::leaf_set, PositionLeaves>);
+    static_assert(!ValidView<ll::AccessSet<ParticleTwin, PositionLeaves>>);
+    static_assert(!ValidView<MassAccess, ll::TagPath<posO_t>>);
+    static_assert(!ValidView<MassAccess, ll::TagPath<throwingO_t>>);
+    static_assert(ValidView<EmptyAccess, ll::TagPath<posO_t>>);
     static_assert(!HasGet<RootIndexedView>);
     static_assert(!HasDereference<RootIndexedView>);
     static_assert(!HasGet<EmptySelectionIndexedView>);
