@@ -38,9 +38,6 @@ namespace pmacc
     {
         namespace pmath = ::pmacc::math;
 
-        template<concepts::SpecializationOf<ParticleDescription> T_ParticleDescription, typename T_ValueTypeSeq>
-        struct Particle;
-
         /** Frame is a storage for arbitrary number >0 of Particles with attributes
          * move only type
          *
