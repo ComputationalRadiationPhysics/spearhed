@@ -17,8 +17,6 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spmacc/particles/algorithms/HierarchyForEach.hpp"
-
 #include "TestSetup.hpp"
 #include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
@@ -26,12 +24,13 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <spmacc/particles/algorithms/HierarchyForEach.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
 
 #include <alpaka/alpaka.hpp>
 

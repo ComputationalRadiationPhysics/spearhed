@@ -21,9 +21,10 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/particles/pusher/PushVelocity.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 #include <type_traits>
 

@@ -17,23 +17,22 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
-
 #include "TestSetup.hpp"
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/ParticleRegion.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/ParticleRegion.hpp>
+#include <spmacc/particles/regions/RegionBoundsUpdate.hpp>
+#include <spmacc/topology/CartesianStorage.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 #include <utility>
 

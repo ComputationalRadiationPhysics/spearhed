@@ -21,12 +21,12 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/alpakaHelper/acc.hpp>
 #include <pmacc/particles/IdProvider.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 #include <alpaka/alpaka.hpp>
 

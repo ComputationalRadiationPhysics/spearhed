@@ -19,9 +19,8 @@
 
 #pragma once
 
-#include "spmacc/particles/traits.hpp"
-
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/particles/traits.hpp>
 
 #include <llamaLite/llamaLite.hpp>
 

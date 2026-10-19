@@ -21,8 +21,9 @@
 
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/particles/regions/AABB.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+
+#include <spmacc/particles/regions/AABB.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
 
 #include <cstdint>
 #include <vector>

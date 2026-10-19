@@ -17,7 +17,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include <spmacc/particles/regions/NeighbourBundle.hpp>
 
 #include <type_traits>
 

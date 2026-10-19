@@ -20,7 +20,8 @@
 #pragma once
 
 #include "spearhed/ParticleDefinition.hpp"
-#include "spmacc/particles/View.hpp"
+
+#include <spmacc/particles/View.hpp>
 
 #include <llamaLite/llamaLite.hpp>
 

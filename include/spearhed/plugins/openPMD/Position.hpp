@@ -20,10 +20,11 @@
 #pragma once
 
 #include "spearhed/param/dimension.param"
-#include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
-#include "spmacc/particles/attributes/Cartesian.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
+
+#include <spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp>
+#include <spmacc/particles/attributes/Cartesian.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 #include <cstdint>
 

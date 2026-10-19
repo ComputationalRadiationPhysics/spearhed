@@ -19,11 +19,10 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Cartesian.hpp"
-#include "spmacc/particles/traits.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
-
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/particles/attributes/Cartesian.hpp>
+#include <spmacc/particles/traits.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 #include <llamaLite/llamaLite.hpp>
 

@@ -30,12 +30,13 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/ListPointer.hpp"
-#include "spmacc/ParticleDescription.hpp"
-#include "spmacc/meta/ComponentList.hpp"
-#include "spmacc/meta/String.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <spmacc/ListPointer.hpp>
+#include <spmacc/ParticleDescription.hpp>
+#include <spmacc/meta/ComponentList.hpp>
+#include <spmacc/meta/String.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 #include <cstdint>
 #include <type_traits>

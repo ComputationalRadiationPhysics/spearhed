@@ -25,13 +25,13 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
-#include "spmacc/topology/Point.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <spmacc/topology/CartesianStorage.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
+#include <spmacc/topology/Point.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 

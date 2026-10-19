@@ -50,16 +50,16 @@
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/HydroForces.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/NeighbourRegions.hpp>
+#include <spmacc/particles/regions/RegionBoundsUpdate.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 #include <array>
 #include <cmath>

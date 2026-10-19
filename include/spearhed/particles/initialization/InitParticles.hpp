@@ -25,10 +25,6 @@
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/SetupInterface.hpp"
-#include "spmacc/memory/FramePointer.hpp"
-#include "spmacc/particles/algorithms/FrameDispatch.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/Environment.hpp>
 #include <pmacc/assert.hpp>
@@ -44,6 +40,10 @@
 #include <pmacc/particles/IdProvider.hpp>
 #include <pmacc/particles/Identifier.hpp>
 #include <pmacc/particles/operations/InitValueIdentifier.hpp>
+#include <spmacc/memory/FramePointer.hpp>
+#include <spmacc/particles/algorithms/FrameDispatch.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
 
 #include <concepts>
 #include <cstdint>
