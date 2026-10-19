@@ -118,7 +118,18 @@ namespace llama_lite
     requires detail::ViewStorageFor<TStorage, Access, Root>
     struct ViewIndexed;
 
-    /// Column cursor with a record-bound access set and a relative navigation root.
+    /**
+     * Column cursor with a record-bound access set and a relative navigation root.
+     *
+     * A View is a shallow handle, like std::span: copying or converting one never copies the
+     * referenced values, and when TStorage is non-const a `View<TStorage> const` still hands out
+     * mutable leaf references (its own constness only stops the handle from being rebound).
+     * Read-only access is expressed by the storage type instead: `View<TStorage const>` resolves to
+     * const references and spans of const elements. A mutable view converts implicitly to the
+     * read-only view of the same record, root and an equal or narrower access set; the reverse
+     * never does, so constness can only be added, not dropped. Because the conversion copies the
+     * handle, existing mutable aliases stay valid and keep writing to the same elements.
+     */
     template<
         typename TStorage,
         typename Access = detail::whole_record_access_t<typename TStorage::record_type>,
@@ -141,9 +152,15 @@ namespace llama_lite
         {
         }
 
-        // Shallow narrowing is allowed only within the same navigation root and record.
-        template<typename ParentAccess>
-        constexpr View(View<TStorage, ParentAccess, Root> view) noexcept requires(Access{} <= ParentAccess{})
+        // One converting constructor covers both shallow narrowing and adding read-only access:
+        // OtherStorage may be exactly TStorage or its non-const original, Root stays fixed, and the
+        // access set may only shrink. Storage compatibility is tested first because it is what
+        // makes the handle-copying `storage{view.storage}` well-formed; only same-record
+        // comparisons reach the access-set check.
+        template<typename OtherStorage, typename OtherAccess>
+        constexpr View(View<OtherStorage, OtherAccess, Root> view) noexcept requires(
+            (std::same_as<TStorage, OtherStorage> || std::same_as<TStorage, std::add_const_t<OtherStorage>>)
+            && (Access{} <= OtherAccess{}))
             : storage{view.storage}
         {
         }
@@ -188,7 +205,14 @@ namespace llama_lite
     template<typename TStorage>
     View(TStorage&) -> View<TStorage>;
 
-    /// Row cursor; construction and assignment rebind the handle, not the selected values.
+    /**
+     * Row cursor; construction and assignment rebind the handle, not the selected values.
+     *
+     * Holds a storage pointer plus a row index and follows the same shallow-constness rule: when
+     * TStorage is non-const a `ViewIndexed<TStorage> const` handle still writes through, while
+     * `ViewIndexed<TStorage const>` is read-only. Mutable-to-read-only conversion copies both the
+     * handle and the index, so the converted handle addresses the very same row.
+     */
     template<typename TStorage, typename Access, IsTagPath Root>
     requires detail::ViewStorageFor<TStorage, Access, Root>
     struct ViewIndexed
@@ -215,9 +239,12 @@ namespace llama_lite
         {
         }
 
-        template<typename OtherAccess>
-        constexpr ViewIndexed(ViewIndexed<TStorage, OtherAccess, Root> const& other) noexcept
-            requires(Access{} <= OtherAccess{})
+        // Same rule as View's converting constructor: same storage or add const, never drop it,
+        // fixed root, and an access set that may only shrink.
+        template<typename OtherStorage, typename OtherAccess>
+        constexpr ViewIndexed(ViewIndexed<OtherStorage, OtherAccess, Root> const& other) noexcept
+            requires((std::same_as<TStorage, OtherStorage> || std::same_as<TStorage, std::add_const_t<OtherStorage>>)
+                     && (Access{} <= OtherAccess{}))
             : storage{other.storage}
             , idx{other.idx}
         {
