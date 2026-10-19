@@ -31,10 +31,10 @@
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 
+#include <pmacc/meta/String.hpp>
 #include <spmacc/ListPointer.hpp>
 #include <spmacc/ParticleDescription.hpp>
 #include <spmacc/meta/ComponentList.hpp>
-#include <spmacc/meta/String.hpp>
 #include <spmacc/particles/attributes/RelativePosition.hpp>
 #include <spmacc/particles/regions/RegionRole.hpp>
 
@@ -55,7 +55,7 @@ namespace pmacc::spearhed::species
      *  Interior role to distinguish it from boundary species. */
     struct Default
     {
-        static constexpr meta::FixedString name{"Default"};
+        static constexpr pmacc::meta::FixedString name{"Default"};
         using Roles
             = role_set<roles::Interior, roles::Movable, roles::Source, roles::Thermodynamic, roles::OpenPMDOutput>;
     };
@@ -63,7 +63,7 @@ namespace pmacc::spearhed::species
     /** Wall/boundary fluid: frozen in place but still a source for neighbour sums. */
     struct Boundary
     {
-        static constexpr meta::FixedString name{"Boundary"};
+        static constexpr pmacc::meta::FixedString name{"Boundary"};
         using Roles = role_set<roles::Frozen, roles::Source, roles::Thermodynamic>;
     };
 
@@ -71,7 +71,7 @@ namespace pmacc::spearhed::species
      *  Carries only kinematic fields (position, velocity, mass, id). */
     struct Tracer
     {
-        static constexpr meta::FixedString name{"Tracer"};
+        static constexpr pmacc::meta::FixedString name{"Tracer"};
         using Roles = role_set<roles::Movable>;
     };
 

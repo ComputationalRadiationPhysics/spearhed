@@ -48,7 +48,7 @@ namespace pmacc
              * > ParticleFlagsElectrons;
              *
              * typedef picongpu::Particles<
-             *     PMACC_CSTRING( "e" ),
+             *     "e",
              *     ParticleFlagsElectrons,
              *     DefaultAttributesSeq
              * > PIC_Electrons;

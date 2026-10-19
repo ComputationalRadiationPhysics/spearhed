@@ -21,8 +21,9 @@
 
 #pragma once
 
-#include "spmacc/meta/String.hpp"
 #include "spmacc/particles/Predicate.hpp"
+
+#include <pmacc/meta/String.hpp>
 
 #include <concepts>
 #include <string>
@@ -67,7 +68,7 @@ namespace pmacc::spearhed
          *
          *      struct Movable : Role<"Movable"> {};
          */
-        template<meta::FixedString Name>
+        template<pmacc::meta::FixedString Name>
         struct Role : RoleBase
         {
             static constexpr std::string_view name = Name.view();

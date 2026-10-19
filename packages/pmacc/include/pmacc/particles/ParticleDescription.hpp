@@ -22,6 +22,7 @@
 #pragma once
 
 #include "pmacc/HandleGuardRegion.hpp"
+#include "pmacc/meta/String.hpp"
 #include "pmacc/meta/conversion/ToSeq.hpp"
 #include "pmacc/meta/conversion/Unique.hpp"
 #include "pmacc/particles/policies/DeleteParticles.hpp"
@@ -34,10 +35,14 @@ namespace pmacc
      *
      * This class holds no runtime data.
      * The class holds information about the name, attributes, flags and methods of a
-     * particle.
+     * particle. The name is passed as a value; the Name alias exposes its string type.
      *
-     * @tparam T_Name name of described particle (e.g. electron, ion)
-     *                type must be a PMACC_CSTRING
+     * @code{.cpp}
+     * using Electrons = ParticleDescription<"e", NumSlots, SuperCellSize, Attributes>;
+     * @endcode
+     *
+     * @tparam T_Name name of described particle as a string literal (e.g. "electron", "ion")
+     *                or a meta::FixedString value
      * @tparam T_NumSlots compile time size of a fram
      * @tparam T_SuperCellSize compile time size of a super cell
      * @tparam T_ValueTypeSeq sequence or single type with value_identifier, must not have duplicates
@@ -53,7 +58,7 @@ namespace pmacc
      *                      extension classes
      */
     template<
-        typename T_Name,
+        meta::FixedString T_Name,
         typename T_NumSlots,
         typename T_SuperCellSize,
         typename T_ValueTypeSeq,
@@ -64,7 +69,8 @@ namespace pmacc
         typename T_FrameExtensionList = mp_list<>>
     struct ParticleDescription
     {
-        using Name = T_Name;
+        static constexpr auto name = T_Name;
+        using Name = meta::String<T_Name>;
         using NumSlots = T_NumSlots;
         using SuperCellSize = T_SuperCellSize;
         using ValueTypeSeq = ToSeq<T_ValueTypeSeq>;
@@ -93,7 +99,7 @@ namespace pmacc
     {
         using OldParticleDescription = T_OldParticleDescription;
         using type = ParticleDescription<
-            typename OldParticleDescription::Name,
+            OldParticleDescription::name,
             typename OldParticleDescription::NumSlots,
             typename OldParticleDescription::SuperCellSize,
             ToSeq<T_NewValueTypeSeq>,
@@ -114,7 +120,7 @@ namespace pmacc
     {
         using OldParticleDescription = T_OldParticleDescription;
         using type = ParticleDescription<
-            typename OldParticleDescription::Name,
+            OldParticleDescription::name,
             typename OldParticleDescription::NumSlots,
             typename OldParticleDescription::SuperCellSize,
             typename OldParticleDescription::ValueTypeSeq,

@@ -17,6 +17,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <pmacc/meta/String.hpp>
 #include <spmacc/particles/regions/NeighbourBundle.hpp>
 
 #include <type_traits>
@@ -30,19 +31,19 @@ namespace pmacc::spearhed::test
     struct SpeciesA
     {
         using Roles = role_set<roles::Interior, roles::Source>;
-        static constexpr auto name = meta::FixedString{"A"};
+        static constexpr auto name = pmacc::meta::FixedString{"A"};
     };
 
     struct SpeciesB
     {
         using Roles = role_set<roles::Frozen>;
-        static constexpr auto name = meta::FixedString{"B"};
+        static constexpr auto name = pmacc::meta::FixedString{"B"};
     };
 
     struct SpeciesC
     {
         using Roles = role_set<roles::Interior, roles::Thermodynamic>;
-        static constexpr auto name = meta::FixedString{"C"};
+        static constexpr auto name = pmacc::meta::FixedString{"C"};
     };
 
     template<typename S>
