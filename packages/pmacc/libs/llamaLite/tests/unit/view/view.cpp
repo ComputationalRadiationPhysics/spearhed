@@ -37,6 +37,9 @@ struct ThrowingValue
 
 using Pos3O = ll::Record<ll::Field<xO_t, float>, ll::Field<yO_t, float>, ll::Field<zO_t, float>>;
 using ParticleOne = ll::Record<ll::Field<posO_t, Pos3O>, ll::Field<velO_t, Pos3O>, ll::Field<massO_t, double>>;
+// Same leaf paths as ParticleOne but a different record (reordered declaration), used to show a
+// record-bound access set cannot be spliced into a view of a different record.
+using ParticleTwin = ll::Record<ll::Field<velO_t, Pos3O>, ll::Field<posO_t, Pos3O>, ll::Field<massO_t, double>>;
 using EmptyRecord = ll::Record<>;
 using ParticleOneView = ll::ViewIndexed<ll::One<ParticleOne>>;
 using ConstParticleOneView = ll::ViewIndexed<ll::One<ParticleOne> const>;
@@ -66,10 +69,16 @@ namespace
 
     using MassLeaves = ll::Set<ll::TagPath<massO_t>>;
     using PositionLeaves = ll::Set<ll::TagPath<posO_t, xO_t>, ll::TagPath<posO_t, yO_t>, ll::TagPath<posO_t, zO_t>>;
+    using PositionXLeaves = ll::Set<ll::TagPath<posO_t, xO_t>>;
+    // Record-bound access sets (the wrapper View/ViewIndexed now store).
+    using MassAccess = ll::AccessSet<ParticleOne, MassLeaves>;
+    using PositionAccess = ll::AccessSet<ParticleOne, PositionLeaves>;
+    using PositionXAccess = ll::AccessSet<ParticleOne, PositionXLeaves>;
+    using EmptyAccess = ll::AccessSet<ParticleOne, ll::Set<>>;
     using OverlappingView = decltype(std::declval<ll::One<ParticleOne>&>().select(posO, posO / xO));
     using EmptyRootView = ll::View<ll::One<EmptyRecord>>;
-    using EmptySelectionView = ll::View<ll::One<ParticleOne>, ll::Set<>>;
-    using EmptySelectionIndexedView = ll::ViewIndexed<ll::One<ParticleOne>, ll::Set<>>;
+    using EmptySelectionView = ll::View<ll::One<ParticleOne>, EmptyAccess>;
+    using EmptySelectionIndexedView = ll::ViewIndexed<ll::One<ParticleOne>, EmptyAccess>;
     using RootNonIndexedView = decltype(std::declval<ll::One<ParticleOne>&>().view());
     using MassNonIndexedView = decltype(std::declval<ll::One<ParticleOne>&>().select(massO));
     using RootIndexedView = decltype(std::declval<ll::One<ParticleOne>&>()[uint32_t{0}]);
@@ -141,29 +150,47 @@ namespace
     template<typename T, typename... RAs>
     concept CanSelect = requires(T view, RAs... accesses) { view.select(accesses...); };
 
+    // A shallow handle (like std::span<int> const) may still write through a const object; only the
+    // storage's constness makes the pointee read-only. Column views index the leaf span, row views
+    // assign the leaf directly.
+    template<typename T>
+    concept WritesThroughConstColumnHandle = requires(T const view) { view[massO][0] = 1.0; };
+
+    template<typename T>
+    concept WritesThroughConstRowHandle = requires(T const view) { view[massO] = 1.0; };
+
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ParticleOneView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ConstParticleOneView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ParticleOneRootView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(std::is_same_v<
                   decltype(ll::getSelectedLeaves(std::declval<ConstParticleOneRootView const&>())),
-                  ll::record_leaf_set_t<ParticleOne>>);
-    static_assert(std::is_same_v<
-                  decltype(ll::getSelectedLeaves(
-                      std::declval<ll::ViewIndexed<ll::One<ParticleOne>, ll::access_set_t<massO_t>> const&>())),
-                  MassLeaves>);
+                  ll::detail::record_leaf_set_t<ParticleOne>>);
     static_assert(
         std::is_same_v<
-            decltype(ll::getSelectedLeaves(std::declval<ll::View<ll::One<ParticleOne>, PositionLeaves> const&>())),
+            decltype(ll::getSelectedLeaves(std::declval<ll::ViewIndexed<ll::One<ParticleOne>, MassAccess> const&>())),
+            MassLeaves>);
+    static_assert(
+        std::is_same_v<
+            decltype(ll::getSelectedLeaves(std::declval<ll::View<ll::One<ParticleOne>, PositionAccess> const&>())),
             PositionLeaves>);
     static_assert(
         std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<OverlappingView const&>())), PositionLeaves>);
     static_assert(std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<EmptyRootView const&>())), ll::Set<>>);
+    // A view's access_set is the bound wrapper; getSelectedLeaves remains the raw Set bridge.
+    static_assert(ll::IsAccessSet<typename RootNonIndexedView::access_set>);
+    static_assert(ll::IsAccessSet<typename MassNonIndexedView::access_set>);
+    static_assert(ll::IsAccessSet<typename PositionCursorIndexedView::access_set>);
+    static_assert(!ll::IsRawAccessSet<typename RootNonIndexedView::access_set>);
+    static_assert(std::is_same_v<
+                  std::remove_cvref_t<decltype(ll::getSelectedLeaves(std::declval<MassNonIndexedView const&>()))>,
+                  MassLeaves>);
+    static_assert(!ll::IsAccessSet<decltype(ll::getSelectedLeaves(std::declval<MassNonIndexedView const&>()))>);
     static_assert(
         std::is_same_v<decltype(ll::getSelectedLeaves(std::declval<EmptySelectionView const&>())), ll::Set<>>);
     static_assert(
@@ -183,6 +210,61 @@ namespace
     static_assert(!std::is_convertible_v<PositionNonIndexedView, MassNonIndexedView>);
     static_assert(std::is_convertible_v<PositionNonIndexedView, PositionXNonIndexedView>);
     static_assert(std::is_const_v<std::remove_reference_t<decltype(*std::declval<ConstMassIndexedView>())>>);
+    // Mutable-to-read-only view conversion: allowed, copies the handle, and never drops const.
+    static_assert(std::is_convertible_v<OneRootView, OneConstRootView>);
+    static_assert(std::is_convertible_v<SoaRootView, SoaConstRootView>);
+    static_assert(std::is_convertible_v<DynSoaRootView, DynSoaConstRootView>);
+    static_assert(std::is_convertible_v<OneRootIndexedView, OneConstRootIndexedView>);
+    static_assert(std::is_convertible_v<SoaRootIndexedView, SoaConstRootIndexedView>);
+    static_assert(std::is_convertible_v<DynSoaRootIndexedView, DynSoaConstRootIndexedView>);
+    static_assert(!std::is_convertible_v<OneConstRootView, OneRootView>);
+    static_assert(!std::is_convertible_v<SoaConstRootView, SoaRootView>);
+    static_assert(!std::is_convertible_v<DynSoaConstRootView, DynSoaRootView>);
+    static_assert(!std::is_convertible_v<OneConstRootIndexedView, OneRootIndexedView>);
+    static_assert(!std::is_convertible_v<SoaConstRootIndexedView, SoaRootIndexedView>);
+    static_assert(!std::is_convertible_v<DynSoaConstRootIndexedView, DynSoaRootIndexedView>);
+    // Adding read-only access and narrowing the selection compose in one conversion.
+    static_assert(std::is_convertible_v<RootNonIndexedView, ll::View<ll::One<ParticleOne> const, MassAccess>>);
+    static_assert(std::is_convertible_v<RootIndexedView, ll::ViewIndexed<ll::One<ParticleOne> const, MassAccess>>);
+    // Adding const does not license widening the access set.
+    static_assert(!std::is_convertible_v<MassNonIndexedView, OneConstRootView>);
+    static_assert(!std::is_convertible_v<MassIndexedView, OneConstRootIndexedView>);
+    // Neither does it cross to an unrelated storage.
+    static_assert(!std::is_convertible_v<OneRootView, SoaConstRootView>);
+    static_assert(!std::is_convertible_v<OneRootIndexedView, SoaConstRootIndexedView>);
+    // Nested-root cursors convert within their own root, keeping it fixed.
+    using PositionXCursorConst = ll::View<ll::One<ParticleOne> const, PositionXAccess, ll::TagPath<posO_t>>;
+    using PositionXCursorIndexedConst
+        = ll::ViewIndexed<ll::One<ParticleOne> const, PositionXAccess, ll::TagPath<posO_t>>;
+    static_assert(std::is_convertible_v<PositionCursorNonIndexedView, PositionXCursorConst>);
+    static_assert(std::is_convertible_v<PositionCursorIndexedView, PositionXCursorIndexedConst>);
+    // A root may not be dropped or invented, and same-root widening stays rejected.
+    static_assert(
+        !std::is_convertible_v<PositionCursorNonIndexedView, ll::View<ll::One<ParticleOne> const, PositionAccess>>);
+    static_assert(!std::is_convertible_v<
+                  PositionCursorIndexedView,
+                  ll::ViewIndexed<ll::One<ParticleOne> const, PositionAccess>>);
+    static_assert(!std::is_convertible_v<PositionNonIndexedView, PositionXCursorConst>);
+    static_assert(!std::is_convertible_v<PositionIndexedView, PositionXCursorIndexedConst>);
+    // Same-root, same-kind access widening is still rejected even though const is added.
+    static_assert(!std::is_convertible_v<
+                  PositionXSelectedCursor,
+                  ll::ViewIndexed<ll::One<ParticleOne> const, PositionAccess, ll::TagPath<posO_t>>>);
+    static_assert(std::is_same_v<
+                  decltype(std::declval<ll::View<ll::One<ParticleOne> const>>()[posO / xO]),
+                  std::span<float const, 1>>);
+    static_assert(WritesThroughConstColumnHandle<OneRootView>);
+    static_assert(WritesThroughConstColumnHandle<SoaRootView>);
+    static_assert(WritesThroughConstColumnHandle<DynSoaRootView>);
+    static_assert(!WritesThroughConstColumnHandle<OneConstRootView>);
+    static_assert(!WritesThroughConstColumnHandle<SoaConstRootView>);
+    static_assert(!WritesThroughConstColumnHandle<DynSoaConstRootView>);
+    static_assert(WritesThroughConstRowHandle<OneRootIndexedView>);
+    static_assert(WritesThroughConstRowHandle<SoaRootIndexedView>);
+    static_assert(WritesThroughConstRowHandle<DynSoaRootIndexedView>);
+    static_assert(!WritesThroughConstRowHandle<OneConstRootIndexedView>);
+    static_assert(!WritesThroughConstRowHandle<SoaConstRootIndexedView>);
+    static_assert(!WritesThroughConstRowHandle<DynSoaConstRootIndexedView>);
     static_assert(std::is_same_v<decltype(std::declval<MassIndexedView const&>()[massO]), double&>);
     static_assert(std::is_same_v<decltype(*std::declval<MassCursorIndexedView const&>()), double&>);
     static_assert(std::is_same_v<decltype(std::declval<MassCursorIndexedView const&>().get()), double&>);
@@ -311,7 +393,7 @@ namespace
         static_assert(std::is_same_v<
                       decltype(std::declval<Position>().view(xO)),
                       decltype(std::declval<Root>().view(posO / xO))>);
-        static_assert(std::is_same_v<typename Position::access_set, PositionLeaves>);
+        static_assert(std::is_same_v<typename Position::access_set, PositionAccess>);
         static_assert(std::is_same_v<typename Position::root_access, ll::TagPath<posO_t>>);
         return true;
     }
@@ -349,13 +431,18 @@ namespace
         std::is_same_v<decltype(std::declval<PositionCursorIndexedView>().view()), PositionCursorIndexedView>);
 
     // Reject noncanonical permissions and selections outside the cursor's subtree.
-    template<typename Leaves, typename Root = ll::TagPath<>>
-    concept ValidView = requires { typename ll::View<ll::One<ParticleOne>, Leaves, Root>; };
-    static_assert(ValidView<PositionLeaves, ll::TagPath<posO_t>>);
-    static_assert(!ValidView<ll::access_set_t<posO_t>>);
-    static_assert(!ValidView<MassLeaves, ll::TagPath<posO_t>>);
-    static_assert(!ValidView<MassLeaves, ll::TagPath<throwingO_t>>);
-    static_assert(ValidView<ll::Set<>, ll::TagPath<posO_t>>);
+    template<typename Access, typename Root = ll::TagPath<>>
+    concept ValidView = requires { typename ll::View<ll::One<ParticleOne>, Access, Root>; };
+    static_assert(ValidView<PositionAccess, ll::TagPath<posO_t>>);
+    // A raw Set is not a bound access set, and a wrong-record binding is rejected.
+    static_assert(!ValidView<ll::raw_access_set_t<posO_t>>);
+    static_assert(!ValidView<ll::AccessSet<EmptyRecord, ll::Set<>>>);
+    // Same leaf paths, different record: still rejected because the record is part of the type.
+    static_assert(std::is_same_v<ll::AccessSet<ParticleTwin, PositionLeaves>::leaf_set, PositionLeaves>);
+    static_assert(!ValidView<ll::AccessSet<ParticleTwin, PositionLeaves>>);
+    static_assert(!ValidView<MassAccess, ll::TagPath<posO_t>>);
+    static_assert(!ValidView<MassAccess, ll::TagPath<throwingO_t>>);
+    static_assert(ValidView<EmptyAccess, ll::TagPath<posO_t>>);
     static_assert(!HasGet<RootIndexedView>);
     static_assert(!HasDereference<RootIndexedView>);
     static_assert(!HasGet<EmptySelectionIndexedView>);
@@ -517,6 +604,94 @@ TEST_CASE("View narrowing preserves storage and empty copies select no fields", 
     ll::copy_values(emptyDestination, source[0u]);
     CHECK(destination[0u][massO] == Catch::Approx(-1.0));
     CHECK(destination[0u][posO][xO] == Catch::Approx(-3.0f));
+}
+
+namespace
+{
+    /// Exercise shallow constness and mutable-to-read-only conversion for one storage kind.
+    /// @param row index to probe; use a non-zero one where the owner has more than one row so an
+    ///            accidentally reset index would be caught.
+    template<typename Owner>
+    void checkShallowConstAndReadOnlyConversion(Owner& owner, Owner& other, uint32_t row)
+    {
+        owner[row][massO] = 12.0;
+        owner[row][posO][xO] = 3.0f;
+        other[row][massO] = 99.0;
+
+        // Shallow constness: a const handle cannot rebind, but still writes through.
+        auto const columnHandle = owner.view();
+        columnHandle[massO][row] = 12.0;
+
+        // Column view conversion keeps the storage pointer, selection and root. The element type
+        // carries the read-only guarantee; DynSoA's extents are dynamic, so do not pin an extent.
+        auto mutableRoot = owner.view();
+        ll::View<Owner const> readOnlyRoot = mutableRoot;
+        CHECK(readOnlyRoot.storage == mutableRoot.storage);
+        auto xSpan = readOnlyRoot[posO / xO];
+        STATIC_CHECK(std::is_const_v<typename decltype(xSpan)::element_type>);
+        CHECK(xSpan[row] == Catch::Approx(3.0f));
+
+        // Row view conversion keeps the storage pointer and the exact row index.
+        auto mutableRow = owner[row];
+        ll::ViewIndexed<Owner const> readOnlyRow = mutableRow;
+        CHECK(readOnlyRow.storage == mutableRow.storage);
+        CHECK(readOnlyRow.idx == row);
+        CHECK(readOnlyRow[massO] == Catch::Approx(12.0));
+
+        // Narrowing the selection composes with adding read-only access in one conversion.
+        ll::ViewIndexed<Owner const, MassAccess> narrowedReadOnly = mutableRow;
+        STATIC_CHECK(std::is_same_v<decltype(ll::getSelectedLeaves(narrowedReadOnly)), MassLeaves>);
+        CHECK(narrowedReadOnly[massO] == Catch::Approx(12.0));
+
+        // Assignment performs the same conversion when rebinding to another owner.
+        ll::ViewIndexed<Owner const> reboundRow = readOnlyRow;
+        reboundRow = other[row];
+        CHECK(reboundRow.storage == &other);
+        CHECK(reboundRow.idx == row);
+        CHECK(reboundRow[massO] == Catch::Approx(99.0));
+
+        ll::View<Owner const> reboundColumn = readOnlyRoot;
+        reboundColumn = other.view();
+        CHECK(reboundColumn.storage == &other);
+        CHECK(reboundColumn[massO][row] == Catch::Approx(99.0));
+
+        // The source handle stays mutable and the read-only alias observes the new value.
+        mutableRow[massO] = 20.0;
+        CHECK(readOnlyRow[massO] == Catch::Approx(20.0));
+    }
+} // namespace
+
+TEST_CASE("Mutable views convert to read-only views without copying values", "[View]")
+{
+    ll::One<ParticleOne> one{};
+    ll::One<ParticleOne> otherOne{};
+    checkShallowConstAndReadOnlyConversion(one, otherOne, 0u);
+
+    ll::SoA<ParticleOne, 2> soa{};
+    ll::SoA<ParticleOne, 2> otherSoa{};
+    checkShallowConstAndReadOnlyConversion(soa, otherSoa, 1u);
+
+    ll::DynSoA<ParticleOne> dynSoa(2);
+    ll::DynSoA<ParticleOne> otherDynSoa(2);
+    checkShallowConstAndReadOnlyConversion(dynSoa, otherDynSoa, 1u);
+}
+
+TEST_CASE("Const view handles stay shallow and write through", "[View]")
+{
+    ll::One<ParticleOne> one{};
+    one[0u][massO] = 5.0;
+    one[0u][posO][xO] = 1.5f;
+
+    // A `View const` handle cannot rebind, but its elements remain mutable, like `std::span const`.
+    ll::View<ll::One<ParticleOne>> const columnHandle = one.view();
+    columnHandle[massO][0] = 7.0;
+    CHECK(one[0u][massO] == Catch::Approx(7.0));
+    columnHandle[posO / xO][0] = 2.5f;
+    CHECK(one[0u][posO][xO] == Catch::Approx(2.5f));
+
+    ll::ViewIndexed<ll::One<ParticleOne>> const rowHandle = one[0u];
+    rowHandle[massO] = 9.0;
+    CHECK(one[0u][massO] == Catch::Approx(9.0));
 }
 
 TEST_CASE("SoA getLeaf accepts tags and preserves const access", "[SoA]")

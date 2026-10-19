@@ -29,14 +29,21 @@
 
 namespace pmacc::spearhed
 {
+    /**
+     * Per-particle view with a tag-selected access set.
+     *
+     * With no tags the whole record is selected, inferred from ViewIndexed's default; with tags
+     * given the canonical access set is spelled out so the view is narrowed to exactly those
+     * subtree(s).
+     */
     template<typename TSoA, auto... TagInstances>
-    using ParticleView = ll::ViewIndexed<
-        TSoA,
-        ll::leaf_set_t<
-            typename TSoA::record_type,
-            std::conditional_t<
-                sizeof...(TagInstances) == 0,
-                ll::Set<ll::TagPath<>>,
-                ll::access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>>>;
+    using ParticleView = std::conditional_t<
+        sizeof...(TagInstances) == 0,
+        ll::ViewIndexed<TSoA>,
+        ll::ViewIndexed<
+            TSoA,
+            ll::access_set_t<
+                typename TSoA::record_type,
+                ll::raw_access_set_t<std::remove_cvref_t<decltype(TagInstances)>...>>>>;
 
 } // namespace pmacc::spearhed

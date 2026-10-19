@@ -56,20 +56,20 @@ namespace llama_lite
         constexpr One& operator=(One const&) = default;
         constexpr One& operator=(One&&) = default;
 
-        template<typename TSoA, IsAccessSet Leaves, IsTagPath Root>
-        requires requires(One& self, ViewIndexed<TSoA, Leaves, Root> const& view) {
+        template<typename TSoA, typename Access, IsTagPath Root>
+        requires requires(One& self, ViewIndexed<TSoA, Access, Root> const& view) {
             copy_values(self[uint32_t{0}], view);
         }
-        constexpr One(ViewIndexed<TSoA, Leaves, Root> const& view)
+        constexpr One(ViewIndexed<TSoA, Access, Root> const& view)
         {
             copy_values((*this)[uint32_t{0}], view);
         }
 
-        template<typename TSoA, IsAccessSet Leaves, IsTagPath Root>
-        requires requires(One& self, ViewIndexed<TSoA, Leaves, Root> const& view) {
+        template<typename TSoA, typename Access, IsTagPath Root>
+        requires requires(One& self, ViewIndexed<TSoA, Access, Root> const& view) {
             copy_values(self[uint32_t{0}], view);
         }
-        constexpr One& operator=(ViewIndexed<TSoA, Leaves, Root> const& view)
+        constexpr One& operator=(ViewIndexed<TSoA, Access, Root> const& view)
         {
             copy_values((*this)[uint32_t{0}], view);
             return *this;
@@ -100,28 +100,28 @@ namespace llama_lite
         }
 
         template<IsRecordAccess RA>
-        requires requires(View<One, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        requires requires(View<One> root, RA tag) { root.view(tag); }
         [[nodiscard]] constexpr auto view(RA tag)
         {
             return view().view(tag);
         }
 
         template<IsRecordAccess RA>
-        requires requires(View<One const, record_leaf_set_t<R>> root, RA tag) { root.view(tag); }
+        requires requires(View<One const> root, RA tag) { root.view(tag); }
         [[nodiscard]] constexpr auto view(RA tag) const
         {
             return view().view(tag);
         }
 
         template<IsRecordAccess... RAs>
-        requires requires(View<One, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        requires requires(View<One> root, RAs... tags) { root.select(tags...); }
         [[nodiscard]] constexpr auto select(RAs... tags)
         {
             return view().select(tags...);
         }
 
         template<IsRecordAccess... RAs>
-        requires requires(View<One const, record_leaf_set_t<R>> root, RAs... tags) { root.select(tags...); }
+        requires requires(View<One const> root, RAs... tags) { root.select(tags...); }
         [[nodiscard]] constexpr auto select(RAs... tags) const
         {
             return view().select(tags...);
@@ -151,15 +151,14 @@ namespace llama_lite
 
         template<IsRecordAccess... Tags>
         requires(sizeof...(Tags) <= 1)
-        using view_type = decltype(std::declval<View<One, record_leaf_set_t<R>>>().view(std::declval<Tags>()...));
+        using view_type = decltype(std::declval<View<One>>().view(std::declval<Tags>()...));
 
         template<IsRecordAccess... Tags>
         requires(sizeof...(Tags) <= 1)
         using indexed_view_type = decltype(std::declval<view_type<Tags...>>()[uint32_t{0}]);
 
         template<IsRecordAccess... Tags>
-        using selection_view_type
-            = decltype(std::declval<View<One, record_leaf_set_t<R>>>().select(std::declval<Tags>()...));
+        using selection_view_type = decltype(std::declval<View<One>>().select(std::declval<Tags>()...));
 
         template<IsRecordAccess... Tags>
         using indexed_selection_view_type = decltype(std::declval<selection_view_type<Tags...>>()[uint32_t{0}]);
