@@ -24,7 +24,7 @@ SPMacc is thus licensed identically to PMacc.
 SPMacc is licensed under the **LGPLv3+**. See
 [COPYING.LESSER](COPYING.LESSER).
 If not stated otherwise explicitly, that affects:
- - `include/spmacc`
+ - `packages/pmacc/include/spmacc`
 
 ### llamaLite
 
