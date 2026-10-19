@@ -76,8 +76,8 @@ namespace pmacc
             template<typename T_Type, typename T_TableA, typename T_TableB>
             struct Cbesselj0Base
             {
-                using result = alpaka::Complex<T_Type>;
-                using complex_T = alpaka::Complex<T_Type>;
+                using result = alpaka::math::Complex<T_Type>;
+                using complex_T = alpaka::math::Complex<T_Type>;
                 using float_T = T_Type;
 
                 HDINLINE result operator()(complex_T const& z)
@@ -148,8 +148,8 @@ namespace pmacc
             template<typename T_Type, typename T_TableA1, typename T_TableB1>
             struct Cbesselj1Base
             {
-                using result = alpaka::Complex<T_Type>;
-                using complex_T = alpaka::Complex<T_Type>;
+                using result = alpaka::math::Complex<T_Type>;
+                using complex_T = alpaka::math::Complex<T_Type>;
                 using float_T = T_Type;
 
                 HDINLINE result operator()(complex_T const& z)
@@ -223,25 +223,25 @@ namespace pmacc
             };
 
             template<>
-            struct J0<alpaka::Complex<double>>
+            struct J0<alpaka::math::Complex<double>>
                 : public Cbesselj0Base<double, math::bessel::aDouble_t, math::bessel::bDouble_t>
             {
             };
 
             template<>
-            struct J0<alpaka::Complex<float>>
+            struct J0<alpaka::math::Complex<float>>
                 : public Cbesselj0Base<float, math::bessel::aFloat_t, math::bessel::bFloat_t>
             {
             };
 
             template<>
-            struct J1<alpaka::Complex<double>>
+            struct J1<alpaka::math::Complex<double>>
                 : public Cbesselj1Base<double, math::bessel::a1Double_t, math::bessel::b1Double_t>
             {
             };
 
             template<>
-            struct J1<alpaka::Complex<float>>
+            struct J1<alpaka::math::Complex<float>>
                 : public Cbesselj1Base<float, math::bessel::a1Float_t, math::bessel::b1Float_t>
             {
             };
