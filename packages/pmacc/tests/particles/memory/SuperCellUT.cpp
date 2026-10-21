@@ -19,11 +19,13 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include <pmacc/boost_workaround.hpp>
 
 #include <pmacc/particles/memory/dataTypes/SuperCell.hpp>
 
-#include <pmacc/math/vector/compile-time/Vector.hpp>
+#include <catch2/catch_test_macros.hpp>
+
+#include <pmacc/math/vector/compile-time/Int.hpp>
 
 namespace pmacc
 {
