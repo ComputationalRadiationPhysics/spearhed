@@ -22,9 +22,10 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
-#include "spmacc/particles/algorithms/HierarchyForEach.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+
+#include <spmacc/particles/algorithms/HierarchyForEach.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
 
 #include <cstdint>
 

@@ -26,8 +26,9 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
+
+#include <spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
 
 #include <algorithm>
 #include <cstdint>

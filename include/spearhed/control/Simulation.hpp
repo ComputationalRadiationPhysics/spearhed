@@ -22,10 +22,10 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/FrameIndex.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>
+#include <spmacc/particles/algorithms/FrameIndex.hpp>
 
 #include <boost/program_options/options_description.hpp>
 

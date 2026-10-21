@@ -22,10 +22,10 @@
 #pragma once
 
 #include "spmacc/meta/ComponentList.hpp"
-#include "spmacc/meta/String.hpp"
 #include "spmacc/meta/TypeList.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
 
+#include <pmacc/meta/String.hpp>
 #include <pmacc/meta/conversion/ToSeq.hpp>
 #include <pmacc/meta/conversion/Unique.hpp>
 #include <pmacc/static_assert.hpp>
@@ -62,7 +62,7 @@ namespace pmacc::spearhed
     struct ParticleDescription
     {
         using Species = T_Species;
-        using Name = meta::String<T_Species::name>;
+        using Name = pmacc::meta::String<T_Species::name>;
         using ParticleRecord = T_ParticleRecord;
         using FrameExtensionList = T_FrameExtensionList;
         static constexpr uint32_t numSlots = T_NumSlots::value;

@@ -1,4 +1,4 @@
-/* Copyright 2018-2024 Rene Widera
+/* Copyright 2018-2026 Rene Widera, Tapish Narwal
  *
  * This file is part of PMacc.
  *
@@ -21,56 +21,94 @@
 
 #pragma once
 
-#include <boost/metaparse/string.hpp>
-
-#include <array>
+#include <algorithm>
+#include <cstddef>
 #include <string>
+#include <string_view>
 
-namespace pmacc
+namespace pmacc::meta
 {
-    namespace meta
+    /** A string literal usable as a non-type template parameter.
+     *
+     * Wraps a fixed-size character buffer (a C++20 structural type) so a string literal can be
+     * passed *by value* as a template argument, e.g. `template<FixedString Name> struct Role`.
+     *
+     * Use it directly as the NTTP type when a name should be carried *into* a class (roles,
+     * species, coordinate systems); use the @ref String wrapper below when a *distinct type per
+     * string* is required.
+     */
+    template<std::size_t N>
+    struct FixedString
     {
-        /** compile time string
-         *
-         * The size of the instance is 1 byte.
-         */
-        template<char... T_c>
-        struct String
+        char data[N]{};
+
+        constexpr FixedString(char const (&str)[N])
         {
-            /** get stored string */
-            static auto str() -> std::string
-            {
-                return std::string(
-                    std::array<char, sizeof...(T_c) + 1>({T_c...,
-                                                          // at terminal zero to support empty strings
-                                                          0})
-                        .data());
-            }
-        };
+            std::copy_n(str, N, data);
+        }
 
-        namespace internal
+        /** The string without its trailing null terminator. */
+        [[nodiscard]] constexpr auto view() const noexcept -> std::string_view
         {
-            template<typename T>
-            struct MakeString;
+            return {data, N - 1};
+        }
 
-            template<char... T_c>
-            struct MakeString<boost::metaparse::string<T_c...>>
-            {
-                using type = String<T_c...>;
-            };
-        } // namespace internal
+        /** Null-terminated pointer, for C APIs and std::string concatenation. */
+        [[nodiscard]] constexpr auto c_str() const noexcept -> char const*
+        {
+            return data;
+        }
 
-        /** create a compile time string type
-         *
-         * usage example:
-         * @code{.cpp}
-         * // create an instance of the compile time string
-         * auto particleName = PMACC_CSTRING( "electrons" ){};
-         * // create a C++ type (can be used as template parameter)
-         * using Electrons = PMACC_CSTRING( "electrons" );
-         * @endcode
-         */
-#define PMACC_CSTRING(str) typename ::pmacc::meta::internal::MakeString<BOOST_METAPARSE_STRING(str)>::type
+        [[nodiscard]] constexpr auto size() const noexcept -> std::size_t
+        {
+            return N - 1;
+        }
 
-    } // namespace meta
-} // namespace pmacc
+        constexpr operator std::string_view() const noexcept
+        {
+            return view();
+        }
+
+        /** Compile-time comparison against any other FixedString (enables name dispatch). */
+        template<std::size_t M>
+        [[nodiscard]] constexpr bool operator==(FixedString<M> const& rhs) const noexcept
+        {
+            return view() == rhs.view();
+        }
+    };
+
+    /** A distinct empty type for each compile-time string.
+     *
+     * Use when a name must serve as a *type* -- e.g. a template argument that participates in a
+     * type's identity such as a particle/frame name. `sizeof(String<...>) == 1`.
+     *
+     * @code{.cpp}
+     * using Electrons = pmacc::meta::String<"electrons">; // a C++ type usable as a template parameter
+     * auto particleName = pmacc::meta::String<"electrons">{};
+     * @endcode
+     */
+    template<FixedString Str = FixedString<1>{""}>
+    struct String
+    {
+        static consteval auto view() noexcept -> std::string_view
+        {
+            return Str.view();
+        }
+
+        static consteval auto c_str() noexcept -> char const*
+        {
+            return Str.c_str();
+        }
+
+        static consteval auto size() noexcept -> std::size_t
+        {
+            return Str.size();
+        }
+
+        /** get stored string as std::string */
+        static auto str() -> std::string
+        {
+            return std::string{Str.view()};
+        }
+    };
+} // namespace pmacc::meta

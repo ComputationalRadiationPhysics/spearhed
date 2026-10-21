@@ -24,12 +24,12 @@
 #include "spearhed/particles/attributes/Mass.hpp"
 #include "spearhed/particles/attributes/SmoothingLength.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/InteractParticles.hpp"
-#include "spmacc/particles/algorithms/InteractionContext.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/particles/algorithms/InteractParticles.hpp>
+#include <spmacc/particles/algorithms/InteractionContext.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/regions/NeighbourRegions.hpp>
 
 #include <llamaLite/tag/TagPath.hpp>
 

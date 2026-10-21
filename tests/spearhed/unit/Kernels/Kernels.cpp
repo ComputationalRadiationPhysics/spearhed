@@ -33,7 +33,8 @@
 #include "spearhed/sph/CubicSplineKernel.hpp"
 #include "spearhed/sph/QuinticSplineKernel.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/topology/Vec.hpp"
+
+#include <spmacc/topology/Vec.hpp>
 
 #include <cmath>
 #include <numbers>

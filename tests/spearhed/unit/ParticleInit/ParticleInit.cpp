@@ -22,12 +22,12 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/initialization/Random.hpp"
-#include "spmacc/particles/initialization/SC.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/initialization/Random.hpp>
+#include <spmacc/particles/initialization/SC.hpp>
 
 #include <alpaka/alpaka.hpp>
 

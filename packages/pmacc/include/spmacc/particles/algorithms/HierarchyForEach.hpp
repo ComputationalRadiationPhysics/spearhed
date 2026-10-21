@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
+#include "spmacc/particles/views/FrameView.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/tuple/STLTuple.hpp>
@@ -145,21 +145,6 @@ namespace pmacc::spearhed
 
     // Views (cheap handles over the existing storage)
 
-    //! A single frame: indexing yields the particle proxy for a slot.
-    template<typename T_FramePtr>
-    struct FrameView
-    {
-        using FrameType = typename T_FramePtr::type;
-        static constexpr uint32_t frameSize = FrameType::frameSize;
-
-        T_FramePtr frame;
-
-        HDINLINE decltype(auto) operator[](uint32_t slot) const
-        {
-            return frame[slot];
-        }
-    };
-
     //! A single ParticleRegion: its frame list and volume.
     template<typename T_Region>
     struct RegionView
@@ -237,10 +222,10 @@ namespace pmacc::spearhed
     // everything else is identical on host and device. childLevel(view) reports the child level.
 
     // Frame -> particles (leaf; live slots only)
-    template<typename T_FramePtr>
-    HDINLINE constexpr void forEachChild(HeapAccess auto const& /*access*/, FrameView<T_FramePtr> frame, auto body)
+    template<typename T_Frame>
+    HDINLINE constexpr void forEachChild(HeapAccess auto const& /*access*/, FrameView<T_Frame> frame, auto body)
     {
-        for(uint32_t slot = 0; slot < FrameView<T_FramePtr>::frameSize; ++slot)
+        for(uint32_t slot = 0; slot < FrameView<T_Frame>::frameSize; ++slot)
         {
             auto particle = frame[slot];
             // Construct the predicate: odr-using the namespace-scope constexpr instance
@@ -250,8 +235,8 @@ namespace pmacc::spearhed
         }
     }
 
-    template<typename T_FramePtr>
-    HDINLINE constexpr levels::Particle childLevel(FrameView<T_FramePtr>)
+    template<typename T_Frame>
+    HDINLINE constexpr levels::Particle childLevel(FrameView<T_Frame>)
     {
         return {};
     }
@@ -264,7 +249,7 @@ namespace pmacc::spearhed
     HDINLINE constexpr void forEachChild(HeapAccess auto const& access, RegionView<T_Region> region, auto body)
     {
         for(auto& frame : access.frames(region.frameList()))
-            body(FrameView{memory::FramePointer{&frame}});
+            body(FrameView{frame});
     }
 
     template<typename T_Region>

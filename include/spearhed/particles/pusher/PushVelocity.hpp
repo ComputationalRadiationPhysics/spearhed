@@ -22,11 +22,11 @@
 #include "spearhed/ParticleView.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 namespace spearhed
 {

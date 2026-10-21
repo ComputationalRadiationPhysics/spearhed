@@ -25,9 +25,9 @@
 #include "spearhed/particles/attributes/DuDt.hpp"
 #include "spearhed/particles/attributes/InternalEnergy.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 namespace spearhed
 {

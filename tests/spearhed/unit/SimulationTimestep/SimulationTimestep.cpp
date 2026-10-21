@@ -14,14 +14,14 @@
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/sph/HydroForces.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/FrameIndex.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <spmacc/particles/algorithms/FrameIndex.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/regions/NeighbourRegions.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionBoundsUpdate.hpp>
 
 #include <array>
 #include <cstdint>

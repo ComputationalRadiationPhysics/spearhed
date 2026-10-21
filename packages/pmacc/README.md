@@ -2,7 +2,8 @@
 
 This directory is the PMacc package root and is intended to become a standalone
 repository root. PMacc is the primary library; independently buildable Caravan
-and llamaLite remain under `libs/`, public headers live in `include/pmacc/`,
+and llamaLite remain under `libs/`, public headers live in `include/pmacc/`
+(SPH particle infrastructure, pending merge into PMacc, in `include/spmacc/`),
 tests live in `tests/`, and bundled dependencies remain under `thirdParty/`.
 
 ## Build from source

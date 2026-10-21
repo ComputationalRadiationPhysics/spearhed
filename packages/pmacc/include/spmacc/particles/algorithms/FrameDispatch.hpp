@@ -33,6 +33,7 @@
 
 #include <cstdint>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include <caravan/alpaka.hpp>
@@ -177,27 +178,37 @@ namespace pmacc::spearhed
     //! Default launch: one block per frame, 32 threads for the process kernel.
     inline constexpr auto defaultLaunch = launchConfig(oneBlockPerFrame);
 
+    //! Compile-time selection of the index/region data passed to a process kernel.
+    enum class FrameKernelInputs
+    {
+        FramesOnly,
+        WithRegions
+    };
+
     /**
      * @brief Index-driven host for-each over frames: no per-launch count kernel and no host
      *        inclusive scan -- the block-to-frame mapping is read straight from a prebuilt index.
      *
      * The caller owns a FrameIndexBuffer (see FrameIndex.hpp) rebuilt from @p prBuf's frame lists. This
-     * launcher merely sizes the grid from @p index.totalFrames and hands each block its region index and
-     * frame device pointer via the index's device boxes. The process kernel receives:
-     *   (worker, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, args...)
-     * and maps its block directly: rIdx = regionIdxBox[blockIdx]; ownFramePtr = framePtrsBox[blockIdx].
+     * launcher sizes the grid from @p index.totalFrames and supplies the selected kernel inputs:
+     *   - FramesOnly: (worker, framePtrsBox, totalFrames, args...)
+     *   - WithRegions: (worker, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, args...)
+     * FramesOnly never obtains region boxes. WithRegions additionally supplies the owning-region
+     * mapping and region storage needed by particle interactions.
      *
      * Returns a lazy sender and does not synchronise. Every device allocation reachable from the
      * launch -- @p prBuf, @p index, and any buffer viewed by @p args -- must outlive sender completion
      * (PMacc buffer destructors do not wait for in-flight kernels). Compose it with dependent work or
      * execute it with syncWait at the caller's natural boundary.
      *
+     * @tparam T_Inputs     Compile-time kernel input selection (FrameKernelInputs).
      * @param launchCfg     A constexpr LaunchConfig value (only its grid-sizing policy is used here).
-     * @param prBuf         The particle region buffer (supplies the region device box + region volumes).
+     * @param prBuf         The indexed buffer, used for freshness checks and, with WithRegions, region access.
      * @param index         A rebuilt FrameIndexBuffer for @p prBuf.
      * @param processKernel The per-block kernel functor.
      * @return Lazy sender that enqueues the kernel when started. It is a no-op when totalFrames is zero.
      */
+    template<FrameKernelInputs T_Inputs>
     [[nodiscard]] auto launchForEachFrameInBlockIndexed(
         auto launchCfg,
         auto& prBuf,
@@ -222,15 +233,21 @@ namespace pmacc::spearhed
             {
                 if(totalFrames == 0)
                     return;
-                auto const prDeviceBox = prBuf.getDeviceDataBox();
                 auto const framePtrsBox = index.framePtrsBox();
-                auto const regionIdxBox = index.regionIdxBox();
                 auto launcher = PMACC_LOCKSTEP_KERNEL(processKernel)
                                     .template config<Cfg::processThreads>(pmacc::DataSpace<DIM1>(gridSize));
                 std::apply(
                     [&](auto&... values)
                     {
-                        launcher.enqueueNative(queue, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, values...);
+                        if constexpr(T_Inputs == FrameKernelInputs::FramesOnly)
+                            launcher.enqueueNative(queue, framePtrsBox, totalFrames, values...);
+                        else
+                        {
+                            auto const prDeviceBox = prBuf.getDeviceDataBox();
+                            auto const regionIdxBox = index.regionIdxBox();
+                            launcher
+                                .enqueueNative(queue, prDeviceBox, framePtrsBox, regionIdxBox, totalFrames, values...);
+                        }
                     },
                     storedArgs);
             });

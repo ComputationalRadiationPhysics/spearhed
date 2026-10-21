@@ -28,6 +28,8 @@
 #include "pmacc/mpi/GetMPI_StructAsArray.hpp"
 #include "pmacc/traits/GetComponentsType.hpp"
 
+#include <alpaka/math/Complex.hpp>
+
 #include <cmath>
 
 namespace pmacc
@@ -58,7 +60,7 @@ namespace pmacc
         template<typename T_Type>
         struct Euler
         {
-            using result = alpaka::Complex<T_Type>;
+            using result = alpaka::math::Complex<T_Type>;
 
             HDINLINE result operator()(T_Type const& magnitude, T_Type const& phase)
             {
@@ -73,11 +75,11 @@ namespace pmacc
 
         //! Specialize norm() for complex numbers following the C++ standard
         template<typename T_Type>
-        struct Norm<alpaka::Complex<T_Type>>
+        struct Norm<alpaka::math::Complex<T_Type>>
         {
-            using result = typename alpaka::Complex<T_Type>::value_type;
+            using result = typename alpaka::math::Complex<T_Type>::value_type;
 
-            HDINLINE result operator()(alpaka::Complex<T_Type> const& other)
+            HDINLINE result operator()(alpaka::math::Complex<T_Type> const& other)
             {
                 return other.real() * other.real() + other.imag() * other.imag();
             }
@@ -95,22 +97,22 @@ namespace pmacc
             /*  Specialize precisionCast-operators for alpaka complex numbers. */
 
             template<typename T_CastToType>
-            struct TypeCast<T_CastToType, alpaka::Complex<T_CastToType>>
+            struct TypeCast<T_CastToType, alpaka::math::Complex<T_CastToType>>
             {
-                using result = alpaka::Complex<T_CastToType> const;
+                using result = alpaka::math::Complex<T_CastToType> const;
 
-                HDINLINE result operator()(alpaka::Complex<T_CastToType> const& complexNumber) const
+                HDINLINE result operator()(alpaka::math::Complex<T_CastToType> const& complexNumber) const
                 {
                     return complexNumber;
                 }
             };
 
             template<typename T_CastToType, typename T_OldType>
-            struct TypeCast<T_CastToType, alpaka::Complex<T_OldType>>
+            struct TypeCast<T_CastToType, alpaka::math::Complex<T_OldType>>
             {
-                using result = alpaka::Complex<T_CastToType>;
+                using result = alpaka::math::Complex<T_CastToType>;
 
-                HDINLINE result operator()(alpaka::Complex<T_OldType> const& complexNumber) const
+                HDINLINE result operator()(alpaka::math::Complex<T_OldType> const& complexNumber) const
                 {
                     return result(complexNumber);
                 }
@@ -123,9 +125,9 @@ namespace pmacc
     {
         // Specialize complex type grid buffer for MPI
         template<>
-        HINLINE MPI_StructAsArray getMPI_StructAsArray<alpaka::Complex<float>>()
+        HINLINE MPI_StructAsArray getMPI_StructAsArray<alpaka::math::Complex<float>>()
         {
-            using ComplexType = alpaka::Complex<float>;
+            using ComplexType = alpaka::math::Complex<float>;
             MPI_StructAsArray result = getMPI_StructAsArray<ComplexType::value_type>();
             result.sizeMultiplier *= uint32_t(sizeof(ComplexType) / sizeof(ComplexType::value_type));
             return result;
@@ -133,9 +135,9 @@ namespace pmacc
 
         // Specialize complex type grid buffer for MPI
         template<>
-        HINLINE MPI_StructAsArray getMPI_StructAsArray<alpaka::Complex<double>>()
+        HINLINE MPI_StructAsArray getMPI_StructAsArray<alpaka::math::Complex<double>>()
         {
-            using ComplexType = alpaka::Complex<double>;
+            using ComplexType = alpaka::math::Complex<double>;
             MPI_StructAsArray result = getMPI_StructAsArray<ComplexType::value_type>();
             result.sizeMultiplier *= uint32_t(sizeof(ComplexType) / sizeof(ComplexType::value_type));
             return result;

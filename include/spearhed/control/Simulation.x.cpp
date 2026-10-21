@@ -28,17 +28,17 @@
 #include "spearhed/particles/pusher/EulerIntegrate.hpp"
 #include "spearhed/particles/pusher/ParticlePush.hpp"
 #include "spearhed/sph/HydroForces.hpp"
-#include "spmacc/particles/algorithms/FrameIndex.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 #include <pmacc/verify.hpp>
+#include <spmacc/particles/algorithms/FrameIndex.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/regions/NeighbourRegions.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionBoundsUpdate.hpp>
 
 #include <iostream>
 #include <memory>

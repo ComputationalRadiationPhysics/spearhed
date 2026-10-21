@@ -22,10 +22,10 @@
 #include "spearhed/param/mallocMC.param"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <spmacc/particles/regions/NeighbourRegions.hpp>
 
 #include <alpaka/alpaka.hpp>
 

@@ -20,14 +20,14 @@
 #pragma once
 
 #include "spearhed/param.hpp"
-#include "spmacc/Frame.hpp"
-#include "spmacc/particles/regions/AABB.hpp"
-#include "spmacc/particles/regions/ParticleRegion.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/meta/Pair.hpp>
 #include <pmacc/meta/conversion/MakeSeq.hpp>
 #include <pmacc/particles/memory/dataTypes/StaticArray.hpp>
+#include <spmacc/Frame.hpp>
+#include <spmacc/particles/regions/AABB.hpp>
+#include <spmacc/particles/regions/ParticleRegion.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 namespace spearhed
 {

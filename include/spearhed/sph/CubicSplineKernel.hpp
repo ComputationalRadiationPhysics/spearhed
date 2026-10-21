@@ -20,11 +20,11 @@
 #pragma once
 
 #include "spearhed/param.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
-#include "spmacc/topology/Vec.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/topology/CartesianStorage.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
+#include <spmacc/topology/Vec.hpp>
 
 #include <numbers>
 

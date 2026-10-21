@@ -25,10 +25,6 @@
 #include "spearhed/particles/attributes/Id.hpp"
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/particles/initialization/SetupInterface.hpp"
-#include "spmacc/memory/FramePointer.hpp"
-#include "spmacc/particles/algorithms/FrameDispatch.hpp"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/Environment.hpp>
 #include <pmacc/assert.hpp>
@@ -44,6 +40,10 @@
 #include <pmacc/particles/IdProvider.hpp>
 #include <pmacc/particles/Identifier.hpp>
 #include <pmacc/particles/operations/InitValueIdentifier.hpp>
+#include <spmacc/particles/algorithms/FrameDispatch.hpp>
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/views/FrameView.hpp>
 
 #include <concepts>
 #include <cstdint>
@@ -168,7 +168,7 @@ namespace spearhed
                 using FrameType = TFrameList::FrameType;
                 using Species = typename FrameType::ParticleDescription::Species;
 
-                PMACC_SMEM(worker, framePtr, pmacc::spearhed::memory::FramePointer<FrameType>);
+                PMACC_SMEM(worker, framePtr, FrameType*);
 
                 auto onlyMaster = pmacc::lockstep::makeMaster(worker);
                 onlyMaster(
@@ -182,13 +182,14 @@ namespace spearhed
 
                 worker.sync();
 
+                pmacc::spearhed::FrameView const frame{*framePtr};
                 auto forEachSlotInFrame = pmacc::lockstep::makeForEach<FrameType::frameSize>(worker);
 
                 // fill frames in parallel
                 forEachSlotInFrame(
                     [&](uint32_t const idx)
                     {
-                        auto particle = framePtr[idx];
+                        auto particle = frame[idx];
                         // First set the multimask to make sure particles which dont exist are disabled
                         setMultiMask<Species>(particle, idx < numParticlesToCreate ? 1 : 0);
 

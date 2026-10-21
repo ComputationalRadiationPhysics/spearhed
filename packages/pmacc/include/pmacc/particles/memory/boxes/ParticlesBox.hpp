@@ -116,7 +116,7 @@ namespace pmacc
                     ::alpaka::onAcc::memFence(
                         worker.getAcc(),
                         ::alpaka::onAcc::scope::Block{},
-                        ::alpaka::onAcc::order::acq_rel);
+                        ::alpaka::onAcc::order::acqRel);
                     break;
                 }
             }
@@ -218,7 +218,7 @@ namespace pmacc
             ::alpaka::onAcc::memFence(
                 worker.getAcc(),
                 ::alpaka::onAcc::scope::Device{},
-                ::alpaka::onAcc::order::acq_rel);
+                ::alpaka::onAcc::order::acqRel);
 
             FramePtr oldFirstFramePtr((FrameType*) ::alpaka::onAcc::atomicExch(
                 worker.getAcc(),
@@ -259,7 +259,7 @@ namespace pmacc
             ::alpaka::onAcc::memFence(
                 worker.getAcc(),
                 ::alpaka::onAcc::scope::Device{},
-                ::alpaka::onAcc::order::acq_rel);
+                ::alpaka::onAcc::order::acqRel);
 
             FramePtr oldLastFramePtr((FrameType*) ::alpaka::onAcc::atomicExch(
                 worker.getAcc(),

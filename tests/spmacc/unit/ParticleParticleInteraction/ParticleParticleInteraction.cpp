@@ -23,12 +23,12 @@
 #include "spearhed/particles/initialization/InitParticles.hpp"
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
-#include "spmacc/particles/algorithms/FrameIndex.hpp"
-#include "spmacc/particles/algorithms/InteractParticles.hpp"
-#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
+#include <spmacc/particles/algorithms/FrameIndex.hpp>
+#include <spmacc/particles/algorithms/InteractParticles.hpp>
+#include <spmacc/particles/regions/NeighbourBundle.hpp>
 
 #include <alpaka/alpaka.hpp>
 

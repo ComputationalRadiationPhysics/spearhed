@@ -20,9 +20,10 @@
 #pragma once
 
 #include "spearhed/param/dimension.param"
-#include "spmacc/particles/attributes/RelativePosition.hpp"
-#include "spmacc/topology/CartesianStorage.hpp"
-#include "spmacc/topology/Point.hpp"
+
+#include <spmacc/particles/attributes/RelativePosition.hpp>
+#include <spmacc/topology/CartesianStorage.hpp>
+#include <spmacc/topology/Point.hpp>
 
 namespace llama_lite::traits
 {

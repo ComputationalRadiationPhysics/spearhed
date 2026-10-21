@@ -23,10 +23,10 @@
 #include "spearhed/memory.hpp"
 #include "spearhed/param/setup.hpp"
 #include "spearhed/plugins/openPMD/Position.hpp"
-#include "spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 
 #include <pmacc/Environment.hpp>
+#include <spmacc/particles/algorithms/CopyParticlesToDynSoA.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
 
 #include <string>
 

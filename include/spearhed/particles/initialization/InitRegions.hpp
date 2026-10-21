@@ -22,11 +22,11 @@
 #include "spearhed/ParticleDefinition.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/initialization/SetupInterface.hpp"
-#include "spmacc/particles/regions/AABB.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
 
 #include <pmacc/Environment.hpp>
+#include <spmacc/particles/regions/AABB.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 #include <memory>
 #include <tuple>

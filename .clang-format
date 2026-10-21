@@ -143,8 +143,8 @@ IncludeCategories:
   # Local headers (in "") above all else
   - Regex: '"([A-Za-z0-9.\/-_])+"'
     Priority: 3
-    # <pmacc/foo.hpp>
-  - Regex: '<pmacc/([A-Za-z0-9.\/-_])+>'
+    # <pmacc/foo.hpp>, <spmacc/foo.hpp>
+  - Regex: '<s?pmacc/([A-Za-z0-9.\/-_])+>'
     Priority: 4
   # <alpaka/foo.hpp>
   - Regex: '<alpaka/([A-Za-z0-9.\/-_])+>'

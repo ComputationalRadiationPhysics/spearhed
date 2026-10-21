@@ -19,10 +19,9 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Tags.hpp"
-
 #include <pmacc/identifier/value_identifier.hpp>
 #include <pmacc/particles/IdProvider.hpp>
+#include <spmacc/particles/attributes/Tags.hpp>
 
 #include <llamaLite/llamaLite.hpp>
 

@@ -23,7 +23,6 @@
 
 #include "spmacc/Frame.hpp"
 #include "spmacc/SinglyLinkedListDevice.hpp"
-#include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/memory/utils.hpp"
 
 #include <pmacc/traits/IsSpecializationOf.hpp>
@@ -163,7 +162,7 @@ namespace pmacc::spearhed
             return numParticles ? ((numParticles - 1u) % frameSize + 1u) : 0u;
         }
 
-        HDINLINE constexpr memory::FramePointer<FrameType> getEmptyFrame(auto const& worker)
+        HDINLINE constexpr FrameType* getEmptyFrame(auto const& worker)
         {
             auto framePtr = list.getEmptyNode(worker);
             list.pushBack(worker, framePtr);

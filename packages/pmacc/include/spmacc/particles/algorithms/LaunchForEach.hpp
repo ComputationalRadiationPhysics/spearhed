@@ -54,15 +54,13 @@ namespace pmacc::spearhed
     namespace detail
     {
         //! Per-block kernel: map this block's frame(s) via @p schedule -- reading the block-to-frame
-        //! mapping straight from a prebuilt FrameIndexBuffer's device boxes -- then descend to T_Target.
+        //! mapping straight from a prebuilt FrameIndexBuffer's frame-pointer box -- then descend to T_Target.
         template<typename T_Target>
         struct HierarchyForEachKernel
         {
             DINLINE void operator()(
                 auto const& worker,
-                auto prDeviceBox,
                 auto framePtrsBox,
-                auto regionIdxBox,
                 uint32_t totalFrames,
                 auto schedule,
                 auto body,
@@ -70,18 +68,15 @@ namespace pmacc::spearhed
             {
                 forEachBlockFrame(
                     worker,
-                    prDeviceBox,
                     framePtrsBox,
-                    regionIdxBox,
                     static_cast<int>(totalFrames),
                     schedule,
-                    [&](auto frameRef)
+                    [&](auto frame)
                     {
-                        FrameView const frameView{frameRef.framePtr};
                         if constexpr(T_Target::rank == levels::Frame::rank)
                             // Frame target: hand the whole frame to the body once per frame. The
                             // body owns intra-frame parallelism, hence the worker.
-                            body(worker, frameView, args...);
+                            body(worker, frame, args...);
                         else
                             // Particle target: distribute the frame's live slots across the block,
                             // one call per live particle. The worker is forwarded so the body can
@@ -89,7 +84,7 @@ namespace pmacc::spearhed
                             // the host side).
                             lockstepForEachParticle(
                                 worker,
-                                frameView,
+                                frame,
                                 [&](auto particle) { body(worker, particle, args...); });
                     });
             }
@@ -144,7 +139,7 @@ namespace pmacc::spearhed
             "launchForEach maps blocks onto frames, so it only supports levels::particle or "
             "levels::frame; use forEach with deviceHeap (in-kernel) or hostHeap (host-side) for "
             "region or species traversal.");
-        return launchForEachFrameInBlockIndexed(
+        return launchForEachFrameInBlockIndexed<FrameKernelInputs::FramesOnly>(
             launchConfig<T_Cfg::processThreads>(cfg.grid),
             prBuf,
             index,
@@ -175,7 +170,7 @@ namespace pmacc::spearhed
      *
      * The index is local to this call and is destroyed at scope exit, so waiting for the launch here
      * is mandatory, not a style choice: without it, the index's device buffers -- which the
-     * still-in-flight kernel reads via framePtrsBox/regionIdxBox -- would be freed while the kernel
+     * still-in-flight kernel reads via framePtrsBox -- would be freed while the kernel
      * is still running.
      */
     template<typename T_Cfg, typename T_Target, typename T_PRBuf, typename T_Body, typename... T_Args>

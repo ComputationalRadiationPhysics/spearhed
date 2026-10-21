@@ -23,10 +23,11 @@
 #include "spearhed/param.hpp"
 #include "spearhed/plugins/openPMD/Position.hpp"
 #include "spearhed/sph/CubicSplineKernel.hpp"
-#include "spmacc/particles/initialization/SC.hpp"
-#include "spmacc/particles/regions/AABB.hpp"
-#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionRole.hpp"
+
+#include <spmacc/particles/initialization/SC.hpp>
+#include <spmacc/particles/regions/AABB.hpp>
+#include <spmacc/particles/regions/ParticleRegionBuffer.hpp>
+#include <spmacc/particles/regions/RegionRole.hpp>
 
 #include <cstdint>
 #include <tuple>

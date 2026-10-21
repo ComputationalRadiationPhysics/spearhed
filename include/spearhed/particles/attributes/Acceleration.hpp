@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "spmacc/particles/attributes/Cartesian.hpp"
-#include "spmacc/topology/CoordinateSystem.hpp"
+#include <spmacc/particles/attributes/Cartesian.hpp>
+#include <spmacc/topology/CoordinateSystem.hpp>
 
 #include <llamaLite/llamaLite.hpp>
 

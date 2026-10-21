@@ -30,12 +30,12 @@
 #include "spearhed/particles/attributes/Velocity.hpp"
 #include "spearhed/sph/EquationOfState.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/algorithms/InteractParticles.hpp"
-#include "spmacc/particles/algorithms/InteractionContext.hpp"
-#include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourBundle.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
+#include <spmacc/particles/algorithms/InteractParticles.hpp>
+#include <spmacc/particles/algorithms/InteractionContext.hpp>
+#include <spmacc/particles/algorithms/LaunchForEach.hpp>
+#include <spmacc/particles/regions/NeighbourBundle.hpp>
 
 namespace spearhed
 {
