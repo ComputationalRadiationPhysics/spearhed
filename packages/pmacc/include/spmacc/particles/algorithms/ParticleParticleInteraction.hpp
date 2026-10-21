@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/View.hpp"
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
 #include "spmacc/particles/algorithms/FrameIndex.hpp"
@@ -29,6 +28,7 @@
 #include "spmacc/particles/attributes/MultiMask.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/NeighbourEntry.hpp"
+#include "spmacc/particles/views/FrameView.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -400,7 +400,7 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, nbCache, NbCacheType);
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
-                memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
+                FrameView const ownFramePtr{*framePtrsBox[blockIdx]};
                 VolumeType const ownVolume = region.volume;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
@@ -436,14 +436,14 @@ namespace pmacc::spearhed
 
                     for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
                     {
-                        memory::FramePointer const neighbourFramePtr{&*it};
+                        FrameView const neighbourFramePtr{*it};
                         VolumeType const neighbourVolume = neighbourRegion.volume;
                         // Each live frame is a unique heap allocation belonging to exactly one
                         // region of one buffer, so equal frame pointers already identify the same
                         // frame (same region, same buffer).
                         bool const isSelfFrame
-                            = (static_cast<void const*>(ownFramePtr.operator->())
-                               == static_cast<void const*>(neighbourFramePtr.operator->()));
+                            = (static_cast<void const*>(ownFramePtr.get())
+                               == static_cast<void const*>(neighbourFramePtr.get()));
 
                         auto regBlock = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
                         auto smemCaches = detail::SmemCaches{posCache, nbCache};
@@ -534,7 +534,7 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, nbCache, NbCacheType);
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
-                memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
+                FrameView const ownFramePtr{*framePtrsBox[blockIdx]};
                 VolumeType const ownVolume = region.volume;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
@@ -575,12 +575,12 @@ namespace pmacc::spearhed
 
                             for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
                             {
-                                memory::FramePointer const neighbourFramePtr{&*it};
+                                FrameView const neighbourFramePtr{*it};
                                 VolumeType const neighbourVolume = neighbourRegion.volume;
                                 // Equal frame pointers identify the frames as the same.
                                 bool const isSelfFrame
-                                    = (static_cast<void const*>(ownFramePtr.operator->())
-                                       == static_cast<void const*>(neighbourFramePtr.operator->()));
+                                    = (static_cast<void const*>(ownFramePtr.get())
+                                       == static_cast<void const*>(neighbourFramePtr.get()));
 
                                 auto regBlock
                                     = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};

@@ -21,10 +21,10 @@
 
 #pragma once
 
-#include "spmacc/memory/FramePointer.hpp"
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
 #include "spmacc/particles/algorithms/ParticleParticleInteraction.hpp"
 #include "spmacc/particles/attributes/MultiMask.hpp"
+#include "spmacc/particles/views/FrameView.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
@@ -38,23 +38,20 @@ namespace pmacc::spearhed
     namespace detail
     {
         /**
-         * @brief Device-side driver: invoke @p frameBody(FrameRef) for every frame this block
-         *        owns under @p schedule, reading the block-to-frame mapping straight from a
-         *        prebuilt FrameIndexBuffer's device boxes (see FrameIndex.hpp).
+         * @brief Device-side driver: invoke @p frameBody(FrameView) for every frame this block
+         *        owns under @p schedule, reading frame pointers straight from a prebuilt
+         *        FrameIndexBuffer's device box (see FrameIndex.hpp).
          *
-         * Derives FrameType from the PRBox's region type (Region -> particleFrameList ->
-         * FrameListType::FrameType) and builds a local frameAt(g) accessor that resolves global
-         * frame slot g to a FrameRef{region, framePtr} in O(1) -- a direct index into
-         * framePtrsBox / regionIdxBox, no list walk and no binary search. The schedule decides
-         * which slots g the calling block visits; frameAt is handed to it as a factory.
+         * Derives FrameType from framePtrsBox and builds a local frameAt(g) accessor that resolves
+         * global frame slot g to a FrameView in O(1) -- a direct pointer lookup, no region lookup,
+         * list walk or binary search. The schedule decides which slots g the calling block visits;
+         * frameAt is handed to it as a factory.
          *
          * @param schedule Frame-to-block mapping policy value (e.g. gridStride, contiguous, oneToOne).
          */
         DINLINE void forEachBlockFrame(
             auto const& worker,
-            auto prBox,
             auto framePtrsBox,
-            auto regionIdxBox,
             int totalFrames,
             auto schedule,
             auto frameBody)
@@ -62,28 +59,8 @@ namespace pmacc::spearhed
             if(totalFrames <= 0)
                 return;
 
-            using Region = std::remove_reference_t<decltype(prBox[0])>;
-            using FrameListType = std::remove_cvref_t<decltype(prBox[0].particleFrameList)>;
-            using FrameType = typename FrameListType::FrameType;
-            using FramePtr = memory::FramePointer<FrameType>;
-
-            /**
-             * @brief What frameAt(g) yields: the owning region (for volume and other
-             *        region-level data) plus a pointer to the frame at global slot g.
-             */
-            struct FrameRef
-            {
-                using FrameType = typename FramePtr::type;
-                Region& region;
-                FramePtr framePtr;
-            };
-
-            auto frameAt = [&](int g)
-            {
-                int const rIdx = static_cast<int>(regionIdxBox[g]);
-                Region& region = prBox[rIdx];
-                return FrameRef{region, FramePtr{framePtrsBox[g]}};
-            };
+            using FrameType = std::remove_reference_t<decltype(*framePtrsBox[0])>;
+            auto frameAt = [&](int g) { return FrameView<FrameType>{*framePtrsBox[g]}; };
 
             schedule(worker, totalFrames, frameAt, frameBody);
         }

@@ -62,9 +62,11 @@ struct HierarchySumKernel
             view,
             [&](auto frame)
             {
+                // Exercise mutable-to-read-only view conversion and const-storage access on device.
+                sp::FrameView<typename decltype(frame)::FrameType const> const readOnlyFrame = frame;
                 sp::lockstepForEachParticle(
                     worker,
-                    frame,
+                    readOnlyFrame,
                     [&](auto particle)
                     {
                         ::alpaka::onAcc::atomicAdd(
@@ -103,7 +105,80 @@ struct CountFrameOnce
     }
 };
 
+// Frame-only dispatch must compile without either region accessor, and obtain frame pointers lazily.
+struct FrameOnlyDispatchTarget
+{
+    uint64_t topologyVersion;
+    void getDeviceDataBox() = delete;
+};
+
+template<typename T_FrameBox>
+struct FrameOnlyDispatchIndex
+{
+    bool hasBuild = true;
+    void const* builtBuffer;
+    uint64_t builtVersion;
+    uint32_t totalFrames;
+    T_FrameBox framePointers;
+    int frameBoxRequests = 0;
+
+    auto framePtrsBox()
+    {
+        ++frameBoxRequests;
+        return framePointers;
+    }
+
+    void regionIdxBox() = delete;
+};
+
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "Indexed frame-only dispatch needs no region inputs and preserves lazy empty handling",
+    "[integration][particles][index]")
+{
+    auto setup = spearhed::EmptyNRegions<2>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::InitParticles{}(setup);
+    sp::FrameIndexBuffer<spearhed::PRType> realIndex;
+    spearhed::test::runDevice(realIndex.rebuildSender(*prBuf));
+
+    FrameOnlyDispatchTarget target{prBuf->topologyVersion};
+    FrameOnlyDispatchIndex<decltype(realIndex.framePtrsBox())> index{
+        .builtBuffer = &target,
+        .builtVersion = target.topologyVersion,
+        .totalFrames = realIndex.totalFrames,
+        .framePointers = realIndex.framePtrsBox()};
+
+    SECTION("populated index")
+    {
+        REQUIRE(index.totalFrames > 0u);
+    }
+    SECTION("empty index")
+    {
+        index.totalFrames = 0u;
+    }
+
+    pmacc::HostDeviceBuffer<T_Sum, 1> frameCount(1u);
+    frameCount.getHostBuffer().setValue(0u);
+    spearhed::test::runDevice(frameCount.hostToDevice());
+
+    auto launch = sp::launchForEachFrameInBlockIndexed<sp::FrameKernelInputs::FramesOnly>(
+        sp::defaultLaunch,
+        target,
+        index,
+        sp::detail::HierarchyForEachKernel<sp::levels::Frame>{},
+        sp::OneToOne{},
+        CountFrameOnce{},
+        frameCount.getDeviceBuffer().getDataBox());
+    REQUIRE(index.frameBoxRequests == 0);
+    spearhed::test::runDevice(std::move(launch));
+    REQUIRE(index.frameBoxRequests == (index.totalFrames == 0u ? 0 : 1));
+
+    spearhed::test::runDevice(frameCount.deviceToHost());
+    REQUIRE(frameCount.getHostBuffer().data()[0] == index.totalFrames);
+}
 
 TEST_CASE_METHOD(
     ParticleFixture,

@@ -60,7 +60,7 @@ namespace pmacc::spearhed
             Args... args)
         {
             constexpr std::size_t count = pmacc::memory::tuple::tuple_size_v<Views>;
-            auto current = launchForEachFrameInBlockIndexed(
+            auto current = launchForEachFrameInBlockIndexed<FrameKernelInputs::WithRegions>(
                 launchConfig<64>(oneBlockPerFrame),
                 target,
                 index,
@@ -116,7 +116,7 @@ namespace pmacc::spearhed
             else
             {
                 auto views = bundle.makeDeviceViewTuple();
-                return launchForEachFrameInBlockIndexed(
+                return launchForEachFrameInBlockIndexed<FrameKernelInputs::WithRegions>(
                     launchConfig<64>(oneBlockPerFrame),
                     target,
                     index,
