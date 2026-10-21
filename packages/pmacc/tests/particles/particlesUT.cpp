@@ -22,7 +22,6 @@
 #include <pmacc/boost_workaround.hpp>
 
 #include "IdProvider.hpp"
-#include "memory/SuperCell.hpp"
 
 #include <pmacc/HandleGuardRegion.hpp>
 #include <pmacc/fields/Communication.hpp>

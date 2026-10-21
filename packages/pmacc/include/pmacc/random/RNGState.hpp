@@ -38,7 +38,7 @@ namespace pmacc
             using RNGMethod = T_RNGMethod;
             using StateType = typename RNGMethod::StateType;
 
-            HDINLINE RNGState() = default;
+            constexpr RNGState() = default;
 
             HDINLINE RNGState(StateType const& other) : state(other)
             {

@@ -15,10 +15,16 @@ int main(int argc, char** argv)
         argv,
         [&](caravan::MpiContext& mpi)
         {
+#ifdef TEST_DIM
+            constexpr auto dimension = TEST_DIM;
+#else
+            // Dimension-independent tests still need an initialized accelerator/MPI environment.
+            constexpr auto dimension = 2u;
+#endif
             auto const topology = mpi.topology();
-            auto processes = pmacc::DataSpace<TEST_DIM>::create(1);
+            auto processes = pmacc::DataSpace<dimension>::create(1);
             processes.x() = topology.size;
-            pmacc::Environment<TEST_DIM>::get().initDevices(mpi, processes, pmacc::DataSpace<TEST_DIM>::create(1));
+            pmacc::Environment<dimension>::get().initDevices(mpi, processes, pmacc::DataSpace<dimension>::create(1));
             auto const result = Catch::Session().run(argc, argv);
             pmacc::Environment<>::get().finalize();
             return result;

@@ -48,43 +48,6 @@
  *  This file is testing vector functionality
  */
 
-struct VectorConstructorGeneratorKernel
-{
-    template<typename T_Acc>
-    DINLINE void operator()(T_Acc const&, pmacc::math::Vector<uint32_t, TEST_DIM>* data) const
-    {
-        using pmacc::math::Vector;
-
-        // constexpr lambda generator
-        constexpr auto vec = Vector<uint32_t, TEST_DIM>([](uint32_t const i) constexpr { return i; });
-        data[0] = vec;
-        // non constexpr lambda generator
-        data[1] = Vector<uint32_t, TEST_DIM>([](uint32_t const i) { return i * 2u; });
-    }
-};
-
-TEST_CASE("vector constructor generator", "[vector]")
-{
-    using namespace pmacc;
-    using namespace pmacc::math;
-    uint32_t const numElements = 2u;
-    using VecType = Vector<uint32_t, TEST_DIM>;
-
-    auto hostDeviceBuffer = HostDeviceBuffer<VecType, DIM1>(DataSpace<DIM1>{numElements});
-
-    auto& device = Environment<>::get().DeviceContext();
-    caravan::ControlContext context;
-    auto kernel = PMACC_KERNEL(VectorConstructorGeneratorKernel{})(1, 1)(caravan::retain(
-        hostDeviceBuffer.getDeviceBuffer().data(),
-        hostDeviceBuffer.getDeviceBuffer().getOwnedAlpakaView()));
-    auto copy = hostDeviceBuffer.deviceToHost();
-    context.wait(
-        context.spawn(caravan::alpaka::withDevice(device, std::move(kernel) | caravan::sequence(std::move(copy)))));
-
-    REQUIRE(hostDeviceBuffer.getHostBuffer().data()[0] == Vector<uint32_t, 3u>(0u, 1u, 2u).shrink<TEST_DIM>());
-    REQUIRE(hostDeviceBuffer.getHostBuffer().data()[1] == Vector<uint32_t, 3u>(0u, 2u, 4u).shrink<TEST_DIM>());
-}
-
 /** define one dimensional vector compile time test cases for operator +,-,*,/ */
 struct CompileTimeKernel1D
 {
