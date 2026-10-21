@@ -34,13 +34,13 @@ namespace pmacc
         using typename Base::RefValueType;
         using typename Base::ValueType;
 
-        DataBox() = default;
+        constexpr DataBox() = default;
 
         HDINLINE DataBox(Base base) : Base{std::move(base)}
         {
         }
 
-        DataBox(DataBox const&) = default;
+        constexpr DataBox(DataBox const&) = default;
 
         HDINLINE decltype(auto) operator()(DataSpace<Base::Dim> const& idx = {}) const
         {
