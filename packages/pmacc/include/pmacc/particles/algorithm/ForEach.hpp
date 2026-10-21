@@ -27,6 +27,7 @@
 #include "pmacc/lockstep/Config.hpp"
 #include "pmacc/lockstep/ForEach.hpp"
 #include "pmacc/mappings/kernel/AreaMapping.hpp"
+#include "pmacc/particles/algorithm/ForEachFrameSlot.hpp"
 #include "pmacc/particles/algorithm/detail/ForEach.hpp"
 #include "pmacc/particles/frame_types.hpp"
 #include "pmacc/traits/GetNumWorkers.hpp"
@@ -83,16 +84,22 @@ namespace pmacc::particles::algorithm
             }
         };
 
-        /** Execute a particle or frame functor for each particle/frame.
+        /** Particle traversal selected explicitly by callback interface.
          *
-         * @tparam T_AccessTag Type of the tag to mark if the particle or frame interface will be used.
-         *                     valid options: detail::CallParticleFunctor or detail::CallFrameFunctor
+         * The primary template is intentionally undefined; only the particle and frame interfaces
+         * below are supported.
+         *
+         * @tparam T_AccessTag detail::CallParticleFunctor or detail::CallFrameFunctor
          * @tparam T_Order Iteration order. valid options: Forward or Reverse
          * @tparam T_ParBox Type of the particle box to traverse.
          * @tparam T_Worker lockstep worker
          */
         template<typename T_AccessTag, typename T_Order, typename T_ParBox, typename T_Worker>
-        class ForEachParticle
+        class ForEachParticle;
+
+        /** Legacy collective frame-batch traversal. */
+        template<typename T_Order, typename T_ParBox, typename T_Worker>
+        class ForEachParticle<detail::CallFrameFunctor, T_Order, T_ParBox, T_Worker>
         {
         private:
             static constexpr uint32_t dim = T_ParBox::Dim;
@@ -145,22 +152,13 @@ namespace pmacc::particles::algorithm
             {
             }
 
-            /** Execute unary functor for each particle.
+            /** Execute a frame callback with the legacy mapping-bound batch context.
              *
-             * @attention There is no guarantee in which order particles will be executed.
-             *            If the particle functor is used the algorithm assumes that the frame structure is following
-             *            the rule that all frames but the last are fully filled and in the last frame the low indices
-             *            are contiguously filled.
-             *
-             * @tparam T_Functor unary particle functor or frame functor following the interface concept
-             *                           detail::FrameFunctorInterface or detail::ParticleFunctorInterface
-             * @param unaryFunctor Functor executed for each particle/frame.
-             *                     The caller must ensure that calling the functor in parallel with
-             *                     different workers is data race free.
-             *                     - particle functor: 'void operator()(T_Worker const &, ParticleType)'.
-             *                       It is not allowed to call a synchronization function within the functor.
-             *                     - frame functor: 'void operator()(T_Worker const &, FrameCtx)'.
-             *                       Calling synchronization within the functor is allowed.
+             * @tparam T_Functor Frame functor following detail::FrameFunctorInterface.
+             * @param unaryFunctor Callable as void(worker, FrameCtx). The context can hold several
+             *                     frames and invalid handles; use lockstepForEach() to distribute it.
+             *                     The caller must ensure data-race freedom and uniform collective
+             *                     entry/termination when synchronizing within a callback.
              */
             template<typename T_Functor>
             DINLINE void operator()(T_Functor&& unaryFunctor) const
@@ -221,48 +219,8 @@ namespace pmacc::particles::algorithm
                 // iterate over all frames in the supercell
                 do
                 {
-                    if constexpr(std::is_same_v<T_AccessTag, detail::CallParticleFunctor>)
-                    {
-                        // loop over all particles in the frame
-                        forEachParticleInFrame(
-                            [&](uint32_t const linearIdx, auto const& framePtr, auto const frameConditionData)
-                            {
-                                auto const particleIdx = linearIdx % frameSize;
-
-                                auto particle = framePtr[particleIdx];
-                                if constexpr(std::is_same_v<Reverse, T_Order>)
-                                {
-                                    bool const isParticle = particleIdx < frameConditionData;
-                                    if(!isParticle)
-                                        particle.setHandleInvalid();
-                                }
-                                else if constexpr(std::is_same_v<Forward, T_Order>)
-                                {
-                                    uint32_t const parIdxInSupercell = frameConditionData + linearIdx;
-                                    bool const isParticle = parIdxInSupercell < numParticlesInSupercell;
-                                    if(!isParticle)
-                                        particle.setHandleInvalid();
-                                }
-
-
-                                constexpr bool functorReturnsVoid
-                                    = std::is_void_v<decltype(unaryFunctor(worker, particle))>;
-                                PMACC_CASSERT_MSG(__unaryParticleFunctor_must_return_void, functorReturnsVoid);
-                                if(particle.isHandleValid())
-                                {
-                                    auto particleFunctor
-                                        = detail::makeParticleFunctorInterface(std::forward<T_Functor>(unaryFunctor));
-                                    particleFunctor(worker, particle);
-                                }
-                            },
-                            framePtrCtx,
-                            frameConditionDataCtx);
-                    }
-                    else if constexpr(std::is_same_v<T_AccessTag, detail::CallFrameFunctor>)
-                    {
-                        auto frameFunctor = detail::makeFrameFunctorInterface(std::forward<T_Functor>(unaryFunctor));
-                        frameFunctor(worker, framePtrCtx);
-                    }
+                    auto frameFunctor = detail::makeFrameFunctorInterface(std::forward<T_Functor>(unaryFunctor));
+                    frameFunctor(worker, framePtrCtx);
 
                     hasMoreWork = false;
 
@@ -296,6 +254,84 @@ namespace pmacc::particles::algorithm
             {
                 auto const& superCell = m_particlesBox.getSuperCell(m_superCellIdx);
                 return superCell.getNumParticles();
+            }
+        };
+
+        /** Unary traversal: block-uniform linked-frame walking and independent alpaka slot loops.
+         *
+         * All frames except the last must be full; the last has a packed live prefix. PIC multiMask
+         * values (including exchange encodings) are deliberately not interpreted here. Frame order
+         * is preserved, but no serial order of particle execution is promised. Callbacks must not
+         * synchronize or mutate the frame topology. Collective frame batches use the frame specialization.
+         */
+        template<typename T_Order, typename T_ParBox, typename T_Worker>
+        class ForEachParticle<detail::CallParticleFunctor, T_Order, T_ParBox, T_Worker>
+        {
+            static_assert(std::is_same_v<T_Order, Forward> || std::is_same_v<T_Order, Reverse>);
+            static constexpr uint32_t frameSize = T_ParBox::frameSize;
+            T_Worker m_worker;
+            T_ParBox m_particlesBox;
+            DataSpace<T_ParBox::Dim> m_superCellIdx;
+
+        public:
+            DINLINE ForEachParticle(
+                T_Worker const& worker,
+                T_ParBox const& particlesBox,
+                DataSpace<T_ParBox::Dim> const& superCellIdx)
+                : m_worker(worker)
+                , m_particlesBox(particlesBox)
+                , m_superCellIdx(superCellIdx)
+            {
+            }
+
+            DINLINE uint32_t numParticles() const
+            {
+                return m_particlesBox.getSuperCell(m_superCellIdx).getNumParticles();
+            }
+
+            DINLINE bool hasParticles() const
+            {
+                return numParticles() != 0u;
+            }
+
+            template<typename T_Functor>
+            DINLINE void operator()(T_Functor&& unaryFunctor) const
+            {
+                uint32_t remaining = numParticles();
+                if(remaining == 0u)
+                    return;
+
+                // Bind once, including rvalues; every invocation below uses the same lvalue.
+                auto particleFunctor = detail::makeParticleFunctorInterface(std::forward<T_Functor>(unaryFunctor));
+                auto frame = T_Order::getFirst(m_particlesBox, m_superCellIdx);
+                uint32_t activeSlots = frameSize;
+                if constexpr(std::is_same_v<T_Order, Reverse>)
+                    activeSlots = m_particlesBox.getSuperCell(m_superCellIdx).getSizeLastFrame();
+
+                while(frame.isValid() && remaining != 0u)
+                {
+                    if constexpr(std::is_same_v<T_Order, Forward>)
+                        activeSlots = remaining < frameSize ? remaining : frameSize;
+
+                    forEachFrameSlot<frameSize>(
+                        m_worker,
+                        [&](uint32_t slot)
+                        {
+                            // Test the packed-prefix bound before constructing/accessing a particle handle.
+                            if(slot < activeSlots)
+                            {
+                                auto particle = frame[slot];
+                                static_assert(
+                                    std::is_void_v<decltype(unaryFunctor(m_worker, particle))>,
+                                    "Unary particle functors must return void");
+                                if(particle.isHandleValid())
+                                    particleFunctor(m_worker, particle);
+                            }
+                        });
+                    remaining -= activeSlots;
+                    frame = T_Order::next(m_particlesBox, frame);
+                    activeSlots = frameSize;
+                }
             }
         };
 

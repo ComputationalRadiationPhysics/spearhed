@@ -27,7 +27,7 @@
 #include "spmacc/particles/views/FrameView.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
-#include <pmacc/lockstep/ForEach.hpp>
+#include <pmacc/particles/algorithm/ForEachFrameSlot.hpp>
 
 #include <cstdint>
 #include <type_traits>
@@ -93,26 +93,29 @@ namespace pmacc::spearhed
     {
         DINLINE void operator()(auto const& worker, int total, auto frameAt, auto frameBody) const
         {
-            int const stride = static_cast<int>(worker.gridDomSize());
-            for(int f = static_cast<int>(worker.blockDomIdx()); f < total; f += stride)
+            for(auto [f] : alpaka::onAcc::makeIdxMap(
+                    worker.getAcc(),
+                    alpaka::onAcc::worker::linearBlocksInGrid,
+                    alpaka::IdxRange{alpaka::Vec{total}},
+                    alpaka::onAcc::traverse::Flat{},
+                    alpaka::onAcc::layout::Strided{}))
                 frameBody(frameAt(f));
         }
     };
 
-    //! Static contiguous chunks: block i processes frames [i*chunk, (i+1)*chunk). With the index,
-    //! frameAt is O(1) per call just like GridStride's access, so Contiguous now differs from
-    //! GridStride only in which frames land in the same block (contiguous slot range vs. strided),
-    //! not in per-frame access cost -- there is no more cursor to reuse across the chunk. Valid for
-    //! any grid.
+    //! Balanced contiguous ranges assigned by alpaka. The first total % numBlocks blocks receive
+    //! one extra frame; unlike the old ceil-sized chunks, range lengths differ by at most one.
+    //! Frame access remains O(1). Valid for any nonempty grid.
     struct Contiguous
     {
         DINLINE void operator()(auto const& worker, int total, auto frameAt, auto frameBody) const
         {
-            int const numBlocks = static_cast<int>(worker.gridDomSize());
-            int const chunk = (total + numBlocks - 1) / numBlocks;
-            int const first = static_cast<int>(worker.blockDomIdx()) * chunk;
-            int const last = (first + chunk < total) ? first + chunk : total;
-            for(int f = first; f < last; ++f)
+            for(auto [f] : alpaka::onAcc::makeIdxMap(
+                    worker.getAcc(),
+                    alpaka::onAcc::worker::linearBlocksInGrid,
+                    alpaka::IdxRange{alpaka::Vec{total}},
+                    alpaka::onAcc::traverse::Flat{},
+                    alpaka::onAcc::layout::Contiguous{}))
                 frameBody(frameAt(f));
         }
     };
@@ -131,12 +134,14 @@ namespace pmacc::spearhed
      * @tparam T_Frame Any frame handle with a static frameSize and operator[](slot) (e.g. FrameView).
      * @param worker The alpaka worker of the enclosing lockstep kernel.
      * @param frame  The frame whose live slots are distributed.
-     * @param body   Invoked as body(particle) for each live particle in the frame.
+     * @param body   Invoked as an lvalue, body(particle), for each live particle in the frame.
+     *               Must not synchronize the block; selected slots are not a collective.
      */
     template<typename T_Frame>
-    DINLINE void lockstepForEachParticle(auto const& worker, T_Frame frame, auto body)
+    DINLINE void lockstepForEachParticle(auto const& worker, T_Frame frame, auto&& body)
     {
-        pmacc::lockstep::makeForEach<std::remove_cvref_t<T_Frame>::frameSize>(worker)(
+        pmacc::particles::algorithm::forEachFrameSlot<std::remove_cvref_t<T_Frame>::frameSize>(
+            worker,
             [&](uint32_t const slot)
             {
                 auto particle = frame[slot];
