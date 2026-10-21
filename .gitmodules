@@ -1,7 +1,7 @@
 [submodule "packages/pmacc/thirdParty/alpaka"]
 	path = packages/pmacc/thirdParty/alpaka
-	url = https://github.com/alpaka-group/alpaka3
-	branch = dev
+	url = https://github.com/alpaka-group/alpaka
+	branch = dev_v3.x
 [submodule "packages/pmacc/thirdParty/mallocMC"]
 	path = packages/pmacc/thirdParty/mallocMC
 	url = https://github.com/ikbuibui/mallocMC.git
